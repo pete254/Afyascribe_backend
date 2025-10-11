@@ -7,23 +7,25 @@ import { SoapNoteStatus } from '../enums/soap-note-status.enum';
 export class QuerySoapNotesDto extends PaginationDto {
   @ApiPropertyOptional({ 
     enum: SoapNoteStatus,
-    description: 'Filter by status'
+    description: 'Filter by status',
+    example: 'pending'
   })
   @IsOptional()
   @IsEnum(SoapNoteStatus)
   status?: SoapNoteStatus;
 
   @ApiPropertyOptional({ 
-    description: 'Search by patient name' 
+    description: 'Search by patient name (first name, last name, or full name)',
+    example: 'John'
   })
   @IsOptional()
   @IsString()
   patientName?: string;
 
   @ApiPropertyOptional({ 
-    enum: ['createdAt', 'updatedAt', 'patientName'],
+    enum: ['createdAt', 'updatedAt'],
     default: 'createdAt',
-    description: 'Sort field'
+    description: 'Sort field (removed patientName since it now comes from Patient entity)'
   })
   @IsOptional()
   @IsString()

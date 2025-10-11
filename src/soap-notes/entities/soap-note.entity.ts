@@ -1,43 +1,49 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+// src/soap-notes/entities/soap-note.entity.ts
+import { 
+  Entity, 
+  Column, 
+  PrimaryGeneratedColumn, 
+  CreateDateColumn, 
+  UpdateDateColumn, 
+  ManyToOne, 
+  JoinColumn 
+} from 'typeorm';
 import { User } from '../../users/entities/user.entity';
+import { Patient } from '../../patients/entities/patient.entity';
 
 @Entity('soap_notes')
 export class SoapNote {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  // Patient Information
+  // Patient Reference - CHANGED: Now links to Patient entity
+  @ManyToOne(() => Patient, (patient) => patient.soapNotes, { nullable: false, eager: true })
+  @JoinColumn({ name: 'patientId' })
+  patient: Patient;
+
   @Column()
-  patientName: string;
+  patientId: string;
 
-  @Column({ nullable: true })
-  patientAge: number;
-
-  @Column({ nullable: true })
-  patientGender: string;
-
-  // Note Content
+  // SOAP Note Content - Four sections (Hospital's field names)
   @Column('text')
-  originalTranscription: string;
+  symptoms: string; // Symptoms & Diagnosis section
 
   @Column('text')
-  formattedSoapNotes: string;
+  physicalExamination: string; // Physical Examination section
 
-  @Column('simple-array', { nullable: true })
-  medicalTermsFound: string[];
+  @Column('text')
+  diagnosis: string; // Diagnosis section
+
+  @Column('text')
+  management: string; // Management section
 
   // Metadata
-  @Column({ type: 'enum', enum: ['pending', 'submitted', 'reviewed', 'archived'], default: 'pending' })
+  @Column({ 
+    type: 'enum', 
+    enum: ['pending', 'submitted', 'reviewed', 'archived'], 
+    default: 'pending' 
+  })
   status: string;
-
-  @Column({ nullable: true })
-  transcriptionMethod: string;
-
-  @Column({ type: 'float', nullable: true })
-  confidence: number;
-
-  @Column({ type: 'int', nullable: true })
-  processingTime: number;
 
   @Column({ default: false })
   wasEdited: boolean;
@@ -48,11 +54,11 @@ export class SoapNote {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   submittedAt: Date;
 
-  // Relationships
-  @ManyToOne(() => User, user => user.soapNotes, { nullable: false })
+  // Relationship to User (who created the note)
+  @ManyToOne(() => User, (user) => user.soapNotes, { nullable: false })
   @JoinColumn({ name: 'createdById' })
   createdBy: User;
 

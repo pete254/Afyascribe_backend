@@ -15,7 +15,7 @@ export class ValidationExceptionFilter implements ExceptionFilter {
     const status = exception.getStatus();
     const exceptionResponse = exception.getResponse();
 
-    let validationErrors = [];
+    let validationErrors: any[] = [];  // ← FIXED: Added type annotation
 
     if (typeof exceptionResponse === 'object' && 'message' in exceptionResponse) {
       const messages = exceptionResponse.message;

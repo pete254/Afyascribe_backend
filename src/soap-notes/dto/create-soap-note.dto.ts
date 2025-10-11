@@ -1,96 +1,45 @@
 // src/soap-notes/dto/create-soap-note.dto.ts
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsNumber, IsArray, IsBoolean, Min, Max } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+import { IsString, IsNotEmpty, IsUUID } from 'class-validator';
 
 export class CreateSoapNoteDto {
-  @ApiProperty({ 
-    description: 'Patient full name',
-    example: 'John Smith'
+  @ApiProperty({
+    description: 'Patient ID (UUID from patients table)',
+    example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+  })
+  @IsUUID()
+  @IsNotEmpty()
+  patientId: string;
+
+  @ApiProperty({
+    description: 'Symptoms & Diagnosis - What the patient reports',
+    example: 'CA HYPOPHARYNX PT ON DXT STABLE POST 19#'
   })
   @IsString()
-  patientName: string;
+  @IsNotEmpty()
+  symptoms: string;
 
-  @ApiPropertyOptional({ 
-    description: 'Patient age in years',
-    example: 45,
-    minimum: 0,
-    maximum: 150
-  })
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(150)
-  patientAge?: number;
-
-  @ApiPropertyOptional({ 
-    description: 'Patient gender',
-    example: 'Male',
-    enum: ['Male', 'Female', 'Other', 'Prefer not to say']
-  })
-  @IsOptional()
-  @IsString()
-  patientGender?: string;
-
-  @ApiProperty({ 
-    description: 'Original transcription text from audio/dictation',
-    example: 'Patient presents with severe headache and nausea...'
+  @ApiProperty({
+    description: 'Physical Examination - Clinical findings',
+    example: 'FGC'
   })
   @IsString()
-  originalTranscription: string;
+  @IsNotEmpty()
+  physicalExamination: string;
 
-  @ApiProperty({ 
-    description: 'Formatted SOAP notes (Subjective, Objective, Assessment, Plan)',
-    example: 'S: Patient complains of severe headache...\nO: BP 140/90...'
+  @ApiProperty({
+    description: 'Diagnosis - Medical diagnosis',
+    example: 'CA HYPOPHARYNX'
   })
   @IsString()
-  formattedSoapNotes: string;
+  @IsNotEmpty()
+  diagnosis: string;
 
-  @ApiPropertyOptional({ 
-    description: 'Array of medical terms identified in the transcription',
-    example: ['hypertension', 'migraine', 'acetaminophen'],
-    type: [String]
+  @ApiProperty({
+    description: 'Management - Treatment plan',
+    example: 'CT DXT'
   })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  medicalTermsFound?: string[];
-
-  @ApiPropertyOptional({ 
-    description: 'Method used for transcription',
-    example: 'audio',
-    enum: ['audio', 'manual', 'dictation']
-  })
-  @IsOptional()
   @IsString()
-  transcriptionMethod?: string;
-
-  @ApiPropertyOptional({ 
-    description: 'Confidence score of the transcription (0-1)',
-    example: 0.95,
-    minimum: 0,
-    maximum: 1
-  })
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(1)
-  confidence?: number;
-
-  @ApiPropertyOptional({ 
-    description: 'Processing time in milliseconds',
-    example: 2500,
-    minimum: 0
-  })
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  processingTime?: number;
-
-  @ApiPropertyOptional({ 
-    description: 'Whether the note was manually edited after generation',
-    example: false
-  })
-  @IsOptional()
-  @IsBoolean()
-  wasEdited?: boolean;
+  @IsNotEmpty()
+  management: string;
 }

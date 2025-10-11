@@ -1,26 +1,35 @@
 // src/soap-notes/soap-notes.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like } from 'typeorm';
+import { Repository } from 'typeorm';
 import { SoapNote } from './entities/soap-note.entity';
 import { CreateSoapNoteDto } from './dto/create-soap-note.dto';
 import { UpdateSoapNoteDto } from './dto/update-soap-note.dto';
 import { QuerySoapNotesDto } from './dto/query-soap-notes.dto';
 import { SoapNoteStatus } from './enums/soap-note-status.enum';
 import { PaginatedResponse } from '../common/dto/pagination.dto';
+import { PatientsService } from '../patients/patients.service';
 
 @Injectable()
 export class SoapNotesService {
   constructor(
     @InjectRepository(SoapNote)
     private soapNotesRepository: Repository<SoapNote>,
+    private patientsService: PatientsService,
   ) {}
 
   async create(createSoapNoteDto: CreateSoapNoteDto, userId: string): Promise<SoapNote> {
+    // Validate that patient exists
+    const patientExists = await this.patientsService.patientExists(createSoapNoteDto.patientId);
+    if (!patientExists) {
+      throw new BadRequestException(`Patient with ID ${createSoapNoteDto.patientId} not found`);
+    }
+
     const soapNote = this.soapNotesRepository.create({
       ...createSoapNoteDto,
       createdById: userId,
     });
+    
     return await this.soapNotesRepository.save(soapNote);
   }
 
@@ -28,41 +37,37 @@ export class SoapNotesService {
     userId: string, 
     queryDto: QuerySoapNotesDto
   ): Promise<PaginatedResponse<SoapNote>> {
-    // Set default values for pagination
     const page = queryDto.page ?? 1;
     const limit = queryDto.limit ?? 10;
     const sortBy = queryDto.sortBy ?? 'createdAt';
     const sortOrder = queryDto.sortOrder ?? 'DESC';
     const { status, patientName } = queryDto;
     
-    // Build where clause
-    const where: any = { createdById: userId };
+    const queryBuilder = this.soapNotesRepository
+      .createQueryBuilder('soap_note')
+      .leftJoinAndSelect('soap_note.patient', 'patient')
+      .leftJoinAndSelect('soap_note.createdBy', 'createdBy')
+      .where('soap_note.createdById = :userId', { userId });
     
     if (status) {
-      where.status = status;
+      queryBuilder.andWhere('soap_note.status = :status', { status });
     }
     
     if (patientName) {
-      where.patientName = Like(`%${patientName}%`);
+      queryBuilder.andWhere(
+        "(patient.firstName ILIKE :patientName OR patient.lastName ILIKE :patientName OR CONCAT(patient.firstName, ' ', patient.lastName) ILIKE :patientName)",
+        { patientName: `%${patientName}%` }
+      );
     }
 
-    // Calculate skip
     const skip = (page - 1) * limit;
+    queryBuilder
+      .orderBy(`soap_note.${sortBy}`, sortOrder)
+      .skip(skip)
+      .take(limit);
 
-    // Build order object
-    const order: any = {};
-    order[sortBy] = sortOrder;
+    const [data, total] = await queryBuilder.getManyAndCount();
 
-    // Get data and total count
-    const [data, total] = await this.soapNotesRepository.findAndCount({
-      where,
-      order,
-      skip,
-      take: limit,
-      relations: ['createdBy'],
-    });
-
-    // Calculate pagination metadata
     const totalPages = Math.ceil(total / limit);
 
     return {
@@ -81,7 +86,7 @@ export class SoapNotesService {
   async findOne(id: string, userId: string): Promise<SoapNote> {
     const soapNote = await this.soapNotesRepository.findOne({
       where: { id, createdById: userId },
-      relations: ['createdBy'],
+      relations: ['patient', 'createdBy'],
     });
     
     if (!soapNote) {
@@ -95,7 +100,7 @@ export class SoapNotesService {
     const soapNote = await this.findOne(id, userId);
     
     // Mark as edited if any content fields were changed
-    const contentFields = ['originalTranscription', 'formattedSoapNotes', 'patientName', 'patientAge', 'patientGender'];
+    const contentFields = ['symptoms', 'physicalExamination', 'diagnosis', 'management'];
     const wasContentEdited = contentFields.some(field => 
       updateSoapNoteDto[field] !== undefined && updateSoapNoteDto[field] !== soapNote[field]
     );
@@ -124,7 +129,6 @@ export class SoapNotesService {
     await this.soapNotesRepository.remove(soapNote);
   }
 
-  // Statistics method for dashboard
   async getStatistics(userId: string) {
     const qb = this.soapNotesRepository.createQueryBuilder('soap_note')
       .where('soap_note.createdById = :userId', { userId });
