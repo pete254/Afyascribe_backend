@@ -146,8 +146,8 @@ async seedDummyPatients(): Promise<Patient[]> {
     {
       patientId: 'P-2024-001',
       firstName: 'John',
-      lastName: 'Doe',
-      age: 45,  // EXPLICIT AGE
+      lastName: 'Kimani',
+      age: 45,  
       gender: 'male',
       phoneNumber: '+1234567890',
       email: 'john.doe@example.com',
@@ -155,7 +155,7 @@ async seedDummyPatients(): Promise<Patient[]> {
     {
       patientId: 'P-2024-002',
       firstName: 'Jane',
-      lastName: 'Smith',
+      lastName: 'Korir',
       age: 32,  // EXPLICIT AGE
       gender: 'female',
       phoneNumber: '+1234567891',
@@ -164,8 +164,8 @@ async seedDummyPatients(): Promise<Patient[]> {
     {
       patientId: 'P-2024-003',
       firstName: 'Mary',
-      lastName: 'Johnson',
-      age: 58,  // EXPLICIT AGE
+      lastName: 'Mzungu',
+      age: 58,  
       gender: 'female',
       phoneNumber: '+1234567892',
       email: 'mary.johnson@example.com',
@@ -173,8 +173,8 @@ async seedDummyPatients(): Promise<Patient[]> {
     {
       patientId: 'P-2024-004',
       firstName: 'Robert',
-      lastName: 'Brown',
-      age: 28,  // EXPLICIT AGE
+      lastName: 'Burale',
+      age: 28,  
       gender: 'male',
       phoneNumber: '+1234567893',
       email: 'robert.brown@example.com',
@@ -182,7 +182,7 @@ async seedDummyPatients(): Promise<Patient[]> {
     {
       patientId: 'P-2024-005',
       firstName: 'Patricia',
-      lastName: 'Davis',
+      lastName: 'Watiri',
       age: 39,  // EXPLICIT AGE
       gender: 'female',
       phoneNumber: '+1234567894',
@@ -191,7 +191,7 @@ async seedDummyPatients(): Promise<Patient[]> {
     {
       patientId: 'P-2024-006',
       firstName: 'Michael',
-      lastName: 'Wilson',
+      lastName: 'Jackon',
       age: 52,  // EXPLICIT AGE
       gender: 'male',
       phoneNumber: '+1234567895',
@@ -200,7 +200,7 @@ async seedDummyPatients(): Promise<Patient[]> {
     {
       patientId: 'P-2024-007',
       firstName: 'Linda',
-      lastName: 'Martinez',
+      lastName: 'Mandagor',
       age: 35,  // EXPLICIT AGE
       gender: 'female',
       phoneNumber: '+1234567896',
@@ -209,29 +209,29 @@ async seedDummyPatients(): Promise<Patient[]> {
     {
       patientId: 'P-2024-008',
       firstName: 'David',
-      lastName: 'Anderson',
+      lastName: 'Mutua',
       age: 64,  // EXPLICIT AGE
       gender: 'male',
-      phoneNumber: '+1234567897',
-      email: 'david.anderson@example.com',
+      phoneNumber: '+2544567897',
+      email: 'david.mutua@gmail.com',
     },
     {
       patientId: 'P-2024-009',
-      firstName: 'Barbara',
-      lastName: 'Taylor',
-      age: 46,  // EXPLICIT AGE
-      gender: 'female',
+      firstName: 'John',
+      lastName: 'Maina',
+      age: 46,  
+      gender: 'Male',
       phoneNumber: '+1234567898',
       email: 'barbara.taylor@example.com',
     },
     {
       patientId: 'P-2024-010',
       firstName: 'James',
-      lastName: 'Thomas',
-      age: 30,  // EXPLICIT AGE
+      lastName: 'Onyango',
+      age: 30,  
       gender: 'male',
-      phoneNumber: '+1234567899',
-      email: 'james.thomas@example.com',
+      phoneNumber: '+2544567899',
+      email: 'james.onyango@example.com',
     },
   ];
 

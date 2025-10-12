@@ -32,4 +32,40 @@ export class UsersService {
     }
     return user;
   }
+
+  async setResetPasswordToken(email: string, token: string, expiresAt: Date): Promise<void> {
+    const user = await this.findByEmail(email);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    user.resetPasswordToken = token;
+    user.resetPasswordExpires = expiresAt;
+    await this.usersRepository.save(user);
+  }
+
+  async findByResetToken(token: string): Promise<User | null> {
+    const user = await this.usersRepository.findOne({
+      where: { resetPasswordToken: token },
+    });
+
+    if (user && user.resetPasswordExpires && user.resetPasswordExpires < new Date()) {
+      return null;
+    }
+
+    return user;
+  }
+
+  async clearResetToken(userId: string): Promise<void> {
+    await this.usersRepository.update(userId, {
+      resetPasswordToken: null,
+      resetPasswordExpires: null,
+    });
+  }
+
+  async updatePassword(userId: string, hashedPassword: string): Promise<void> {
+    await this.usersRepository.update(userId, {
+      password: hashedPassword,
+    });
+  }
 }

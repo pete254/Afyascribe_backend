@@ -1,3 +1,4 @@
+// src/users/entities/user.entity.ts 
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
 import { SoapNote } from '../../soap-notes/entities/soap-note.entity';
 
@@ -24,12 +25,19 @@ export class User {
   @Column({ default: true })
   isActive: boolean;
 
+  // ✅ NEW: Password reset fields
+  @Column({ nullable: true, type: 'varchar', length: 255 })
+  resetPasswordToken: string | null;  // ✅ Added | null
+
+  @Column({ type: 'timestamp', nullable: true })
+  resetPasswordExpires: Date | null;  // ✅ Added | null
+
   @CreateDateColumn()
   createdAt: Date;
 
   @UpdateDateColumn()
   updatedAt: Date;
 
-  @OneToMany(() => SoapNote, soapNote => soapNote.createdBy)
+  @OneToMany(() => SoapNote, (soapNote: SoapNote) => soapNote.createdBy)
   soapNotes: SoapNote[];
 }
