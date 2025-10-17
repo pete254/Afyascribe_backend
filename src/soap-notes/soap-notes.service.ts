@@ -96,6 +96,23 @@ export class SoapNotesService {
     return soapNote;
   }
 
+  // 🆕 NEW: Get all notes for a specific patient
+  async findByPatient(patientId: string): Promise<SoapNote[]> {
+    // Verify patient exists
+    const patientExists = await this.patientsService.patientExists(patientId);
+    if (!patientExists) {
+      throw new NotFoundException(`Patient with ID ${patientId} not found`);
+    }
+
+    const notes = await this.soapNotesRepository.find({
+      where: { patientId },
+      relations: ['patient', 'createdBy'],
+      order: { createdAt: 'DESC' }, // Most recent first
+    });
+
+    return notes;
+  }
+
   async update(id: string, updateSoapNoteDto: UpdateSoapNoteDto, userId: string): Promise<SoapNote> {
     const soapNote = await this.findOne(id, userId);
     
@@ -111,6 +128,75 @@ export class SoapNotesService {
     
     Object.assign(soapNote, updateSoapNoteDto);
     return await this.soapNotesRepository.save(soapNote);
+  }
+
+  // 🆕 NEW: Edit note with history tracking
+  async editWithHistory(
+    id: string,
+    updateData: {
+      symptoms?: string;
+      physicalExamination?: string;
+      diagnosis?: string;
+      management?: string;
+    },
+    userId: string,
+    userName: string,
+  ): Promise<SoapNote> {
+    const note = await this.soapNotesRepository.findOne({
+      where: { id },
+      relations: ['patient', 'createdBy'],
+    });
+
+    if (!note) {
+      throw new NotFoundException(`SOAP note with ID ${id} not found`);
+    }
+
+    // Track what changed
+    const changes: Array<{
+      field: string;
+      oldValue: string;
+      newValue: string;
+    }> = [];
+    const fields: Array<keyof typeof updateData> = ['symptoms', 'physicalExamination', 'diagnosis', 'management'];
+    
+    fields.forEach(field => {
+      if (updateData[field] !== undefined && updateData[field] !== note[field]) {
+        changes.push({
+          field,
+          oldValue: note[field],
+          newValue: updateData[field],
+        });
+      }
+    });
+
+    // Only save if there are actual changes
+    if (changes.length === 0) {
+      return note; // No changes, return as is
+    }
+
+    // Initialize editHistory if it doesn't exist
+    if (!note.editHistory) {
+      note.editHistory = [];
+    }
+
+    // Add edit entry to history
+    note.editHistory.push({
+      editedBy: userId,
+      editedByName: userName,
+      editedAt: new Date(),
+      changes,
+    });
+
+    // Update the fields
+    Object.assign(note, updateData);
+
+    // Update last edited metadata
+    note.lastEditedBy = userId;
+    note.lastEditedByName = userName;
+    note.lastEditedAt = new Date();
+    note.wasEdited = true;
+
+    return await this.soapNotesRepository.save(note);
   }
 
   async updateStatus(id: string, status: SoapNoteStatus, userId: string): Promise<SoapNote> {

@@ -36,32 +36,11 @@ export class SoapNotesController {
   @Post()
   @ApiOperation({ 
     summary: 'Create a new SOAP note',
-    description: 'Create a SOAP note linked to an existing patient. All four sections (symptoms, physicalExamination, diagnosis, management) are required.'
+    description: 'Create a SOAP note linked to an existing patient. All four sections are required.'
   })
   @ApiResponse({ 
     status: 201, 
     description: 'SOAP note created successfully',
-    schema: {
-      example: {
-        id: 'uuid',
-        patientId: 'patient-uuid',
-        symptoms: 'CA HYPOPHARYNX PT ON DXT STABLE POST 19#',
-        physicalExamination: 'FGC',
-        diagnosis: 'CA HYPOPHARYNX',
-        management: 'CT DXT',
-        status: 'pending',
-        wasEdited: false,
-        createdAt: '2025-10-10T00:00:00Z',
-        patient: {
-          id: 'patient-uuid',
-          patientId: 'P-2024-001',
-          firstName: 'John',
-          lastName: 'Doe',
-          age: 45,
-          gender: 'male'
-        }
-      }
-    }
   })
   @ApiResponse({ 
     status: 400, 
@@ -78,38 +57,11 @@ export class SoapNotesController {
   @Get()
   @ApiOperation({ 
     summary: 'Get all SOAP notes for current user',
-    description: 'Returns paginated list of SOAP notes with patient information. Can filter by status or patient name.'
+    description: 'Returns paginated list of SOAP notes with patient information.'
   })
   @ApiResponse({ 
     status: 200, 
     description: 'Returns paginated SOAP notes with patient details',
-    schema: {
-      example: {
-        data: [
-          {
-            id: 'uuid',
-            patientId: 'patient-uuid',
-            symptoms: 'CA HYPOPHARYNX PT ON DXT STABLE POST 19#',
-            physicalExamination: 'FGC',
-            diagnosis: 'CA HYPOPHARYNX',
-            management: 'CT DXT',
-            status: 'pending',
-            patient: {
-              patientId: 'P-2024-001',
-              firstName: 'John',
-              lastName: 'Doe',
-              age: 45
-            }
-          }
-        ],
-        meta: {
-          total: 50,
-          page: 1,
-          limit: 10,
-          totalPages: 5
-        }
-      }
-    }
   })
   findAll(@Query() queryDto: QuerySoapNotesDto, @Request() req) {
     return this.soapNotesService.findAll(req.user.userId, queryDto);
@@ -118,24 +70,32 @@ export class SoapNotesController {
   @Get('statistics')
   @ApiOperation({ 
     summary: 'Get SOAP notes statistics',
-    description: 'Returns statistics about SOAP notes for the current user (total count, count by status)'
+    description: 'Returns statistics about SOAP notes for the current user'
   })
   @ApiResponse({ 
     status: 200, 
     description: 'Returns statistics',
-    schema: {
-      example: {
-        total: 50,
-        byStatus: {
-          pending: 20,
-          submitted: 25,
-          reviewed: 5
-        }
-      }
-    }
   })
   getStatistics(@Request() req) {
     return this.soapNotesService.getStatistics(req.user.userId);
+  }
+
+  // 🆕 NEW: Get all SOAP notes for a specific patient
+  @Get('patient/:patientId')
+  @ApiOperation({ 
+    summary: 'Get all SOAP notes for a specific patient',
+    description: 'Returns all notes for a patient, ordered by most recent first. Used for patient history view.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Returns all SOAP notes for the patient',
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Patient not found' 
+  })
+  async getPatientHistory(@Param('patientId') patientId: string) {
+    return this.soapNotesService.findByPatient(patientId);
   }
 
   @Get(':id')
@@ -174,6 +134,38 @@ export class SoapNotesController {
     @Request() req
   ) {
     return this.soapNotesService.update(id, updateSoapNoteDto, req.user.userId);
+  }
+
+  // 🆕 NEW: Edit a note with history tracking
+  @Patch(':id/edit')
+  @ApiOperation({ 
+    summary: 'Edit a SOAP note with history tracking',
+    description: 'Allows any doctor to edit a note. Tracks who edited it and when. Preserves edit history.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Note edited successfully with history tracked' 
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'SOAP note not found' 
+  })
+  async editNoteWithHistory(
+    @Param('id') id: string,
+    @Body() updateData: { 
+      symptoms?: string;
+      physicalExamination?: string;
+      diagnosis?: string;
+      management?: string;
+    },
+    @Request() req
+  ) {
+    return this.soapNotesService.editWithHistory(
+      id, 
+      updateData, 
+      req.user.userId,
+      `${req.user.firstName} ${req.user.lastName}`
+    );
   }
 
   @Patch(':id/status')

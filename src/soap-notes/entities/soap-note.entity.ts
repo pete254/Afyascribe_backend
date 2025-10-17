@@ -16,7 +16,7 @@ export class SoapNote {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  // Patient Reference - CHANGED: Now links to Patient entity
+  // Patient Reference
   @ManyToOne(() => Patient, (patient) => patient.soapNotes, { nullable: false, eager: true })
   @JoinColumn({ name: 'patientId' })
   patient: Patient;
@@ -24,7 +24,7 @@ export class SoapNote {
   @Column()
   patientId: string;
 
-  // SOAP Note Content - Four sections (Hospital's field names)
+  // SOAP Note Content - Four sections
   @Column('text')
   symptoms: string; // Symptoms & Diagnosis section
 
@@ -57,11 +57,34 @@ export class SoapNote {
   @Column({ type: 'timestamp', nullable: true })
   submittedAt: Date;
 
-  // Relationship to User (who created the note)
+  // Original creator
   @ManyToOne(() => User, (user) => user.soapNotes, { nullable: false })
   @JoinColumn({ name: 'createdById' })
   createdBy: User;
 
   @Column()
   createdById: string;
+
+  // 🆕 NEW: Edit history tracking
+  @Column({ type: 'jsonb', nullable: true })
+  editHistory: {
+    editedBy: string;        // User ID
+    editedByName: string;    // Display name
+    editedAt: Date;
+    changes: {
+      field: string;         // Which field was changed
+      oldValue: string;
+      newValue: string;
+    }[];
+  }[];
+
+  // 🆕 NEW: Last editor info (for quick display)
+  @Column({ nullable: true })
+  lastEditedBy: string;
+
+  @Column({ nullable: true })
+  lastEditedByName: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  lastEditedAt: Date;
 }
