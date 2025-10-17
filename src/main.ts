@@ -11,12 +11,13 @@ async function bootstrap() {
     logger: ['error', 'warn', 'log', 'debug', 'verbose'],
   });
 
-  // Enable CORS
+  // ✅ UPDATED: Enable CORS for mobile apps
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3001',
+    origin: '*', // Allow all origins (required for mobile apps)
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    exposedHeaders: ['Authorization'],
   });
 
   // Global exception filters (order matters - more specific first)
@@ -72,8 +73,9 @@ async function bootstrap() {
     )
     .addTag('auth', 'Authentication endpoints - Register and login')
     .addTag('soap-notes', 'SOAP notes management - Create, read, update, delete notes')
+    .addTag('patients', 'Patient management - Search and retrieve patient information')
     .addServer('http://localhost:3000', 'Local development')
-    .addServer('https://api.example.com', 'Production')
+    .addServer('https://afyascribe-backend.onrender.com', 'Production') // ✅ UPDATED
     .build();
   
   const document = SwaggerModule.createDocument(app, config);
@@ -87,12 +89,15 @@ async function bootstrap() {
   });
 
   const port = process.env.PORT ?? 3000;
-  await app.listen(port);
+  
+  // ✅ IMPORTANT: Listen on 0.0.0.0 for Render
+  await app.listen(port, '0.0.0.0');
   
   console.log('╔════════════════════════════════════════════════════════════╗');
   console.log('║                                                            ║');
   console.log(`║  🚀 Application is running on: http://localhost:${port}       ║`);
   console.log(`║  📚 Swagger docs: http://localhost:${port}/api/docs          ║`);
+  console.log('║  🌐 Production: https://afyascribe-backend.onrender.com    ║');
   console.log('║                                                            ║');
   console.log('╚════════════════════════════════════════════════════════════╝');
 }
