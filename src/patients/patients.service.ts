@@ -39,15 +39,15 @@ export class PatientsService {
   }
 
   /**
-   * Get recently registered patients (last 7 days)
+   * Get recently registered patients (last 14 days)
    */
   async getRecentPatients(limit: number = 10): Promise<Patient[]> {
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const fourteenDaysAgo = new Date();
+    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
 
     const patients = await this.patientRepository.find({
       where: {
-        registeredAt: MoreThanOrEqual(sevenDaysAgo),
+        registeredAt: MoreThanOrEqual(fourteenDaysAgo),
       },
       order: {
         registeredAt: 'DESC',
@@ -127,116 +127,202 @@ export class PatientsService {
   }
 
   /**
-   * SEED METHOD - Create dummy patients for testing
+   * SEED METHOD - Create dummy Kenyan patients for testing
    * This should only be used in development!
    */
-  /**
- * SEED METHOD - Create dummy patients for testing
- * This should only be used in development!
- */
-async seedDummyPatients(): Promise<Patient[]> {
-  // Check if patients already exist
-  const existingCount = await this.patientRepository.count();
-  if (existingCount > 0) {
-    console.log('Patients already exist in database. Skipping seed.');
-    return [];
+  async seedDummyPatients(): Promise<Patient[]> {
+    // Check if patients already exist
+    const existingCount = await this.patientRepository.count();
+    if (existingCount > 0) {
+      console.log('Patients already exist in database. Skipping seed.');
+      return [];
+    }
+
+    const dummyPatients = [
+      {
+        patientId: 'P-2025-011',
+        firstName: 'Wanjiru',
+        lastName: 'Kamau',
+        age: 34,
+        gender: 'female',
+        phoneNumber: '+254712345678',
+        email: 'wanjiru.kamau@gmail.com',
+      },
+      {
+        patientId: 'P-2025-012',
+        firstName: 'Ochieng',
+        lastName: 'Otieno',
+        age: 45,
+        gender: 'male',
+        phoneNumber: '+254723456789',
+        email: 'ochieng.otieno@yahoo.com',
+      },
+      {
+        patientId: 'P-2025-013',
+        firstName: 'Njeri',
+        lastName: 'Mwangi',
+        age: 28,
+        gender: 'female',
+        phoneNumber: '+254734567890',
+        email: 'njeri.mwangi@outlook.com',
+      },
+      {
+        patientId: 'P-2025-014',
+        firstName: 'Kipchoge',
+        lastName: 'Koech',
+        age: 52,
+        gender: 'male',
+        phoneNumber: '+254745678901',
+        email: 'kipchoge.koech@gmail.com',
+      },
+      {
+        patientId: 'P-2025-015',
+        firstName: 'Akinyi',
+        lastName: 'Odhiambo',
+        age: 39,
+        gender: 'female',
+        phoneNumber: '+254756789012',
+        email: 'akinyi.odhiambo@yahoo.com',
+      },
+      {
+        patientId: 'P-2025-016',
+        firstName: 'Kamau',
+        lastName: 'Ngugi',
+        age: 61,
+        gender: 'male',
+        phoneNumber: '+254767890123',
+        email: 'kamau.ngugi@gmail.com',
+      },
+      {
+        patientId: 'P-2025-017',
+        firstName: 'Chebet',
+        lastName: 'Kiplagat',
+        age: 31,
+        gender: 'female',
+        phoneNumber: '+254778901234',
+        email: 'chebet.kiplagat@outlook.com',
+      },
+      {
+        patientId: 'P-2025-018',
+        firstName: 'Mwangi',
+        lastName: 'Kariuki',
+        age: 47,
+        gender: 'male',
+        phoneNumber: '+254789012345',
+        email: 'mwangi.kariuki@gmail.com',
+      },
+      {
+        patientId: 'P-2025-019',
+        firstName: 'Nyambura',
+        lastName: 'Wachira',
+        age: 26,
+        gender: 'female',
+        phoneNumber: '+254790123456',
+        email: 'nyambura.wachira@yahoo.com',
+      },
+      {
+        patientId: 'P-2025-020',
+        firstName: 'Onyango',
+        lastName: 'Okoth',
+        age: 55,
+        gender: 'male',
+        phoneNumber: '+254701234567',
+        email: 'onyango.okoth@gmail.com',
+      },
+      {
+        patientId: 'P-2025-021',
+        firstName: 'Wambui',
+        lastName: 'Ndung\'u',
+        age: 42,
+        gender: 'female',
+        phoneNumber: '+254712345670',
+        email: 'wambui.ndungu@outlook.com',
+      },
+      {
+        patientId: 'P-2025-022',
+        firstName: 'Kiprop',
+        lastName: 'Biwott',
+        age: 38,
+        gender: 'male',
+        phoneNumber: '+254723456780',
+        email: 'kiprop.biwott@gmail.com',
+      },
+      {
+        patientId: 'P-2025-023',
+        firstName: 'Auma',
+        lastName: 'Adhiambo',
+        age: 50,
+        gender: 'female',
+        phoneNumber: '+254734567801',
+        email: 'auma.adhiambo@yahoo.com',
+      },
+      {
+        patientId: 'P-2025-024',
+        firstName: 'Kimani',
+        lastName: 'Njoroge',
+        age: 29,
+        gender: 'male',
+        phoneNumber: '+254745678012',
+        email: 'kimani.njoroge@gmail.com',
+      },
+      {
+        patientId: 'P-2025-025',
+        firstName: 'Mumbi',
+        lastName: 'Githinji',
+        age: 36,
+        gender: 'female',
+        phoneNumber: '+254756789023',
+        email: 'mumbi.githinji@outlook.com',
+      },
+      {
+        patientId: 'P-2025-026',
+        firstName: 'Rotich',
+        lastName: 'Kibet',
+        age: 44,
+        gender: 'male',
+        phoneNumber: '+254767890134',
+        email: 'rotich.kibet@gmail.com',
+      },
+      {
+        patientId: 'P-2025-027',
+        firstName: 'Kerubo',
+        lastName: 'Nyaboke',
+        age: 33,
+        gender: 'female',
+        phoneNumber: '+254778901245',
+        email: 'kerubo.nyaboke@yahoo.com',
+      },
+      {
+        patientId: 'P-2025-028',
+        firstName: 'Mutua',
+        lastName: 'Musyoka',
+        age: 58,
+        gender: 'male',
+        phoneNumber: '+254789012356',
+        email: 'mutua.musyoka@gmail.com',
+      },
+      {
+        patientId: 'P-2025-029',
+        firstName: 'Wairimu',
+        lastName: 'Maina',
+        age: 25,
+        gender: 'female',
+        phoneNumber: '+254790123467',
+        email: 'wairimu.maina@outlook.com',
+      },
+      {
+        patientId: 'P-2025-030',
+        firstName: 'Omondi',
+        lastName: 'Owino',
+        age: 48,
+        gender: 'male',
+        phoneNumber: '+254701234578',
+        email: 'omondi.owino@gmail.com',
+      },
+    ];
+
+    const patients = await this.patientRepository.save(dummyPatients);
+    console.log(`✅ Seeded ${patients.length} Kenyan dummy patients`);
+    return patients;
   }
-
-  const dummyPatients = [
-    {
-      patientId: 'P-2024-001',
-      firstName: 'John',
-      lastName: 'Kimani',
-      age: 45,  
-      gender: 'male',
-      phoneNumber: '+1234567890',
-      email: 'john.doe@example.com',
-    },
-    {
-      patientId: 'P-2024-002',
-      firstName: 'Jane',
-      lastName: 'Korir',
-      age: 32,  // EXPLICIT AGE
-      gender: 'female',
-      phoneNumber: '+1234567891',
-      email: 'jane.smith@example.com',
-    },
-    {
-      patientId: 'P-2024-003',
-      firstName: 'Mary',
-      lastName: 'Mzungu',
-      age: 58,  
-      gender: 'female',
-      phoneNumber: '+1234567892',
-      email: 'mary.johnson@example.com',
-    },
-    {
-      patientId: 'P-2024-004',
-      firstName: 'Robert',
-      lastName: 'Burale',
-      age: 28,  
-      gender: 'male',
-      phoneNumber: '+1234567893',
-      email: 'robert.brown@example.com',
-    },
-    {
-      patientId: 'P-2024-005',
-      firstName: 'Patricia',
-      lastName: 'Watiri',
-      age: 39,  // EXPLICIT AGE
-      gender: 'female',
-      phoneNumber: '+1234567894',
-      email: 'patricia.davis@example.com',
-    },
-    {
-      patientId: 'P-2024-006',
-      firstName: 'Michael',
-      lastName: 'Jackon',
-      age: 52,  // EXPLICIT AGE
-      gender: 'male',
-      phoneNumber: '+1234567895',
-      email: 'michael.wilson@example.com',
-    },
-    {
-      patientId: 'P-2024-007',
-      firstName: 'Linda',
-      lastName: 'Mandagor',
-      age: 35,  // EXPLICIT AGE
-      gender: 'female',
-      phoneNumber: '+1234567896',
-      email: 'linda.martinez@example.com',
-    },
-    {
-      patientId: 'P-2024-008',
-      firstName: 'David',
-      lastName: 'Mutua',
-      age: 64,  // EXPLICIT AGE
-      gender: 'male',
-      phoneNumber: '+2544567897',
-      email: 'david.mutua@gmail.com',
-    },
-    {
-      patientId: 'P-2024-009',
-      firstName: 'John',
-      lastName: 'Maina',
-      age: 46,  
-      gender: 'Male',
-      phoneNumber: '+1234567898',
-      email: 'barbara.taylor@example.com',
-    },
-    {
-      patientId: 'P-2024-010',
-      firstName: 'James',
-      lastName: 'Onyango',
-      age: 30,  
-      gender: 'male',
-      phoneNumber: '+2544567899',
-      email: 'james.onyango@example.com',
-    },
-  ];
-
-  const patients = await this.patientRepository.save(dummyPatients);
-  console.log(`Seeded ${patients.length} dummy patients`);
-  return patients;
-}
 }
