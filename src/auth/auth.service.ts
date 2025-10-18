@@ -1,7 +1,8 @@
-// src/auth/auth.service.ts 
+// src/auth/auth.service.ts - Updated with Email Service
 import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
+import { EmailService } from '../common/services/email.service';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 
@@ -10,6 +11,7 @@ export class AuthService {
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
+    private emailService: EmailService, // ✅ Added
   ) {}
 
   async validateUser(email: string, password: string): Promise<any> {
@@ -61,10 +63,22 @@ export class AuthService {
     });
 
     const { password: _, ...result } = user;
+
+    // ✅ Send welcome email (optional - doesn't throw error if it fails)
+    try {
+      await this.emailService.sendWelcomeEmail(
+        user.email,
+        `${user.firstName} ${user.lastName}`
+      );
+    } catch (error) {
+      console.error('Failed to send welcome email:', error);
+      // Don't fail registration if email fails
+    }
+
     return result;
   }
 
-  // ✅ NEW: Forgot Password - Generate reset token and send email
+  // ✅ UPDATED: Forgot Password - Generate reset token and send email
   async forgotPassword(email: string): Promise<{ message: string }> {
     const user = await this.usersService.findByEmail(email);
     
@@ -86,33 +100,30 @@ export class AuthService {
     // Save hashed token to database
     await this.usersService.setResetPasswordToken(email, hashedToken, expiresAt);
 
-    // TODO: Send email with reset link
-    // For now, we'll just log it (in production, use SendGrid, AWS SES, etc.)
-    const resetLink = `http://yourfrontend.com/reset-password?token=${resetToken}`;
-    console.log('📧 Password Reset Link:', resetLink);
-    console.log('🔑 Reset Token:', resetToken);
-    
-    // In production, send email here:
-    // await this.emailService.sendPasswordResetEmail(user.email, resetLink);
+    // ✅ Send email with reset link
+    try {
+      await this.emailService.sendPasswordResetEmail(
+        user.email,
+        resetToken,
+        `${user.firstName} ${user.lastName}`
+      );
+      
+      console.log('✅ Password reset email sent to:', user.email);
+    } catch (error) {
+      console.error('❌ Failed to send password reset email:', error);
+      // Still return success message for security (don't reveal if email failed)
+    }
 
     return { message: 'If the email exists, a reset link has been sent' };
   }
 
-  // ✅ NEW: Reset Password - Validate token and update password
+  // ✅ UPDATED: Reset Password - Validate token and update password
   async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
     if (!token) {
       throw new BadRequestException('Reset token is required');
     }
 
-    // Find all users with reset tokens (since we hashed the token)
-    // Note: This is a simplified approach. In production, consider storing unhashed token
-    // with expiry and comparing hashed versions, or use JWT tokens for password reset
-    const allUsers = await this.usersService.findByResetToken(token);
-    
-    // For this implementation, we'll use a simpler approach:
-    // Store the plain token (with expiry) for password reset only
-    // This is acceptable since the token expires in 1 hour and is single-use
-    
+    // Find user with valid reset token
     const user = await this.usersService.findByResetToken(token);
     
     if (!user) {
@@ -127,6 +138,8 @@ export class AuthService {
 
     // Clear reset token (single use)
     await this.usersService.clearResetToken(user.id);
+
+    console.log('✅ Password reset successfully for user:', user.email);
 
     return { message: 'Password has been reset successfully' };
   }
