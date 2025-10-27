@@ -1,3 +1,4 @@
+// src/users/users.service.ts - UPDATED WITH 6-DIGIT CODE METHODS
 import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -33,6 +34,7 @@ export class UsersService {
     return user;
   }
 
+  // ✅ OLD TOKEN-BASED METHODS (kept for backward compatibility)
   async setResetPasswordToken(email: string, token: string, expiresAt: Date): Promise<void> {
     const user = await this.findByEmail(email);
     if (!user) {
@@ -60,6 +62,51 @@ export class UsersService {
     await this.usersRepository.update(userId, {
       resetPasswordToken: null,
       resetPasswordExpires: null,
+    });
+  }
+
+  // ✅ NEW: 6-DIGIT CODE METHODS
+  async setResetCode(email: string, code: string, expiresAt: Date): Promise<void> {
+    const user = await this.findByEmail(email);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    user.resetCode = code;
+    user.resetCodeExpiresAt = expiresAt;
+    user.resetCodeAttempts = 0; // Reset attempts when new code is generated
+    await this.usersRepository.save(user);
+  }
+
+  async findByEmailWithResetCode(email: string): Promise<User | null> {
+    const user = await this.usersRepository.findOne({
+      where: { email },
+    });
+
+    if (!user || !user.resetCode || !user.resetCodeExpiresAt) {
+      return null;
+    }
+
+    // Check if code expired
+    if (user.resetCodeExpiresAt < new Date()) {
+      return null;
+    }
+
+    return user;
+  }
+
+  async incrementResetCodeAttempts(userId: string): Promise<number> {
+    const user = await this.findById(userId);
+    user.resetCodeAttempts += 1;
+    await this.usersRepository.save(user);
+    return user.resetCodeAttempts;
+  }
+
+  async clearResetCode(userId: string): Promise<void> {
+    await this.usersRepository.update(userId, {
+      resetCode: null,
+      resetCodeExpiresAt: null,
+      resetCodeAttempts: 0,
     });
   }
 

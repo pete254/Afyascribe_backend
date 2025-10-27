@@ -1,4 +1,4 @@
-// src/users/entities/user.entity.ts 
+// src/users/entities/user.entity.ts - UPDATED WITH 6-DIGIT CODE FIELDS
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
 import { SoapNote } from '../../soap-notes/entities/soap-note.entity';
 
@@ -25,12 +25,22 @@ export class User {
   @Column({ default: true })
   isActive: boolean;
 
-  // ✅ NEW: Password reset fields
+  // ✅ OLD TOKEN-BASED FIELDS (kept for backward compatibility)
   @Column({ nullable: true, type: 'varchar', length: 255 })
-  resetPasswordToken: string | null;  // ✅ Added | null
+  resetPasswordToken: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  resetPasswordExpires: Date | null;  // ✅ Added | null
+  resetPasswordExpires: Date | null;
+
+  // ✅ NEW: 6-DIGIT CODE FIELDS
+  @Column({ nullable: true, type: 'varchar', length: 6 })
+  resetCode: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  resetCodeExpiresAt: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  resetCodeAttempts: number;
 
   @CreateDateColumn()
   createdAt: Date;

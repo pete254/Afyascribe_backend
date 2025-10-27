@@ -1,13 +1,13 @@
-// src/auth/dto/reset-password.dto.ts
-import { IsEmail, IsString, MinLength, Length, Matches } from 'class-validator';
+// src/auth/dto/verify-reset-code.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
+import { IsEmail, IsString, Length, Matches } from 'class-validator';
 
-export class ResetPasswordDto {
+export class VerifyResetCodeDto {
   @ApiProperty({
     description: 'User email address',
     example: 'doctor@example.com'
   })
-  @IsEmail()
+  @IsEmail({}, { message: 'Please provide a valid email address' })
   email: string;
 
   @ApiProperty({
@@ -20,13 +20,4 @@ export class ResetPasswordDto {
   @Length(6, 6, { message: 'Reset code must be exactly 6 digits' })
   @Matches(/^\d{6}$/, { message: 'Reset code must contain only digits' })
   code: string;
-
-  @ApiProperty({
-    description: 'New password (min 8 characters)',
-    example: 'NewSecurePassword123!',
-    minLength: 8
-  })
-  @IsString()
-  @MinLength(8, { message: 'Password must be at least 8 characters long' })
-  newPassword: string;
 }

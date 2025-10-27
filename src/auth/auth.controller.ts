@@ -1,11 +1,12 @@
-// src/auth/auth.controller.ts 
+// src/auth/auth.controller.ts - UPDATED WITH 6-DIGIT CODE ENDPOINTS
 import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
-import { ForgotPasswordDto } from './dto/forgot-password.dto';
-import { ResetPasswordDto } from './dto/reset-password.dto';
+import { RequestResetCodeDto } from './dto/request-reset-code.dto';
+import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
+import { ResetPasswordWithCodeDto } from './dto/reset-password-with-code.dto';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -38,10 +39,6 @@ export class AuthController {
     status: 401,
     description: 'Invalid credentials'
   })
-  @ApiResponse({
-    status: 400,
-    description: 'Validation error'
-  })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto.email, loginDto.password);
   }
@@ -70,10 +67,6 @@ export class AuthController {
     status: 409,
     description: 'Email already exists'
   })
-  @ApiResponse({
-    status: 400,
-    description: 'Validation error'
-  })
   async register(@Body() registerDto: RegisterDto) {
     return this.authService.register(
       registerDto.email,
@@ -84,53 +77,82 @@ export class AuthController {
     );
   }
 
-  // ✅ NEW: Forgot Password endpoint
-  @Post('forgot-password')
+  // ✅ NEW: Request 6-digit reset code
+  @Post('request-reset-code')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ 
-    summary: 'Request password reset',
-    description: 'Send password reset link to user email. Returns success message even if email doesn\'t exist (security best practice).'
+    summary: 'Request 6-digit password reset code',
+    description: 'Send a 6-digit reset code to user email. Code expires in 10 minutes with 5 max attempts.'
   })
   @ApiResponse({
     status: 200,
-    description: 'Reset link sent (if email exists)',
+    description: 'Reset code sent successfully',
     schema: {
       example: {
-        message: 'If the email exists, a reset link has been sent'
+        message: 'If the email exists, a reset code has been sent'
       }
     }
   })
   @ApiResponse({
     status: 400,
-    description: 'Validation error'
+    description: 'Invalid email format'
   })
-  async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
-    return this.authService.forgotPassword(forgotPasswordDto.email);
+  async requestResetCode(@Body() requestResetCodeDto: RequestResetCodeDto) {
+    return this.authService.requestResetCode(requestResetCodeDto.email);
   }
 
-  // ✅ NEW: Reset Password endpoint
-  @Post('reset-password')
+  // ✅ NEW: Verify 6-digit reset code
+  @Post('verify-reset-code')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ 
-    summary: 'Reset password with token',
-    description: 'Reset user password using the token from email. Token expires in 1 hour and can only be used once.'
+    summary: 'Verify 6-digit reset code',
+    description: 'Validate the reset code before allowing password reset. Returns whether code is valid.'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Code verification result',
+    schema: {
+      example: {
+        valid: true,
+        message: 'Code verified successfully'
+      }
+    }
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid code format'
+  })
+  async verifyResetCode(@Body() verifyResetCodeDto: VerifyResetCodeDto) {
+    return this.authService.verifyResetCode(
+      verifyResetCodeDto.email,
+      verifyResetCodeDto.code
+    );
+  }
+
+  // ✅ NEW: Reset password with 6-digit code
+  @Post('reset-password-with-code')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ 
+    summary: 'Reset password using 6-digit code',
+    description: 'Reset user password using verified 6-digit code. Code must be valid and not expired.'
   })
   @ApiResponse({
     status: 200,
     description: 'Password reset successful',
     schema: {
       example: {
-        message: 'Password has been reset successfully'
+        message: 'Password reset successfully'
       }
     }
   })
   @ApiResponse({
     status: 400,
-    description: 'Invalid or expired token'
+    description: 'Invalid code or password requirements not met'
   })
-  async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
-    return this.authService.resetPassword(
-      resetPasswordDto.token,
+  async resetPasswordWithCode(@Body() resetPasswordDto: ResetPasswordWithCodeDto) {
+    return this.authService.resetPasswordWithCode(
+      resetPasswordDto.email,
+      resetPasswordDto.code,
       resetPasswordDto.newPassword
     );
   }
