@@ -42,12 +42,12 @@ export class PatientsService {
    * Get recently registered patients (last 14 days)
    */
   async getRecentPatients(limit: number = 10): Promise<Patient[]> {
-    const fourteenDaysAgo = new Date();
-    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+    const sixtyDaysAgo = new Date();
+    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
 
     const patients = await this.patientRepository.find({
       where: {
-        registeredAt: MoreThanOrEqual(fourteenDaysAgo),
+        registeredAt: MoreThanOrEqual(sixtyDaysAgo),
       },
       order: {
         registeredAt: 'DESC',
