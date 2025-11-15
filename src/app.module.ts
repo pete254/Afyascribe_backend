@@ -11,6 +11,7 @@ import { PatientsModule } from './patients/patients.module';
 import { User } from './users/entities/user.entity';
 import { SoapNote } from './soap-notes/entities/soap-note.entity';
 import { Patient } from './patients/entities/patient.entity';
+import { TranscriptionModule } from './transcription/transcription.module';
 
 @Module({
   imports: [
@@ -41,7 +42,8 @@ import { Patient } from './patients/entities/patient.entity';
     UsersModule,
     AuthModule,
     SoapNotesModule,
-    PatientsModule, // Added PatientsModule
+    PatientsModule,
+    TranscriptionModule,
   ],
   controllers: [AppController],
   providers: [AppService],
