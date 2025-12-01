@@ -12,12 +12,16 @@ import { User } from './users/entities/user.entity';
 import { SoapNote } from './soap-notes/entities/soap-note.entity';
 import { Patient } from './patients/entities/patient.entity';
 import { TranscriptionModule } from './transcription/transcription.module';
+import { KeepAliveService } from './services/keepAlive';
+import { HttpModule } from '@nestjs/axios'
+
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    HttpModule,
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
@@ -46,6 +50,6 @@ import { TranscriptionModule } from './transcription/transcription.module';
     TranscriptionModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, KeepAliveService],
 })
 export class AppModule {}
