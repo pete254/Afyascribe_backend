@@ -1,11 +1,16 @@
+// src/auth/strategies/jwt.strategy.ts
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { UsersService } from '../../users/users.service'; // ✅ ADD THIS
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    private usersService: UsersService, // ✅ ADD THIS
+  ) {
     const jwtSecret = configService.get<string>('JWT_SECRET');
     
     if (!jwtSecret) {
@@ -24,14 +29,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Invalid token payload');
     }
 
-    return { 
-      userId: payload.sub, 
-      email: payload.email,
-      role: payload.role,
-      firstName: payload.firstName,
-      lastName: payload.lastName
-    };
+    // ✅ ADD THIS: Check if user is deactivated
+    try {
+      const user = await this.usersService.findById(payload.sub);
+      
+      // findById will throw if user is deactivated
+      return { 
+        userId: payload.sub, 
+        email: payload.email,
+        role: payload.role,
+        firstName: payload.firstName,
+        lastName: payload.lastName
+      };
+    } catch (error) {
+      throw new UnauthorizedException('Account is not accessible');
+    }
   }
 }
-
-

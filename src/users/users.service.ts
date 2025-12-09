@@ -1,5 +1,5 @@
-// src/users/users.service.ts - UPDATED WITH 6-DIGIT CODE METHODS
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+// src/users/users.service.ts - CORRECTED VERSION
+import { Injectable, ConflictException, NotFoundException, UnauthorizedException } from '@nestjs/common'; // ✅ Add UnauthorizedException
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
@@ -26,12 +26,41 @@ export class UsersService {
     return await this.usersRepository.findOne({ where: { email } });
   }
 
+  // ✅ SINGLE findById METHOD - Remove the duplicate at line 136
   async findById(id: string): Promise<User> {
     const user = await this.usersRepository.findOne({ where: { id } });
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
+    
+    // ✅ Check if deactivated
+    if (user.isDeactivated) {
+      throw new UnauthorizedException('Account has been deactivated');
+    }
+    
     return user;
+  }
+
+  // ✅ NEW: Deactivation methods
+  async deactivateAccount(userId: string, reason?: string): Promise<void> {
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    user.isDeactivated = true;
+    user.deactivatedAt = new Date();
+    user.deactivationReason = reason || null;
+
+    await this.usersRepository.save(user);
+  }
+
+  async reactivateAccount(userId: string): Promise<void> {
+    await this.usersRepository.update(userId, {
+      isDeactivated: false,
+      deactivatedAt: null,
+      deactivationReason: null,
+    });
   }
 
   // ✅ OLD TOKEN-BASED METHODS (kept for backward compatibility)
@@ -96,7 +125,10 @@ export class UsersService {
   }
 
   async incrementResetCodeAttempts(userId: string): Promise<number> {
-    const user = await this.findById(userId);
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
     user.resetCodeAttempts += 1;
     await this.usersRepository.save(user);
     return user.resetCodeAttempts;

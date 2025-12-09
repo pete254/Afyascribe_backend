@@ -50,4 +50,13 @@ export class User {
 
   @OneToMany(() => SoapNote, (soapNote: SoapNote) => soapNote.createdBy)
   soapNotes: SoapNote[];
+  // Add new fields to User entity
+@Column({ default: false })
+isDeactivated: boolean;
+
+@Column({ type: 'timestamp', nullable: true })
+deactivatedAt: Date | null;
+
+@Column({ nullable: true })
+deactivationReason: string | null;
 }
