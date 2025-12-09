@@ -1,4 +1,4 @@
-// src/users/entities/user.entity.ts - UPDATED WITH 6-DIGIT CODE FIELDS
+// src/users/entities/user.entity.ts - FIXED
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
 import { SoapNote } from '../../soap-notes/entities/soap-note.entity';
 
@@ -42,6 +42,16 @@ export class User {
   @Column({ type: 'int', default: 0 })
   resetCodeAttempts: number;
 
+  // ✅ NEW: DEACTIVATION FIELDS - FIXED TYPE DEFINITIONS
+  @Column({ default: false })
+  isDeactivated: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  deactivatedAt: Date | null;
+
+  @Column({ type: 'text', nullable: true }) // ✅ FIXED: Changed from Object to 'text'
+  deactivationReason: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 
@@ -50,13 +60,4 @@ export class User {
 
   @OneToMany(() => SoapNote, (soapNote: SoapNote) => soapNote.createdBy)
   soapNotes: SoapNote[];
-  // Add new fields to User entity
-@Column({ default: false })
-isDeactivated: boolean;
-
-@Column({ type: 'timestamp', nullable: true })
-deactivatedAt: Date | null;
-
-@Column({ nullable: true })
-deactivationReason: string | null;
 }
