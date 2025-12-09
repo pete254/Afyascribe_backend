@@ -1,13 +1,17 @@
-// src/users/users.module.ts - UPDATED
-import { Module } from '@nestjs/common';
+// src/users/users.module.ts - FIXED
+import { Module, forwardRef } from '@nestjs/common'; 
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { UsersService } from './users.service';
-import { UsersController } from './users.controller'; // ✅ ADD THIS
+import { UsersController } from './users.controller';
 import { User } from './entities/user.entity';
+import { AuthModule } from '../auth/auth.module'; 
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User])],
-  controllers: [UsersController], // ✅ ADD THIS
+  imports: [
+    TypeOrmModule.forFeature([User]),
+    forwardRef(() => AuthModule), 
+  ],
+  controllers: [UsersController],
   providers: [UsersService],
   exports: [UsersService, TypeOrmModule],
 })
