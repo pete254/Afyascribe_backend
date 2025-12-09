@@ -90,6 +90,10 @@ export class AuthService {
 
     // Generate 6-digit code
     const resetCode = this.generateSixDigitCode();
+      console.log('===========================================');
+      console.log(`🔐 PASSWORD RESET CODE FOR: ${email}`);
+      console.log(`📧 Code: ${resetCode}`);
+      console.log('===========================================');
     
     // Code expires in 10 minutes
     const expiresAt = new Date();
