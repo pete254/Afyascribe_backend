@@ -37,7 +37,7 @@ import { HttpModule } from '@nestjs/axios';
           autoLoadEntities: true,
           synchronize: !isProduction,
           // ✅ SSL enabled only for production (Neon), disabled for local Docker
-          ssl: isProduction,
+          ssl: isProduction ? { rejectUnauthorized: false } : false,
           extra: isProduction ? {
             ssl: {
               rejectUnauthorized: false,
