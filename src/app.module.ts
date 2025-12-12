@@ -13,8 +13,7 @@ import { SoapNote } from './soap-notes/entities/soap-note.entity';
 import { Patient } from './patients/entities/patient.entity';
 import { TranscriptionModule } from './transcription/transcription.module';
 import { KeepAliveService } from './services/keepAlive';
-import { HttpModule } from '@nestjs/axios'
-
+import { HttpModule } from '@nestjs/axios';
 
 @Module({
   imports: [
@@ -24,23 +23,28 @@ import { HttpModule } from '@nestjs/axios'
     HttpModule,
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        host: configService.get('DB_HOST'),
-        port: +configService.get('DB_PORT'),
-        username: configService.get('DB_USERNAME'),
-        password: configService.get('DB_PASSWORD'),
-        database: configService.get('DB_DATABASE'),
-        entities: [User, SoapNote, Patient], // Added Patient entity
-        autoLoadEntities: true,
-        synchronize: configService.get('NODE_ENV') !== 'production',
-        ssl: true,
-        extra: {
-          ssl: {
-            rejectUnauthorized: false,
-          },
-        },
-      }),
+      useFactory: (configService: ConfigService) => {
+        const isProduction = configService.get('NODE_ENV') === 'production';
+        
+        return {
+          type: 'postgres',
+          host: configService.get('DB_HOST'),
+          port: +configService.get('DB_PORT'),
+          username: configService.get('DB_USERNAME'),
+          password: configService.get('DB_PASSWORD'),
+          database: configService.get('DB_DATABASE'),
+          entities: [User, SoapNote, Patient],
+          autoLoadEntities: true,
+          synchronize: !isProduction,
+          // ✅ SSL enabled only for production (Neon), disabled for local Docker
+          ssl: isProduction,
+          extra: isProduction ? {
+            ssl: {
+              rejectUnauthorized: false,
+            },
+          } : {},
+        };
+      },
       inject: [ConfigService],
     }),
     UsersModule,

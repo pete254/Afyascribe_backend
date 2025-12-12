@@ -17,7 +17,18 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    
+       
+    "docker:build": "docker build -t afyascribe-backend .",
+    "docker:dev": "docker compose -f docker-compose.dev.yml up",
+    "docker:dev:build": "docker compose -f docker-compose.dev.yml up --build",
+    "docker:dev:down": "docker compose -f docker-compose.dev.yml down",
+    "docker:prod": "docker compose up -d",
+    "docker:prod:build": "docker compose up -d --build",
+    "docker:prod:down": "docker compose down",
+    "docker:logs": "docker compose logs -f backend",
+    "docker:ps": "docker compose ps"
   },
   "dependencies": {
     "@nestjs/axios": "^4.0.1",

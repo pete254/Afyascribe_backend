@@ -1,0 +1,26 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: afyascribe-backend-dev
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      DB_HOST: ep-autumn-wildflower-adid5vao-pooler.c-2.us-east-1.aws.neon.tech
+      DB_PORT: 5432
+      DB_USERNAME: neondb_owner
+      DB_PASSWORD: npg_yo8XsCd9iFNY
+      DB_DATABASE: neondb
+      JWT_SECRET: dev-secret-change-in-production-minimum-32-characters-long
+    depends_on:
+      postgres:
+        condition: service_healthy  
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: npm run start:dev
+
+volumes:
+  postgres_dev_data:
