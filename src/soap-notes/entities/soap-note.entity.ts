@@ -87,4 +87,18 @@ export class SoapNote {
 
   @Column({ type: 'timestamp', nullable: true })
   lastEditedAt: Date;
+
+@Column({ type: 'text', nullable: true })
+lab_investigations: string;
+
+@Column({ type: 'text', nullable: true })
+imaging: string;
+
+@Column({ length: 10, nullable: true })
+icd10_code: string;
+
+@Column({ length: 200, nullable: true })
+icd10_description: string;
+
+
 }
