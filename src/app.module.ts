@@ -51,7 +51,9 @@ import { KeepAliveService } from './services/keepAlive';
           synchronize: !isProduction,
 
           // ✅ Neon / production SSL
-          ssl: isProduction,
+          ssl: isProduction?{
+              rejectUnauthorized: false,
+          }:false,
           extra: isProduction
             ? {
                 ssl: {
@@ -68,7 +70,7 @@ import { KeepAliveService } from './services/keepAlive';
     SoapNotesModule,
     PatientsModule,
     TranscriptionModule,
-    Icd10Module, // ✅ Added ICD-10 module
+    Icd10Module, 
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],
