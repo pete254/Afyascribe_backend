@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { Icd10Service } from './icd10/icd10.service';
+import { AppModule } from '../../app.module';
+import { Icd10Service } from '../icd10.service';
 
 /**
  * Seed script to populate ICD-10 codes
