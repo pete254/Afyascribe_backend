@@ -43,7 +43,7 @@ export class PatientsService {
    */
   async getRecentPatients(limit: number = 10): Promise<Patient[]> {
     const sixtyDaysAgo = new Date();
-    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 100);
+    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 365);
 
     const patients = await this.patientRepository.find({
       where: {
