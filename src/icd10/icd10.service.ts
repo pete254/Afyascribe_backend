@@ -5,13 +5,16 @@ import { Icd10Code } from './entities/icd10-code.entity';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
-interface WhoApiSearchResult {
-  destinationEntities: Array<{
-    id: string;
-    title: string;
-    theCode?: string;
-    chapter?: string;
-  }>;
+interface WhoApiEntity {
+  '@id': string;
+  title: {
+    '@value': string;
+  } | string;
+  definition?: {
+    '@value': string;
+  } | string;
+  code?: string;
+  theCode?: string;
 }
 
 @Injectable()
@@ -29,10 +32,18 @@ export class Icd10Service {
   ) {}
 
   /**
-   * MAIN SEARCH METHOD - Hybrid approach
-   * 1. Search local database first (fast, reliable)
-   * 2. If insufficient results, try WHO API
-   * 3. Cache new results from API
+   * MAIN SEARCH METHOD
+   * 
+   * IMPORTANT: WHO ICD-10 API does NOT have a search endpoint!
+   * It only supports:
+   * 1. Direct entity lookup by code (e.g., /B50)
+   * 2. Browsing hierarchy (chapters, blocks)
+   * 
+   * For search functionality, we need to:
+   * 1. Use local database (seeded with ICD-10 codes)
+   * 2. OR use an alternative API like https://clinicaltables.nlm.nih.gov/api/icd10cm/v3/search
+   * 
+   * This implementation uses local database + fetches individual codes from WHO API if needed
    */
   async searchCodes(query: string, limit: number = 15): Promise<Icd10Code[]> {
     if (!query || query.trim().length < 2) {
@@ -42,41 +53,22 @@ export class Icd10Service {
 
     const normalizedQuery = query.trim().toLowerCase();
 
-    // STEP 1: Search local database (FAST)
+    // Search local database
     this.logger.log(`🔍 Searching local cache for: "${query}"`);
     const localResults = await this.searchLocal(normalizedQuery, limit);
 
-    if (localResults.length >= 5) {
-      // Good enough results from local cache
+    if (localResults.length > 0) {
       this.logger.log(`✅ Found ${localResults.length} results in local cache`);
       return localResults;
     }
 
-    // STEP 2: Try WHO API for better results
-    this.logger.log(`🌐 Searching WHO API for additional results...`);
-    
-    try {
-      const apiResults = await this.searchWhoApi(query, limit);
-      
-      if (apiResults.length > 0) {
-        // Cache API results for future use (don't await to avoid slowing down response)
-        this.cacheResults(apiResults).catch(err => 
-          this.logger.error(`Failed to cache results: ${err.message}`)
-        );
-        
-        // Combine and deduplicate results
-        const combined = this.deduplicateResults([...localResults, ...apiResults]);
-        this.logger.log(`✅ Combined results: ${combined.length} codes`);
-        
-        return combined.slice(0, limit);
-      }
-    } catch (error) {
-      this.logger.warn(`⚠️ WHO API failed: ${error.message}`);
-      this.logger.error(error.stack);
-    }
-
-    // STEP 3: Fallback - use fuzzy search on local DB only if we have some data
-    if (localResults.length > 0 && localResults.length < 3) {
+    // If no local results and database is empty, suggest seeding
+    const totalCodes = await this.icd10Repository.count();
+    if (totalCodes === 0) {
+      this.logger.warn(`⚠️ No ICD-10 codes in database. Please seed the database first.`);
+      this.logger.warn(`💡 Tip: Import ICD-10 codes from https://www.cms.gov/medicare/coding-billing/icd-10-codes`);
+    } else {
+      // Try fuzzy search as fallback
       this.logger.log(`🔎 Trying fuzzy search...`);
       const fuzzyResults = await this.fuzzySearchLocal(normalizedQuery, limit);
       if (fuzzyResults.length > 0) {
@@ -84,9 +76,7 @@ export class Icd10Service {
       }
     }
 
-    // Return whatever we have (empty array if WHO API failed and no local results)
-    this.logger.log(`📋 Returning ${localResults.length} local results`);
-    return localResults;
+    return [];
   }
 
   /**
@@ -165,20 +155,35 @@ export class Icd10Service {
   }
 
   /**
-   * Search WHO ICD-10 API
+   * Get code details by exact code
+   * Fetches from WHO API if not in local database
    */
-  private async searchWhoApi(query: string, limit: number): Promise<Icd10Code[]> {
+  async getCodeDetails(code: string): Promise<Icd10Code | null> {
+    // Normalize code (uppercase, remove spaces)
+    const normalizedCode = code.toUpperCase().trim();
+
+    // Search local first
+    let codeEntity = await this.icd10Repository.findOne({
+      where: { code: normalizedCode },
+    });
+
+    if (codeEntity) {
+      // Track usage
+      await this.incrementUsage(normalizedCode);
+      return codeEntity;
+    }
+
+    // If not found locally, try WHO API
     try {
-      // Ensure we have a valid token
+      this.logger.log(`🌐 Fetching code ${normalizedCode} from WHO API...`);
       await this.ensureAuthenticated();
 
-      // Search API (ICD-10 2019 version - most stable)
-      // ✅ FIXED: Correct endpoint is /search not /mms/search
-      const searchUrl = `${this.WHO_API_BASE}/search?q=${encodeURIComponent(query)}&useFlexisearch=true&flatResults=true`;
+      // WHO API endpoint for ICD-10: direct entity lookup
+      const url = `${this.WHO_API_BASE}/${normalizedCode}`;
       
-      this.logger.log(`🌐 Calling WHO API: ${searchUrl}`);
+      this.logger.log(`🔗 Fetching: ${url}`);
       
-      const response = await fetch(searchUrl, {
+      const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${this.apiToken}`,
           'Accept': 'application/json',
@@ -187,28 +192,65 @@ export class Icd10Service {
         },
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        this.logger.error(`WHO API Error Response: ${errorText}`);
-        throw new Error(`WHO API returned ${response.status}: ${errorText}`);
+      if (response.ok) {
+        const data: WhoApiEntity = await response.json();
+        
+        // Extract title (handle both object and string formats)
+        const title = typeof data.title === 'object' ? data.title['@value'] : data.title;
+        const definition = data.definition 
+          ? (typeof data.definition === 'object' ? data.definition['@value'] : data.definition)
+          : '';
+        
+        codeEntity = this.icd10Repository.create({
+          code: normalizedCode,
+          short_description: title || '',
+          long_description: definition || title || '',
+          billable: true,
+          is_active: true,
+        });
+
+        // Save to cache
+        await this.icd10Repository.save(codeEntity);
+        this.logger.log(`✅ Fetched and cached code: ${normalizedCode}`);
+        
+        return codeEntity;
+      } else {
+        this.logger.warn(`WHO API returned ${response.status} for code ${normalizedCode}`);
       }
-
-      const data: WhoApiSearchResult = await response.json();
-      
-      this.logger.log(`📦 WHO API returned ${data.destinationEntities?.length || 0} results`);
-      
-      // Transform API response to our format
-      const transformedResults = this.transformWhoApiResults(
-        data.destinationEntities || [],
-        limit
-      );
-
-      return transformedResults;
     } catch (error) {
-      this.logger.error(`WHO API search failed: ${error.message}`);
-      this.logger.error(error.stack);
-      throw error;
+      this.logger.error(`Failed to fetch code from API: ${error.message}`);
     }
+
+    return null;
+  }
+
+  /**
+   * Increment usage counter for a code
+   */
+  async incrementUsage(code: string): Promise<void> {
+    try {
+      await this.icd10Repository
+        .createQueryBuilder()
+        .update()
+        .set({
+          usage_count: () => 'usage_count + 1',
+          last_used_at: new Date(),
+        })
+        .where('code = :code', { code })
+        .execute();
+    } catch (error) {
+      this.logger.error(`Failed to increment usage: ${error.message}`);
+    }
+  }
+
+  /**
+   * Validate ICD-10 code format
+   */
+  validateCodeFormat(code: string): boolean {
+    // ICD-10 format: Letter + 2 digits + optional decimal + up to 4 more digits
+    // Examples: A00, E11.9, J45.909
+    const regex = /^[A-Z][0-9]{2}(\.[0-9]{1,4})?$/;
+    return regex.test(code);
   }
 
   /**
@@ -273,160 +315,6 @@ export class Icd10Service {
   }
 
   /**
-   * Transform WHO API results to our format
-   */
-  private transformWhoApiResults(entities: any[], limit: number): Icd10Code[] {
-    return entities.slice(0, limit).map(entity => {
-      const code = this.extractCode(entity.theCode || entity.id);
-      
-      return this.icd10Repository.create({
-        code: code,
-        short_description: entity.title || '',
-        long_description: entity.definition || entity.title || '',
-        chapter_name: entity.chapter || '',
-        billable: true,
-        is_active: true,
-        search_terms: [entity.title?.toLowerCase() || ''],
-      });
-    });
-  }
-
-  /**
-   * Cache API results locally for future use
-   */
-  private async cacheResults(results: Icd10Code[]): Promise<void> {
-    try {
-      for (const result of results) {
-        const existing = await this.icd10Repository.findOne({
-          where: { code: result.code },
-        });
-
-        if (!existing) {
-          await this.icd10Repository.save(result);
-          this.logger.log(`📥 Cached new code: ${result.code} - ${result.short_description}`);
-        }
-      }
-    } catch (error) {
-      this.logger.error(`Failed to cache results: ${error.message}`);
-    }
-  }
-
-  /**
-   * Deduplicate results by code
-   */
-  private deduplicateResults(results: Icd10Code[]): Icd10Code[] {
-    const seen = new Set<string>();
-    return results.filter(result => {
-      if (seen.has(result.code)) {
-        return false;
-      }
-      seen.add(result.code);
-      return true;
-    });
-  }
-
-  /**
-   * Get code details by exact code
-   */
-  async getCodeDetails(code: string): Promise<Icd10Code | null> {
-    // Normalize code (uppercase, remove spaces)
-    const normalizedCode = code.toUpperCase().trim();
-
-    // Search local first
-    let codeEntity = await this.icd10Repository.findOne({
-      where: { code: normalizedCode },
-    });
-
-    if (codeEntity) {
-      // Track usage
-      await this.incrementUsage(normalizedCode);
-      return codeEntity;
-    }
-
-    // If not found locally, try WHO API
-    try {
-      this.logger.log(`🌐 Fetching code ${normalizedCode} from WHO API...`);
-      await this.ensureAuthenticated();
-
-      // ✅ FIXED: Use correct endpoint - entity lookup by code
-      const url = `${this.WHO_API_BASE}/${normalizedCode}`;
-      
-      this.logger.log(`🔗 Fetching: ${url}`);
-      
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${this.apiToken}`,
-          'Accept': 'application/json',
-          'API-Version': 'v2',
-          'Accept-Language': 'en',
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        
-        codeEntity = this.icd10Repository.create({
-          code: normalizedCode,
-          short_description: data.title || '',
-          long_description: data.definition || data.title || '',
-          billable: true,
-          is_active: true,
-        });
-
-        // Save to cache
-        await this.icd10Repository.save(codeEntity);
-        this.logger.log(`✅ Fetched and cached code: ${normalizedCode}`);
-        
-        return codeEntity;
-      }
-    } catch (error) {
-      this.logger.error(`Failed to fetch code from API: ${error.message}`);
-    }
-
-    return null;
-  }
-
-  /**
-   * Increment usage counter for a code
-   */
-  async incrementUsage(code: string): Promise<void> {
-    try {
-      await this.icd10Repository
-        .createQueryBuilder()
-        .update()
-        .set({
-          usage_count: () => 'usage_count + 1',
-          last_used_at: new Date(),
-        })
-        .where('code = :code', { code })
-        .execute();
-    } catch (error) {
-      this.logger.error(`Failed to increment usage: ${error.message}`);
-    }
-  }
-
-  /**
-   * Extract ICD-10 code from WHO URI format
-   * Example: "http://id.who.int/icd/release/10/2019/E11.9" -> "E11.9"
-   */
-  private extractCode(fullCode: string): string {
-    if (fullCode.includes('/')) {
-      return fullCode.split('/').pop() || fullCode;
-    }
-    return fullCode;
-  }
-
-  /**
-   * Validate ICD-10 code format
-   */
-  validateCodeFormat(code: string): boolean {
-    // ICD-10 format: Letter + 2 digits + optional decimal + up to 4 more digits
-    // Examples: A00, E11.9, J45.909
-    const regex = /^[A-Z][0-9]{2}(\.[0-9]{1,4})?$/;
-    return regex.test(code);
-  }
-
-  /**
    * Refresh token periodically (every 50 minutes)
    */
   @Cron(CronExpression.EVERY_HOUR)
@@ -439,5 +327,75 @@ export class Icd10Service {
         this.logger.error(`Token refresh failed: ${error.message}`);
       }
     }
+  }
+
+  /**
+   * HELPER: Seed database with common ICD-10 codes
+   * This should be called during initial setup
+   */
+  async seedCommonCodes(): Promise<void> {
+    this.logger.log('🌱 Seeding common ICD-10 codes...');
+    
+    const commonCodes = [
+      // Malaria codes
+      { code: 'B50', shortDesc: 'Plasmodium falciparum malaria', chapterCode: 'I' },
+      { code: 'B50.0', shortDesc: 'Plasmodium falciparum malaria with cerebral complications', chapterCode: 'I' },
+      { code: 'B50.8', shortDesc: 'Other severe and complicated Plasmodium falciparum malaria', chapterCode: 'I' },
+      { code: 'B50.9', shortDesc: 'Plasmodium falciparum malaria, unspecified', chapterCode: 'I' },
+      { code: 'B51', shortDesc: 'Plasmodium vivax malaria', chapterCode: 'I' },
+      { code: 'B51.0', shortDesc: 'Plasmodium vivax malaria with rupture of spleen', chapterCode: 'I' },
+      { code: 'B51.8', shortDesc: 'Plasmodium vivax malaria with other complications', chapterCode: 'I' },
+      { code: 'B51.9', shortDesc: 'Plasmodium vivax malaria without complication', chapterCode: 'I' },
+      { code: 'B52', shortDesc: 'Plasmodium malariae malaria', chapterCode: 'I' },
+      { code: 'B52.0', shortDesc: 'Plasmodium malariae malaria with nephropathy', chapterCode: 'I' },
+      { code: 'B52.8', shortDesc: 'Plasmodium malariae malaria with other complications', chapterCode: 'I' },
+      { code: 'B52.9', shortDesc: 'Plasmodium malariae malaria without complication', chapterCode: 'I' },
+      { code: 'B53', shortDesc: 'Other parasitologically confirmed malaria', chapterCode: 'I' },
+      { code: 'B53.0', shortDesc: 'Plasmodium ovale malaria', chapterCode: 'I' },
+      { code: 'B53.1', shortDesc: 'Malaria due to simian plasmodia', chapterCode: 'I' },
+      { code: 'B53.8', shortDesc: 'Other parasitologically confirmed malaria, not elsewhere classified', chapterCode: 'I' },
+      { code: 'B54', shortDesc: 'Unspecified malaria', chapterCode: 'I' },
+      
+      // Diabetes codes
+      { code: 'E11', shortDesc: 'Type 2 diabetes mellitus', chapterCode: 'IV' },
+      { code: 'E11.9', shortDesc: 'Type 2 diabetes mellitus without complications', chapterCode: 'IV' },
+      { code: 'E10', shortDesc: 'Type 1 diabetes mellitus', chapterCode: 'IV' },
+      { code: 'E10.9', shortDesc: 'Type 1 diabetes mellitus without complications', chapterCode: 'IV' },
+      
+      // Hypertension codes
+      { code: 'I10', shortDesc: 'Essential (primary) hypertension', chapterCode: 'IX' },
+      { code: 'I11', shortDesc: 'Hypertensive heart disease', chapterCode: 'IX' },
+      { code: 'I15', shortDesc: 'Secondary hypertension', chapterCode: 'IX' },
+      
+      // COVID-19
+      { code: 'U07.1', shortDesc: 'COVID-19', chapterCode: 'XXII' },
+      
+      // Common respiratory
+      { code: 'J45', shortDesc: 'Asthma', chapterCode: 'X' },
+      { code: 'J45.9', shortDesc: 'Asthma, unspecified', chapterCode: 'X' },
+      { code: 'J18', shortDesc: 'Pneumonia, unspecified organism', chapterCode: 'X' },
+      { code: 'J18.9', shortDesc: 'Pneumonia, unspecified', chapterCode: 'X' },
+    ];
+
+    for (const item of commonCodes) {
+      const existing = await this.icd10Repository.findOne({
+        where: { code: item.code },
+      });
+
+      if (!existing) {
+        await this.icd10Repository.save({
+          code: item.code,
+          short_description: item.shortDesc,
+          long_description: item.shortDesc,
+          chapter_code: item.chapterCode,
+          billable: true,
+          is_active: true,
+          search_terms: [item.shortDesc.toLowerCase()],
+        });
+        this.logger.log(`✅ Seeded: ${item.code} - ${item.shortDesc}`);
+      }
+    }
+    
+    this.logger.log(`✅ Seeding complete`);
   }
 }

@@ -1,37 +1,28 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Icd10Code } from '../entities/icd10-code.entity';
-import { COMMON_ICD10_CODES } from './common-icd10-codes.seed';
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { Icd10Service } from './icd10/icd10.service';
 
-@Injectable()
-export class Icd10SeederService {
-  private readonly logger = new Logger(Icd10SeederService.name);
+/**
+ * Seed script to populate ICD-10 codes
+ * 
+ * Run with: npm run seed:icd10
+ * Or: ts-node src/seed-icd10.ts
+ */
+async function bootstrap() {
+  const app = await NestFactory.createApplicationContext(AppModule);
+  const icd10Service = app.get(Icd10Service);
 
-  constructor(
-    @InjectRepository(Icd10Code)
-    private icd10Repository: Repository<Icd10Code>,
-  ) {}
-
-  async seedCommonCodes(): Promise<void> {
-    this.logger.log('🌱 Seeding common ICD-10 codes...');
-
-    let seeded = 0;
-    let skipped = 0;
-
-    for (const codeData of COMMON_ICD10_CODES) {
-      const existing = await this.icd10Repository.findOne({
-        where: { code: codeData.code },
-      });
-
-      if (!existing) {
-        await this.icd10Repository.save(codeData);
-        seeded++;
-      } else {
-        skipped++;
-      }
-    }
-
-    this.logger.log(`✅ Seeding complete: ${seeded} new codes, ${skipped} skipped`);
+  console.log('🌱 Starting ICD-10 database seeding...');
+  
+  try {
+    await icd10Service.seedCommonCodes();
+    console.log('✅ Seeding completed successfully!');
+  } catch (error) {
+    console.error('❌ Seeding failed:', error);
+    process.exit(1);
+  } finally {
+    await app.close();
   }
 }
+
+bootstrap();

@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Param, UseGuards, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Query, Param, UseGuards, HttpException, HttpStatus, Post } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Icd10Service } from './icd10.service';
@@ -92,6 +92,21 @@ export class Icd10Controller {
       code,
       valid: isValid,
       message: isValid ? 'Valid ICD-10 code format' : 'Invalid ICD-10 code format'
+    };
+  }
+
+  // ✅ NEW: Seed database endpoint
+  @Post('seed')
+  @ApiOperation({ 
+    summary: 'Seed database with common ICD-10 codes',
+    description: 'Populates the database with common ICD-10 codes. Run this once after setup. Safe to run multiple times (won\'t create duplicates).'
+  })
+  @ApiResponse({ status: 200, description: 'Database seeded successfully' })
+  async seedDatabase() {
+    await this.icd10Service.seedCommonCodes();
+    return { 
+      success: true,
+      message: 'Database seeded with common ICD-10 codes. You can now search for malaria, diabetes, hypertension, etc.' 
     };
   }
 }
