@@ -36,10 +36,10 @@ import { KeepAliveService } from './services/keepAlive';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        const isProduction =
-          configService.get('NODE_ENV') === 'production';
+        const isProduction = configService.get('NODE_ENV') === 'production';
 
-        return {
+        // Base configuration
+        const config: any = {
           type: 'postgres',
           host: configService.get('DB_HOST'),
           port: Number(configService.get('DB_PORT')),
@@ -48,20 +48,21 @@ import { KeepAliveService } from './services/keepAlive';
           database: configService.get('DB_DATABASE'),
           entities: [User, SoapNote, Patient],
           autoLoadEntities: true,
-          synchronize: !isProduction,
-
-          // ✅ Neon / production SSL
-          ssl: isProduction?{
-              rejectUnauthorized: false,
-          }:false,
-          extra: isProduction
-            ? {
-                ssl: {
-                  rejectUnauthorized: false,
-                },
-              }
-            : {},
+          synchronize: !isProduction, // Only auto-sync in development
+          logging: !isProduction, // Enable logging in development
         };
+
+        // ✅ FIX: Proper SSL configuration for production (Render/Neon)
+        if (isProduction) {
+          config.ssl = true; // Enable SSL
+          config.extra = {
+            ssl: {
+              rejectUnauthorized: false, // Accept self-signed certificates
+            },
+          };
+        }
+
+        return config;
       },
     }),
 
@@ -70,7 +71,7 @@ import { KeepAliveService } from './services/keepAlive';
     SoapNotesModule,
     PatientsModule,
     TranscriptionModule,
-    Icd10Module, 
+    Icd10Module,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],
