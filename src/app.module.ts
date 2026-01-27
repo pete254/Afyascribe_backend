@@ -1,4 +1,4 @@
-// src/app.module.ts
+// src/app.module.ts - ALTERNATIVE VERSION WITH ENHANCED SSL CONFIG
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -27,7 +27,6 @@ import { KeepAliveService } from './services/keepAlive';
       isGlobal: true,
     }),
 
-    // ✅ Enables cron jobs (token refresh, keep-alive, etc.)
     ScheduleModule.forRoot(),
 
     HttpModule,
@@ -37,32 +36,67 @@ import { KeepAliveService } from './services/keepAlive';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
         const isProduction = configService.get('NODE_ENV') === 'production';
+        const dbUrl = configService.get('DATABASE_URL'); // If using DATABASE_URL instead
 
-        // Base configuration
-        const config: any = {
-          type: 'postgres',
-          host: configService.get('DB_HOST'),
-          port: Number(configService.get('DB_PORT')),
-          username: configService.get('DB_USERNAME'),
-          password: configService.get('DB_PASSWORD'),
-          database: configService.get('DB_DATABASE'),
-          entities: [User, SoapNote, Patient],
-          autoLoadEntities: true,
-          synchronize: !isProduction, // Only auto-sync in development
-          logging: !isProduction, // Enable logging in development
-        };
+        console.log('🔌 Database Configuration:');
+        console.log('- Environment:', isProduction ? 'PRODUCTION' : 'DEVELOPMENT');
+        console.log('- Host:', configService.get('DB_HOST'));
+        console.log('- Port:', configService.get('DB_PORT'));
+        console.log('- Database:', configService.get('DB_DATABASE'));
+        console.log('- SSL Enabled:', isProduction);
 
-        // ✅ FIX: Proper SSL configuration for production (Render/Neon)
-        if (isProduction) {
-          config.ssl = true; // Enable SSL
-          config.extra = {
-            ssl: {
-              rejectUnauthorized: false, // Accept self-signed certificates
-            },
+        // Option 1: Using individual connection parameters
+        if (!dbUrl) {
+          return {
+            type: 'postgres',
+            host: configService.get('DB_HOST'),
+            port: Number(configService.get('DB_PORT')) || 5432,
+            username: configService.get('DB_USERNAME'),
+            password: configService.get('DB_PASSWORD'),
+            database: configService.get('DB_DATABASE'),
+            entities: [User, SoapNote, Patient],
+            autoLoadEntities: true,
+            synchronize: !isProduction,
+            logging: !isProduction,
+            
+            // ✅ CRITICAL: SSL must be enabled AND properly configured
+            ssl: isProduction ? true : false,
+            extra: isProduction
+              ? {
+                  ssl: {
+                    rejectUnauthorized: false,
+                  },
+                  // Additional connection settings for stability
+                  connectionTimeoutMillis: 10000,
+                  idleTimeoutMillis: 30000,
+                  max: 20, // Maximum pool size
+                }
+              : {},
           };
         }
 
-        return config;
+        // Option 2: Using DATABASE_URL (if available)
+        return {
+          type: 'postgres',
+          url: dbUrl,
+          entities: [User, SoapNote, Patient],
+          autoLoadEntities: true,
+          synchronize: !isProduction,
+          logging: !isProduction,
+          
+          // ✅ SSL configuration for DATABASE_URL
+          ssl: isProduction ? true : false,
+          extra: isProduction
+            ? {
+                ssl: {
+                  rejectUnauthorized: false,
+                },
+                connectionTimeoutMillis: 10000,
+                idleTimeoutMillis: 30000,
+                max: 20,
+              }
+            : {},
+        };
       },
     }),
 
