@@ -59,8 +59,10 @@ export class Icd10Service {
       const apiResults = await this.searchWhoApi(query, limit);
       
       if (apiResults.length > 0) {
-        // Cache API results for future use
-        await this.cacheResults(apiResults);
+        // Cache API results for future use (don't await to avoid slowing down response)
+        this.cacheResults(apiResults).catch(err => 
+          this.logger.error(`Failed to cache results: ${err.message}`)
+        );
         
         // Combine and deduplicate results
         const combined = this.deduplicateResults([...localResults, ...apiResults]);
@@ -70,15 +72,20 @@ export class Icd10Service {
       }
     } catch (error) {
       this.logger.warn(`⚠️ WHO API failed: ${error.message}`);
+      this.logger.error(error.stack);
     }
 
-    // STEP 3: Fallback - use fuzzy search on local DB
-    if (localResults.length < 3) {
+    // STEP 3: Fallback - use fuzzy search on local DB only if we have some data
+    if (localResults.length > 0 && localResults.length < 3) {
       this.logger.log(`🔎 Trying fuzzy search...`);
       const fuzzyResults = await this.fuzzySearchLocal(normalizedQuery, limit);
-      return fuzzyResults;
+      if (fuzzyResults.length > 0) {
+        return fuzzyResults;
+      }
     }
 
+    // Return whatever we have (empty array if WHO API failed and no local results)
+    this.logger.log(`📋 Returning ${localResults.length} local results`);
     return localResults;
   }
 
@@ -166,7 +173,10 @@ export class Icd10Service {
       await this.ensureAuthenticated();
 
       // Search API (ICD-10 2019 version - most stable)
-      const searchUrl = `${this.WHO_API_BASE}/mms/search?q=${encodeURIComponent(query)}&useFlexisearch=true&flatResults=true`;
+      // ✅ FIXED: Correct endpoint is /search not /mms/search
+      const searchUrl = `${this.WHO_API_BASE}/search?q=${encodeURIComponent(query)}&useFlexisearch=true&flatResults=true`;
+      
+      this.logger.log(`🌐 Calling WHO API: ${searchUrl}`);
       
       const response = await fetch(searchUrl, {
         headers: {
@@ -178,10 +188,14 @@ export class Icd10Service {
       });
 
       if (!response.ok) {
-        throw new Error(`WHO API returned ${response.status}`);
+        const errorText = await response.text();
+        this.logger.error(`WHO API Error Response: ${errorText}`);
+        throw new Error(`WHO API returned ${response.status}: ${errorText}`);
       }
 
       const data: WhoApiSearchResult = await response.json();
+      
+      this.logger.log(`📦 WHO API returned ${data.destinationEntities?.length || 0} results`);
       
       // Transform API response to our format
       const transformedResults = this.transformWhoApiResults(
@@ -192,6 +206,7 @@ export class Icd10Service {
       return transformedResults;
     } catch (error) {
       this.logger.error(`WHO API search failed: ${error.message}`);
+      this.logger.error(error.stack);
       throw error;
     }
   }
@@ -333,7 +348,11 @@ export class Icd10Service {
       this.logger.log(`🌐 Fetching code ${normalizedCode} from WHO API...`);
       await this.ensureAuthenticated();
 
-      const url = `${this.WHO_API_BASE}/mms/codeinfo/${normalizedCode}`;
+      // ✅ FIXED: Use correct endpoint - entity lookup by code
+      const url = `${this.WHO_API_BASE}/${normalizedCode}`;
+      
+      this.logger.log(`🔗 Fetching: ${url}`);
+      
       const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${this.apiToken}`,
