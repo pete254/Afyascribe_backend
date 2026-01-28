@@ -24,26 +24,35 @@ export class Icd10Service {
   private tokenExpiresAt: Date | null = null;
   private readonly WHO_API_BASE = 'https://id.who.int/icd/release/10/2019';
   private readonly TOKEN_ENDPOINT = 'https://icdaccessmanagement.who.int/connect/token';
+  private pgTrgmAvailable: boolean | null = null;
 
   constructor(
     @InjectRepository(Icd10Code)
     private icd10Repository: Repository<Icd10Code>,
     private configService: ConfigService,
-  ) {}
+  ) {
+    this.checkPgTrgmExtension();
+  }
+
+  /**
+   * Check if pg_trgm extension is available
+   */
+  private async checkPgTrgmExtension(): Promise<void> {
+    try {
+      await this.icd10Repository.query(
+        `SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm'`
+      );
+      this.pgTrgmAvailable = true;
+      this.logger.log('✅ pg_trgm extension is available');
+    } catch (error) {
+      this.pgTrgmAvailable = false;
+      this.logger.warn('⚠️ pg_trgm extension is not available. Fuzzy search will be disabled.');
+      this.logger.warn('💡 To enable fuzzy search, run: CREATE EXTENSION IF NOT EXISTS pg_trgm;');
+    }
+  }
 
   /**
    * MAIN SEARCH METHOD
-   * 
-   * IMPORTANT: WHO ICD-10 API does NOT have a search endpoint!
-   * It only supports:
-   * 1. Direct entity lookup by code (e.g., /B50)
-   * 2. Browsing hierarchy (chapters, blocks)
-   * 
-   * For search functionality, we need to:
-   * 1. Use local database (seeded with ICD-10 codes)
-   * 2. OR use an alternative API like https://clinicaltables.nlm.nih.gov/api/icd10cm/v3/search
-   * 
-   * This implementation uses local database + fetches individual codes from WHO API if needed
    */
   async searchCodes(query: string, limit: number = 15): Promise<Icd10Code[]> {
     if (!query || query.trim().length < 2) {
@@ -66,16 +75,19 @@ export class Icd10Service {
     const totalCodes = await this.icd10Repository.count();
     if (totalCodes === 0) {
       this.logger.warn(`⚠️ No ICD-10 codes in database. Please seed the database first.`);
-      this.logger.warn(`💡 Tip: Import ICD-10 codes from https://www.cms.gov/medicare/coding-billing/icd-10-codes`);
-    } else {
-      // Try fuzzy search as fallback
-      this.logger.log(`🔎 Trying fuzzy search...`);
-      const fuzzyResults = await this.fuzzySearchLocal(normalizedQuery, limit);
-      if (fuzzyResults.length > 0) {
-        return fuzzyResults;
-      }
+      this.logger.warn(`💡 Call POST /icd10/seed to populate common codes`);
+      return [];
     }
 
+    // Try enhanced fuzzy search as fallback
+    this.logger.log(`🔎 Trying enhanced search...`);
+    const fuzzyResults = await this.enhancedSearch(normalizedQuery, limit);
+    if (fuzzyResults.length > 0) {
+      this.logger.log(`✅ Found ${fuzzyResults.length} results with enhanced search`);
+      return fuzzyResults;
+    }
+
+    this.logger.log(`ℹ️ No results found for: "${query}"`);
     return [];
   }
 
@@ -108,25 +120,103 @@ export class Icd10Service {
   }
 
   /**
+   * Enhanced search with multiple fallback strategies
+   */
+  private async enhancedSearch(query: string, limit: number): Promise<Icd10Code[]> {
+    // Try pg_trgm fuzzy search if available
+    if (this.pgTrgmAvailable) {
+      try {
+        const fuzzyResults = await this.fuzzySearchLocal(query, limit);
+        if (fuzzyResults.length > 0) {
+          return fuzzyResults;
+        }
+      } catch (error) {
+        this.logger.error(`Fuzzy search failed: ${error.message}`);
+        this.pgTrgmAvailable = false;
+      }
+    }
+
+    // Fallback 1: Word-by-word search
+    const words = query.split(/\s+/).filter(w => w.length > 2);
+    if (words.length > 0) {
+      const wordResults = await this.wordByWordSearch(words, limit);
+      if (wordResults.length > 0) {
+        return wordResults;
+      }
+    }
+
+    // Fallback 2: Partial matching on individual words
+    if (words.length > 0) {
+      const partialResults = await this.partialWordSearch(words, limit);
+      if (partialResults.length > 0) {
+        return partialResults;
+      }
+    }
+
+    return [];
+  }
+
+  /**
    * Fuzzy search using PostgreSQL trigram similarity
-   * Requires pg_trgm extension: CREATE EXTENSION IF NOT EXISTS pg_trgm;
+   * Requires pg_trgm extension
    */
   private async fuzzySearchLocal(query: string, limit: number): Promise<Icd10Code[]> {
-    try {
-      const results = await this.icd10Repository.query(
-        `SELECT * FROM icd10_codes 
-         WHERE is_active = true
-         AND similarity(short_description, $1) > 0.2
-         ORDER BY similarity(short_description, $1) DESC
-         LIMIT $2`,
-        [query, limit]
-      );
+    const results = await this.icd10Repository.query(
+      `SELECT * FROM icd10_codes 
+       WHERE is_active = true
+       AND similarity(short_description, $1) > 0.2
+       ORDER BY similarity(short_description, $1) DESC
+       LIMIT $2`,
+      [query, limit]
+    );
 
-      return results.map(row => this.icd10Repository.create(row));
-    } catch (error) {
-      this.logger.error(`Fuzzy search failed: ${error.message}`);
-      return [];
-    }
+    return results.map(row => this.icd10Repository.create(row));
+  }
+
+  /**
+   * Word-by-word search - matches all words
+   */
+  private async wordByWordSearch(words: string[], limit: number): Promise<Icd10Code[]> {
+    let queryBuilder = this.icd10Repository
+      .createQueryBuilder('icd10')
+      .where('icd10.is_active = true');
+
+    words.forEach((word, index) => {
+      const pattern = `%${word}%`;
+      queryBuilder = queryBuilder.andWhere(
+        `(LOWER(icd10.short_description) LIKE :pattern${index} OR LOWER(icd10.long_description) LIKE :pattern${index})`,
+        { [`pattern${index}`]: pattern }
+      );
+    });
+
+    return queryBuilder
+      .orderBy('icd10.usage_count', 'DESC')
+      .limit(limit)
+      .getMany();
+  }
+
+  /**
+   * Partial word search - matches any word
+   */
+  private async partialWordSearch(words: string[], limit: number): Promise<Icd10Code[]> {
+    let queryBuilder = this.icd10Repository
+      .createQueryBuilder('icd10')
+      .where('icd10.is_active = true');
+
+    const conditions = words.map((word, index) => {
+      return `LOWER(icd10.short_description) LIKE :pattern${index} OR LOWER(icd10.long_description) LIKE :pattern${index}`;
+    }).join(' OR ');
+
+    queryBuilder = queryBuilder.andWhere(`(${conditions})`);
+
+    words.forEach((word, index) => {
+      queryBuilder.setParameter(`pattern${index}`, `%${word}%`);
+    });
+
+    return queryBuilder
+      .orderBy('icd10.usage_count', 'DESC')
+      .limit(limit)
+      .getMany();
   }
 
   /**
@@ -331,52 +421,61 @@ export class Icd10Service {
 
   /**
    * HELPER: Seed database with common ICD-10 codes
-   * This should be called during initial setup
    */
   async seedCommonCodes(): Promise<void> {
     this.logger.log('🌱 Seeding common ICD-10 codes...');
     
     const commonCodes = [
       // Malaria codes
-      { code: 'B50', shortDesc: 'Plasmodium falciparum malaria', chapterCode: 'I' },
-      { code: 'B50.0', shortDesc: 'Plasmodium falciparum malaria with cerebral complications', chapterCode: 'I' },
-      { code: 'B50.8', shortDesc: 'Other severe and complicated Plasmodium falciparum malaria', chapterCode: 'I' },
-      { code: 'B50.9', shortDesc: 'Plasmodium falciparum malaria, unspecified', chapterCode: 'I' },
-      { code: 'B51', shortDesc: 'Plasmodium vivax malaria', chapterCode: 'I' },
-      { code: 'B51.0', shortDesc: 'Plasmodium vivax malaria with rupture of spleen', chapterCode: 'I' },
-      { code: 'B51.8', shortDesc: 'Plasmodium vivax malaria with other complications', chapterCode: 'I' },
-      { code: 'B51.9', shortDesc: 'Plasmodium vivax malaria without complication', chapterCode: 'I' },
-      { code: 'B52', shortDesc: 'Plasmodium malariae malaria', chapterCode: 'I' },
-      { code: 'B52.0', shortDesc: 'Plasmodium malariae malaria with nephropathy', chapterCode: 'I' },
-      { code: 'B52.8', shortDesc: 'Plasmodium malariae malaria with other complications', chapterCode: 'I' },
-      { code: 'B52.9', shortDesc: 'Plasmodium malariae malaria without complication', chapterCode: 'I' },
-      { code: 'B53', shortDesc: 'Other parasitologically confirmed malaria', chapterCode: 'I' },
-      { code: 'B53.0', shortDesc: 'Plasmodium ovale malaria', chapterCode: 'I' },
-      { code: 'B53.1', shortDesc: 'Malaria due to simian plasmodia', chapterCode: 'I' },
-      { code: 'B53.8', shortDesc: 'Other parasitologically confirmed malaria, not elsewhere classified', chapterCode: 'I' },
-      { code: 'B54', shortDesc: 'Unspecified malaria', chapterCode: 'I' },
+      { code: 'B50', shortDesc: 'Plasmodium falciparum malaria', chapterCode: 'I', searchTerms: ['malaria', 'falciparum', 'cerebral malaria'] },
+      { code: 'B50.0', shortDesc: 'Plasmodium falciparum malaria with cerebral complications', chapterCode: 'I', searchTerms: ['cerebral malaria', 'falciparum', 'brain'] },
+      { code: 'B50.8', shortDesc: 'Other severe and complicated Plasmodium falciparum malaria', chapterCode: 'I', searchTerms: ['severe malaria', 'complicated malaria', 'falciparum'] },
+      { code: 'B50.9', shortDesc: 'Plasmodium falciparum malaria, unspecified', chapterCode: 'I', searchTerms: ['malaria', 'falciparum'] },
+      { code: 'B51', shortDesc: 'Plasmodium vivax malaria', chapterCode: 'I', searchTerms: ['malaria', 'vivax'] },
+      { code: 'B51.0', shortDesc: 'Plasmodium vivax malaria with rupture of spleen', chapterCode: 'I', searchTerms: ['vivax malaria', 'spleen rupture'] },
+      { code: 'B51.8', shortDesc: 'Plasmodium vivax malaria with other complications', chapterCode: 'I', searchTerms: ['vivax malaria', 'complications'] },
+      { code: 'B51.9', shortDesc: 'Plasmodium vivax malaria without complication', chapterCode: 'I', searchTerms: ['malaria', 'vivax'] },
+      { code: 'B52', shortDesc: 'Plasmodium malariae malaria', chapterCode: 'I', searchTerms: ['malaria', 'malariae'] },
+      { code: 'B52.0', shortDesc: 'Plasmodium malariae malaria with nephropathy', chapterCode: 'I', searchTerms: ['malariae malaria', 'kidney', 'nephropathy'] },
+      { code: 'B52.8', shortDesc: 'Plasmodium malariae malaria with other complications', chapterCode: 'I', searchTerms: ['malariae malaria', 'complications'] },
+      { code: 'B52.9', shortDesc: 'Plasmodium malariae malaria without complication', chapterCode: 'I', searchTerms: ['malaria', 'malariae'] },
+      { code: 'B53', shortDesc: 'Other parasitologically confirmed malaria', chapterCode: 'I', searchTerms: ['malaria', 'parasites'] },
+      { code: 'B53.0', shortDesc: 'Plasmodium ovale malaria', chapterCode: 'I', searchTerms: ['malaria', 'ovale'] },
+      { code: 'B53.1', shortDesc: 'Malaria due to simian plasmodia', chapterCode: 'I', searchTerms: ['malaria', 'simian', 'monkey'] },
+      { code: 'B53.8', shortDesc: 'Other parasitologically confirmed malaria, not elsewhere classified', chapterCode: 'I', searchTerms: ['malaria', 'other'] },
+      { code: 'B54', shortDesc: 'Unspecified malaria', chapterCode: 'I', searchTerms: ['malaria', 'unspecified'] },
+      
+      // HIV/AIDS
+      { code: 'B20', shortDesc: 'Human immunodeficiency virus [HIV] disease', chapterCode: 'I', searchTerms: ['hiv', 'aids', 'immunodeficiency'] },
+      { code: 'B24', shortDesc: 'Unspecified human immunodeficiency virus [HIV] disease', chapterCode: 'I', searchTerms: ['hiv', 'aids'] },
       
       // Diabetes codes
-      { code: 'E11', shortDesc: 'Type 2 diabetes mellitus', chapterCode: 'IV' },
-      { code: 'E11.9', shortDesc: 'Type 2 diabetes mellitus without complications', chapterCode: 'IV' },
-      { code: 'E10', shortDesc: 'Type 1 diabetes mellitus', chapterCode: 'IV' },
-      { code: 'E10.9', shortDesc: 'Type 1 diabetes mellitus without complications', chapterCode: 'IV' },
+      { code: 'E11', shortDesc: 'Type 2 diabetes mellitus', chapterCode: 'IV', searchTerms: ['diabetes', 'type 2', 't2dm', 'sugar'] },
+      { code: 'E11.9', shortDesc: 'Type 2 diabetes mellitus without complications', chapterCode: 'IV', searchTerms: ['diabetes', 'type 2', 't2dm'] },
+      { code: 'E10', shortDesc: 'Type 1 diabetes mellitus', chapterCode: 'IV', searchTerms: ['diabetes', 'type 1', 't1dm', 'insulin dependent'] },
+      { code: 'E10.9', shortDesc: 'Type 1 diabetes mellitus without complications', chapterCode: 'IV', searchTerms: ['diabetes', 'type 1', 't1dm'] },
       
       // Hypertension codes
-      { code: 'I10', shortDesc: 'Essential (primary) hypertension', chapterCode: 'IX' },
-      { code: 'I11', shortDesc: 'Hypertensive heart disease', chapterCode: 'IX' },
-      { code: 'I15', shortDesc: 'Secondary hypertension', chapterCode: 'IX' },
+      { code: 'I10', shortDesc: 'Essential (primary) hypertension', chapterCode: 'IX', searchTerms: ['hypertension', 'high blood pressure', 'hbp', 'bp'] },
+      { code: 'I11', shortDesc: 'Hypertensive heart disease', chapterCode: 'IX', searchTerms: ['hypertension', 'heart disease', 'hbp'] },
+      { code: 'I15', shortDesc: 'Secondary hypertension', chapterCode: 'IX', searchTerms: ['hypertension', 'secondary', 'high blood pressure'] },
       
       // COVID-19
-      { code: 'U07.1', shortDesc: 'COVID-19', chapterCode: 'XXII' },
+      { code: 'U07.1', shortDesc: 'COVID-19', chapterCode: 'XXII', searchTerms: ['covid', 'coronavirus', 'covid-19', 'sars-cov-2'] },
       
       // Common respiratory
-      { code: 'J45', shortDesc: 'Asthma', chapterCode: 'X' },
-      { code: 'J45.9', shortDesc: 'Asthma, unspecified', chapterCode: 'X' },
-      { code: 'J18', shortDesc: 'Pneumonia, unspecified organism', chapterCode: 'X' },
-      { code: 'J18.9', shortDesc: 'Pneumonia, unspecified', chapterCode: 'X' },
+      { code: 'J45', shortDesc: 'Asthma', chapterCode: 'X', searchTerms: ['asthma', 'wheezing', 'bronchial'] },
+      { code: 'J45.9', shortDesc: 'Asthma, unspecified', chapterCode: 'X', searchTerms: ['asthma', 'unspecified'] },
+      { code: 'J18', shortDesc: 'Pneumonia, unspecified organism', chapterCode: 'X', searchTerms: ['pneumonia', 'lung infection'] },
+      { code: 'J18.9', shortDesc: 'Pneumonia, unspecified', chapterCode: 'X', searchTerms: ['pneumonia', 'chest infection'] },
+      { code: 'J06.9', shortDesc: 'Acute upper respiratory infection, unspecified', chapterCode: 'X', searchTerms: ['uri', 'cold', 'flu', 'cough'] },
+      
+      // TB
+      { code: 'A15', shortDesc: 'Respiratory tuberculosis', chapterCode: 'I', searchTerms: ['tb', 'tuberculosis', 'lung tb'] },
+      { code: 'A15.0', shortDesc: 'Tuberculosis of lung', chapterCode: 'I', searchTerms: ['tb', 'tuberculosis', 'pulmonary'] },
     ];
 
+    let seededCount = 0;
     for (const item of commonCodes) {
       const existing = await this.icd10Repository.findOne({
         where: { code: item.code },
@@ -390,12 +489,13 @@ export class Icd10Service {
           chapter_code: item.chapterCode,
           billable: true,
           is_active: true,
-          search_terms: [item.shortDesc.toLowerCase()],
+          search_terms: item.searchTerms || [item.shortDesc.toLowerCase()],
         });
+        seededCount++;
         this.logger.log(`✅ Seeded: ${item.code} - ${item.shortDesc}`);
       }
     }
     
-    this.logger.log(`✅ Seeding complete`);
+    this.logger.log(`✅ Seeding complete - Added ${seededCount} new codes`);
   }
 }
