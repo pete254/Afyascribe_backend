@@ -170,7 +170,7 @@ export class Icd10Service {
       [query, limit]
     );
 
-    return results.map(row => this.icd10Repository.create(row));
+    return results;
   }
 
   /**
