@@ -105,7 +105,7 @@ export class Icd10Service {
         '(LOWER(icd10.code) LIKE :searchPattern ' +
         'OR LOWER(icd10.short_description) LIKE :searchPattern ' +
         'OR LOWER(icd10.long_description) LIKE :searchPattern ' +
-        'OR :query = ANY(icd10.search_terms))',
+        'OR EXISTS(SELECT 1 FROM unnest(icd10.search_terms) AS term WHERE LOWER(term) LIKE :searchPattern))',
         { searchPattern, query: query.toLowerCase() }
       )
       // Prioritize exact code matches
