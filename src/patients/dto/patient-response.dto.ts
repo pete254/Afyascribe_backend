@@ -23,6 +23,62 @@ export class PatientResponseDto {
   @Expose()
   fullName: string;
 
+  @ApiProperty({ description: 'Middle name', required: false })
+  @Expose()
+  middleName?: string;
+
+  @ApiProperty({ description: 'Title', required: false })
+  @Expose()
+  title?: string;
+
+  @ApiProperty({ description: 'Marital status', required: false })
+  @Expose()
+  maritalStatus?: string;
+
+  @ApiProperty({ description: 'Occupation', required: false })
+  @Expose()
+  occupation?: string;
+
+  @ApiProperty({ description: 'ID type', required: false })
+  @Expose()
+  idType?: string;
+
+  @ApiProperty({ description: 'ID number', required: false })
+  @Expose()
+  idNumber?: string;
+
+  @ApiProperty({ description: 'Nationality', required: false })
+  @Expose()
+  nationality?: string;
+
+  @ApiProperty({ description: 'County', required: false })
+  @Expose()
+  county?: string;
+
+  @ApiProperty({ description: 'Sub-county', required: false })
+  @Expose()
+  subCounty?: string;
+
+  @ApiProperty({ description: 'Postal code', required: false })
+  @Expose()
+  postalCode?: string;
+
+  @ApiProperty({ description: 'How the patient was referred/known', required: false })
+  @Expose()
+  howKnown?: string;
+
+  @ApiProperty({ description: 'Patient type', required: false })
+  @Expose()
+  patientType?: string;
+
+  @ApiProperty({ description: 'Medical plan', required: false })
+  @Expose()
+  medicalPlan?: string;
+
+  @ApiProperty({ description: 'Medical plan membership number', required: false })
+  @Expose()
+  membershipNo?: string;
+
   @ApiProperty({ description: 'Date of birth' })
   @Expose()
   dateOfBirth: Date;

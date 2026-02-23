@@ -127,6 +127,14 @@ export class PatientsService {
   }
 
   /**
+   * Create a new patient record
+   */
+  async createPatient(dto: any): Promise<Patient> {
+    const patient = this.patientRepository.create(dto as Partial<Patient>);
+    return this.patientRepository.save(patient);
+  }
+
+  /**
    * SEED METHOD - Create dummy Kenyan patients for testing
    * This should only be used in development!
    */

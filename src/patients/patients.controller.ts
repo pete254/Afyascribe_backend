@@ -7,6 +7,8 @@ import {
   UseGuards,
   ParseIntPipe,
   DefaultValuePipe,
+  Body,
+  Post,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -18,6 +20,7 @@ import {
 import { PatientsService } from './patients.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PatientResponseDto } from './dto/patient-response.dto';
+import { CreatePatientDto } from './dto/create-patient.dto';
 import { plainToInstance } from 'class-transformer';
 
 @ApiTags('patients')
@@ -196,6 +199,12 @@ export class PatientsController {
     return plainToInstance(PatientResponseDto, patient, {
       excludeExtraneousValues: true,
     });
+  }
+
+  @Post()
+  @ApiOperation({ summary: 'Register a new patient' })
+  async createPatient(@Body() dto: CreatePatientDto) {
+    return this.patientsService.createPatient(dto);
   }
 
   // DEVELOPMENT ONLY - Seed dummy patients
