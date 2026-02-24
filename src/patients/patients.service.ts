@@ -39,9 +39,21 @@ export class PatientsService {
    */
   async createPatient(dto: any): Promise<Patient> {
     const patientId = await this.generatePatientId();
+
+    // Auto-calculate age from dateOfBirth if provided
+    let age: number | undefined;
+    if (dto.dateOfBirth) {
+      const dob = new Date(dto.dateOfBirth);
+      const today = new Date();
+      age = today.getFullYear() - dob.getFullYear();
+      const m = today.getMonth() - dob.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
+    }
+
     const patient = this.patientRepository.create({
       ...(dto as Partial<Patient>),
       patientId,
+      age,
     });
     return this.patientRepository.save(patient);
   }
