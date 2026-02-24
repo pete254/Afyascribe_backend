@@ -107,6 +107,16 @@ export class PatientResponseDto {
   @Expose()
   lastVisit?: Date;
 
+
+  @ApiProperty({ description: 'Next of kin list', required: false })
+  @Expose()
+  nextOfKin?: {
+    firstName: string;
+    lastName: string;
+    relationship: string;
+    phone: string;
+  }[];
+
   // Hide address in list views for privacy
   @Exclude()
   address?: string;

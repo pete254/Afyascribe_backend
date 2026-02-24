@@ -1,109 +1,114 @@
-import { IsString, IsOptional, IsNumber, IsNotEmpty } from 'class-validator';
+// src/patients/dto/create-patient.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
+import { IsString, IsNotEmpty, IsOptional, IsEmail } from 'class-validator';
 
 export class CreatePatientDto {
-  @ApiProperty({ example: 'P-2026-001', description: 'Hospital-assigned patient ID' })
-  @IsString()
-  @IsNotEmpty()
-  patientId: string;
-
-  @ApiProperty({ example: 'John' })
+  @ApiProperty({ example: 'Wanjiru' })
   @IsString()
   @IsNotEmpty()
   firstName: string;
 
-  @ApiProperty({ example: 'Doe' })
+  @ApiProperty({ example: 'Kamau' })
   @IsString()
   @IsNotEmpty()
   lastName: string;
 
-  @ApiProperty({ example: 34 })
-  @IsNumber()
+  @ApiProperty({ required: false })
   @IsOptional()
-  age?: number;
-
-  @ApiProperty({ example: 'male' })
   @IsString()
-  @IsOptional()
-  gender?: string;
-
-  @ApiProperty({ example: 'Mwangi' })
-  @IsString()
-  @IsOptional()
   middleName?: string;
 
-  @ApiProperty({ example: 'Mr.' })
-  @IsString()
+  @ApiProperty({ required: false, example: 'Mrs' })
   @IsOptional()
+  @IsString()
   title?: string;
 
-  @ApiProperty({ example: 'Married' })
+  @ApiProperty({ example: 'female' })
   @IsString()
+  @IsNotEmpty()
+  gender: string;
+
+  @ApiProperty({ required: false, example: '1990-01-15' })
   @IsOptional()
+  @IsString()
+  dateOfBirth?: string;
+
+  @ApiProperty({ example: '0712345678' })
+  @IsString()
+  @IsNotEmpty()
+  phoneNumber: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
   maritalStatus?: string;
 
-  @ApiProperty({ example: 'Teacher' })
-  @IsString()
+  @ApiProperty({ required: false })
   @IsOptional()
+  @IsString()
   occupation?: string;
 
-  @ApiProperty({ example: 'ID' })
-  @IsString()
+  @ApiProperty({ required: false, example: 'National ID' })
   @IsOptional()
+  @IsString()
   idType?: string;
 
-  @ApiProperty({ example: '12345678' })
-  @IsString()
+  @ApiProperty({ required: false })
   @IsOptional()
+  @IsString()
   idNumber?: string;
 
-  @ApiProperty({ example: 'Kenyan' })
-  @IsString()
+  @ApiProperty({ required: false, example: 'Kenyan' })
   @IsOptional()
+  @IsString()
   nationality?: string;
 
-  @ApiProperty({ example: 'Nairobi' })
-  @IsString()
+  @ApiProperty({ required: false, example: 'Nairobi' })
   @IsOptional()
+  @IsString()
   county?: string;
 
-  @ApiProperty({ example: 'Westlands' })
-  @IsString()
+  @ApiProperty({ required: false, example: 'Westlands' })
   @IsOptional()
+  @IsString()
   subCounty?: string;
 
-  @ApiProperty({ example: '00100' })
-  @IsString()
+  @ApiProperty({ required: false })
   @IsOptional()
+  @IsString()
   postalCode?: string;
 
-  @ApiProperty({ example: 'Referral' })
-  @IsString()
+  @ApiProperty({ required: false })
   @IsOptional()
+  @IsString()
   howKnown?: string;
 
-  @ApiProperty({ example: 'Outpatient' })
-  @IsString()
+  @ApiProperty({ required: false, example: 'Cash' })
   @IsOptional()
+  @IsString()
   patientType?: string;
 
-  @ApiProperty({ example: 'NHIF' })
-  @IsString()
+  @ApiProperty({ required: false })
   @IsOptional()
+  @IsString()
   medicalPlan?: string;
 
-  @ApiProperty({ example: 'M-12345' })
-  @IsString()
+  @ApiProperty({ required: false })
   @IsOptional()
+  @IsString()
   membershipNo?: string;
 
-  @ApiProperty({ example: '+254712345678' })
-  @IsString()
+  @ApiProperty({ required: false })
   @IsOptional()
-  phoneNumber?: string;
-
-  @ApiProperty({ example: 'john.doe@example.com' })
-  @IsString()
-  @IsOptional()
-  email?: string;
+  nextOfKin?: {
+    firstName: string;
+    lastName: string;
+    relationship: string;
+    phone: string;
+  }[];
 }
