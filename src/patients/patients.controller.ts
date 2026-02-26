@@ -9,6 +9,7 @@ import {
   UseGuards,
   ParseIntPipe,
   DefaultValuePipe,
+  Patch,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -21,6 +22,7 @@ import { PatientsService } from './patients.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PatientResponseDto } from './dto/patient-response.dto';
 import { CreatePatientDto } from './dto/create-patient.dto';
+import { UpdatePatientDto } from './dto/update-patient.dto';
 import { plainToInstance } from 'class-transformer';
 
 @ApiTags('patients')
@@ -117,6 +119,35 @@ export class PatientsController {
   async getPatientByPatientId(@Param('patientId') patientId: string) {
     const patient = await this.patientsService.getPatientByPatientId(patientId);
     return plainToInstance(PatientResponseDto, patient, {
+      excludeExtraneousValues: true,
+    });
+  }
+
+  // ── UPDATE ────────────────────────────────────────────────────────────────
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update patient details' })
+  @ApiResponse({ status: 200, description: 'Patient updated successfully', type: PatientResponseDto })
+  @ApiResponse({ status: 404, description: 'Patient not found' })
+  async updatePatient(
+    @Param('id') id: string,
+    @Body() updatePatientDto: UpdatePatientDto,
+  ) {
+    const patient = await this.patientsService.updatePatient(id, updatePatientDto);
+    return plainToInstance(PatientResponseDto, patient, {
+      excludeExtraneousValues: true,
+    });
+  }
+
+  // ── SEARCH BY PHONE ───────────────────────────────────────────────────────
+
+  @Get('search/phone')
+  @ApiOperation({ summary: 'Search patients by phone number' })
+  @ApiQuery({ name: 'q', required: true, description: 'Phone number (min 3 chars)' })
+  @ApiResponse({ status: 200, description: 'List of matching patients', type: [PatientResponseDto] })
+  async searchByPhone(@Query('q') query: string) {
+    const patients = await this.patientsService.searchByPhone(query);
+    return plainToInstance(PatientResponseDto, patients, {
       excludeExtraneousValues: true,
     });
   }

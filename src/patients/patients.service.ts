@@ -3,6 +3,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThanOrEqual } from 'typeorm';
 import { Patient } from './entities/patient.entity';
+import { UpdatePatientDto } from './dto/update-patient.dto';
 
 @Injectable()
 export class PatientsService {
@@ -147,6 +148,33 @@ export class PatientsService {
     }
 
     return patient;
+  }
+
+  /**
+   * Update patient details
+   */
+  async updatePatient(id: string, updateData: UpdatePatientDto): Promise<Patient> {
+    const patient = await this.patientRepository.findOne({ where: { id } });
+    if (!patient) {
+      throw new NotFoundException(`Patient with ID "${id}" not found`);
+    }
+    Object.assign(patient, updateData);
+    return await this.patientRepository.save(patient);
+  }
+
+  /**
+   * Search patients by phone number
+   */
+  async searchByPhone(phone: string): Promise<Patient[]> {
+    if (!phone || phone.trim().length < 3) return [];
+    const searchTerm = `%${phone.trim()}%`;
+    return await this.patientRepository
+      .createQueryBuilder('patient')
+      .where('patient.phoneNumber ILIKE :searchTerm', { searchTerm })
+      .orderBy('patient.lastName', 'ASC')
+      .addOrderBy('patient.firstName', 'ASC')
+      .limit(20)
+      .getMany();
   }
 
   /**
