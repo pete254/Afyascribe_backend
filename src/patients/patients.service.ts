@@ -1,4 +1,6 @@
 // src/patients/patients.service.ts
+// UPDATED: All queries are now scoped to facilityId.
+// Patient IDs now use facility code as prefix: KNH/2026/00042
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThanOrEqual } from 'typeorm';
@@ -13,11 +15,14 @@ export class PatientsService {
   ) {}
 
   /**
-   * Auto-generate a unique patient ID in the format AFY/YYYY/NNNNN
+   * Auto-generate a unique patient ID scoped to the facility.
+   * Format: {FACILITY_CODE}/{YEAR}/{NNNNN}
+   * e.g. KNH/2026/00042
    */
-  private async generatePatientId(): Promise<string> {
+  private async generatePatientId(facilityCode: string): Promise<string> {
     const year = new Date().getFullYear();
-    const prefix = `AFY/${year}/`;
+    const code = facilityCode.toUpperCase();
+    const prefix = `${code}/${year}/`;
 
     const latest = await this.patientRepository
       .createQueryBuilder('patient')
@@ -36,12 +41,15 @@ export class PatientsService {
   }
 
   /**
-   * Create a new patient — patientId is auto-generated
+   * Create a new patient — always scoped to the calling user's facility.
    */
-  async createPatient(dto: any): Promise<Patient> {
-    const patientId = await this.generatePatientId();
+  async createPatient(
+    dto: any,
+    facilityId: string,
+    facilityCode: string,
+  ): Promise<Patient> {
+    const patientId = await this.generatePatientId(facilityCode);
 
-    // Auto-calculate age from dateOfBirth if provided
     let age: number | undefined;
     if (dto.dateOfBirth) {
       const dob = new Date(dto.dateOfBirth);
@@ -55,27 +63,29 @@ export class PatientsService {
       ...(dto as Partial<Patient>),
       patientId,
       age,
+      facilityId, // Scoped to facility
     });
     return this.patientRepository.save(patient);
   }
 
   /**
-   * Search patients by name or patient ID
+   * Search patients — scoped to facilityId.
    */
-  async searchPatients(query: string): Promise<Patient[]> {
-    if (!query || query.trim().length < 2) {
-      return [];
-    }
+  async searchPatients(query: string, facilityId: string): Promise<Patient[]> {
+    if (!query || query.trim().length < 2) return [];
 
     const searchTerm = `%${query.trim()}%`;
 
     return this.patientRepository
       .createQueryBuilder('patient')
-      .where('patient.firstName ILIKE :searchTerm', { searchTerm })
-      .orWhere('patient.lastName ILIKE :searchTerm', { searchTerm })
-      .orWhere('patient.patientId ILIKE :searchTerm', { searchTerm })
-      .orWhere(
-        "CONCAT(patient.firstName, ' ', patient.lastName) ILIKE :searchTerm",
+      .where('patient.facilityId = :facilityId', { facilityId })
+      .andWhere(
+        `(
+          patient.firstName ILIKE :searchTerm OR
+          patient.lastName ILIKE :searchTerm OR
+          patient.patientId ILIKE :searchTerm OR
+          CONCAT(patient.firstName, ' ', patient.lastName) ILIKE :searchTerm
+        )`,
         { searchTerm },
       )
       .orderBy('patient.lastName', 'ASC')
@@ -85,29 +95,37 @@ export class PatientsService {
   }
 
   /**
-   * Get recently registered patients
+   * Get recently registered patients — scoped to facilityId.
    */
-  async getRecentPatients(limit: number = 10): Promise<Patient[]> {
+  async getRecentPatients(
+    facilityId: string,
+    limit: number = 10,
+  ): Promise<Patient[]> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 365);
 
     return this.patientRepository.find({
-      where: { registeredAt: MoreThanOrEqual(cutoff) },
+      where: {
+        facilityId,
+        registeredAt: MoreThanOrEqual(cutoff),
+      },
       order: { registeredAt: 'DESC' },
       take: limit,
     });
   }
 
   /**
-   * Get all patients with pagination
+   * Get all patients paginated — scoped to facilityId.
    */
   async getAllPatients(
+    facilityId: string,
     page: number = 1,
     limit: number = 20,
   ): Promise<{ data: Patient[]; total: number; page: number; limit: number }> {
     const skip = (page - 1) * limit;
 
     const [data, total] = await this.patientRepository.findAndCount({
+      where: { facilityId },
       order: { lastName: 'ASC', firstName: 'ASC' },
       skip,
       take: limit,
@@ -117,11 +135,11 @@ export class PatientsService {
   }
 
   /**
-   * Get a single patient by UUID
+   * Get a single patient by UUID — verifies it belongs to the facility.
    */
-  async getPatientById(id: string): Promise<Patient> {
+  async getPatientById(id: string, facilityId: string): Promise<Patient> {
     const patient = await this.patientRepository.findOne({
-      where: { id },
+      where: { id, facilityId },
       relations: ['soapNotes'],
     });
 
@@ -133,11 +151,14 @@ export class PatientsService {
   }
 
   /**
-   * Get a single patient by hospital patient ID (e.g. AFY/2026/00001)
+   * Get a patient by hospital patientId — scoped to facility.
    */
-  async getPatientByPatientId(patientId: string): Promise<Patient> {
+  async getPatientByPatientId(
+    patientId: string,
+    facilityId: string,
+  ): Promise<Patient> {
     const patient = await this.patientRepository.findOne({
-      where: { patientId },
+      where: { patientId, facilityId },
       relations: ['soapNotes'],
     });
 
@@ -151,26 +172,33 @@ export class PatientsService {
   }
 
   /**
-   * Update patient details
+   * Update a patient — verifies facility ownership.
    */
-  async updatePatient(id: string, updateData: UpdatePatientDto): Promise<Patient> {
-    const patient = await this.patientRepository.findOne({ where: { id } });
+  async updatePatient(
+    id: string,
+    updateData: UpdatePatientDto,
+    facilityId: string,
+  ): Promise<Patient> {
+    const patient = await this.patientRepository.findOne({
+      where: { id, facilityId },
+    });
     if (!patient) {
       throw new NotFoundException(`Patient with ID "${id}" not found`);
     }
     Object.assign(patient, updateData);
-    return await this.patientRepository.save(patient);
+    return this.patientRepository.save(patient);
   }
 
   /**
-   * Search patients by phone number
+   * Search patients by phone — scoped to facility.
    */
-  async searchByPhone(phone: string): Promise<Patient[]> {
+  async searchByPhone(phone: string, facilityId: string): Promise<Patient[]> {
     if (!phone || phone.trim().length < 3) return [];
     const searchTerm = `%${phone.trim()}%`;
-    return await this.patientRepository
+    return this.patientRepository
       .createQueryBuilder('patient')
-      .where('patient.phoneNumber ILIKE :searchTerm', { searchTerm })
+      .where('patient.facilityId = :facilityId', { facilityId })
+      .andWhere('patient.phoneNumber ILIKE :searchTerm', { searchTerm })
       .orderBy('patient.lastName', 'ASC')
       .addOrderBy('patient.firstName', 'ASC')
       .limit(20)
@@ -178,10 +206,12 @@ export class PatientsService {
   }
 
   /**
-   * Check if patient exists by UUID
+   * Check if patient exists in a facility.
    */
-  async patientExists(id: string): Promise<boolean> {
-    const count = await this.patientRepository.count({ where: { id } });
+  async patientExists(id: string, facilityId?: string): Promise<boolean> {
+    const where: any = { id };
+    if (facilityId) where.facilityId = facilityId;
+    const count = await this.patientRepository.count({ where });
     return count > 0;
   }
 }

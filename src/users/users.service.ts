@@ -1,5 +1,11 @@
-// src/users/users.service.ts - CORRECTED VERSION
-import { Injectable, ConflictException, NotFoundException, UnauthorizedException } from '@nestjs/common'; // ✅ Add UnauthorizedException
+// src/users/users.service.ts
+// UPDATED: Added findByFacility() for facility admin user listing
+import {
+  Injectable,
+  ConflictException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
@@ -12,123 +18,80 @@ export class UsersService {
     private usersRepository: Repository<User>,
   ) {}
 
+  // ── CREATE ─────────────────────────────────────────────────────────────────
+
   async create(createUserDto: CreateUserDto): Promise<User> {
     const existingUser = await this.findByEmail(createUserDto.email);
     if (existingUser) {
       throw new ConflictException('Email already exists');
     }
 
-    const user = this.usersRepository.create(createUserDto);
-    return await this.usersRepository.save(user);
+    const user: User = this.usersRepository.create({
+      email: createUserDto.email,
+      password: createUserDto.password,
+      firstName: createUserDto.firstName,
+      lastName: createUserDto.lastName,
+      role: createUserDto.role,
+      facilityId: createUserDto.facilityId ?? null,
+    });
+
+    return this.usersRepository.save(user);
   }
+
+  // ── FIND METHODS ───────────────────────────────────────────────────────────
 
   async findByEmail(email: string): Promise<User | null> {
-    return await this.usersRepository.findOne({ where: { email } });
+    return this.usersRepository.findOne({ where: { email } });
   }
 
-  // ✅ SINGLE findById METHOD - Remove the duplicate at line 136
+  async findByEmailWithFacility(email: string): Promise<User | null> {
+    return this.usersRepository.findOne({
+      where: { email },
+      relations: ['facility'],
+    });
+  }
+
   async findById(id: string): Promise<User> {
     const user = await this.usersRepository.findOne({ where: { id } });
-    if (!user) {
-      throw new NotFoundException(`User with ID ${id} not found`);
-    }
-    
-    // ✅ Check if deactivated
-    if (user.isDeactivated) {
-      throw new UnauthorizedException('Account has been deactivated');
-    }
-    
+    if (!user) throw new NotFoundException(`User with ID ${id} not found`);
+    if (user.isDeactivated) throw new UnauthorizedException('Account has been deactivated');
     return user;
   }
 
-  // ✅ NEW: Deactivation methods
-  async deactivateAccount(userId: string, reason?: string): Promise<void> {
-    const user = await this.usersRepository.findOne({ where: { id: userId } });
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    user.isDeactivated = true;
-    user.deactivatedAt = new Date();
-    user.deactivationReason = reason || null;
-
-    await this.usersRepository.save(user);
+  async findAll(): Promise<User[]> {
+    return this.usersRepository.find({ order: { createdAt: 'DESC' } });
   }
 
-  async reactivateAccount(userId: string): Promise<void> {
+  /**
+   * Get all users belonging to a specific facility.
+   * Used by facility_admin to list and manage their staff.
+   */
+  async findByFacility(facilityId: string): Promise<Omit<User, 'password'>[]> {
+    const users = await this.usersRepository.find({
+      where: { facilityId },
+      order: { lastName: 'ASC', firstName: 'ASC' },
+      select: [
+        'id', 'email', 'firstName', 'lastName', 'role',
+        'isActive', 'isDeactivated', 'deactivatedAt',
+        'deactivationReason', 'createdAt', 'updatedAt',
+      ],
+    });
+    return users;
+  }
+
+  // ── PASSWORD RESET ─────────────────────────────────────────────────────────
+
+  async setResetCode(userId: string, code: string, expiresAt: Date): Promise<void> {
     await this.usersRepository.update(userId, {
-      isDeactivated: false,
-      deactivatedAt: null,
-      deactivationReason: null,
+      resetCode: code,
+      resetCodeExpiresAt: expiresAt,
+      resetCodeAttempts: 0,
     });
-  }
-
-  // ✅ OLD TOKEN-BASED METHODS (kept for backward compatibility)
-  async setResetPasswordToken(email: string, token: string, expiresAt: Date): Promise<void> {
-    const user = await this.findByEmail(email);
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    user.resetPasswordToken = token;
-    user.resetPasswordExpires = expiresAt;
-    await this.usersRepository.save(user);
-  }
-
-  async findByResetToken(token: string): Promise<User | null> {
-    const user = await this.usersRepository.findOne({
-      where: { resetPasswordToken: token },
-    });
-
-    if (user && user.resetPasswordExpires && user.resetPasswordExpires < new Date()) {
-      return null;
-    }
-
-    return user;
-  }
-
-  async clearResetToken(userId: string): Promise<void> {
-    await this.usersRepository.update(userId, {
-      resetPasswordToken: null,
-      resetPasswordExpires: null,
-    });
-  }
-
-  // ✅ NEW: 6-DIGIT CODE METHODS
-  async setResetCode(email: string, code: string, expiresAt: Date): Promise<void> {
-    const user = await this.findByEmail(email);
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    user.resetCode = code;
-    user.resetCodeExpiresAt = expiresAt;
-    user.resetCodeAttempts = 0; // Reset attempts when new code is generated
-    await this.usersRepository.save(user);
-  }
-
-  async findByEmailWithResetCode(email: string): Promise<User | null> {
-    const user = await this.usersRepository.findOne({
-      where: { email },
-    });
-
-    if (!user || !user.resetCode || !user.resetCodeExpiresAt) {
-      return null;
-    }
-
-    // Check if code expired
-    if (user.resetCodeExpiresAt < new Date()) {
-      return null;
-    }
-
-    return user;
   }
 
   async incrementResetCodeAttempts(userId: string): Promise<number> {
     const user = await this.usersRepository.findOne({ where: { id: userId } });
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
+    if (!user) throw new NotFoundException('User not found');
     user.resetCodeAttempts += 1;
     await this.usersRepository.save(user);
     return user.resetCodeAttempts;
@@ -143,8 +106,49 @@ export class UsersService {
   }
 
   async updatePassword(userId: string, hashedPassword: string): Promise<void> {
+    await this.usersRepository.update(userId, { password: hashedPassword });
+  }
+
+  // ── OLD TOKEN-BASED RESET ──────────────────────────────────────────────────
+
+  async setResetPasswordToken(email: string, token: string, expiresAt: Date): Promise<void> {
+    const user = await this.findByEmail(email);
+    if (!user) throw new NotFoundException('User not found');
+    user.resetPasswordToken = token;
+    user.resetPasswordExpires = expiresAt;
+    await this.usersRepository.save(user);
+  }
+
+  async findByResetToken(token: string): Promise<User | null> {
+    const user = await this.usersRepository.findOne({
+      where: { resetPasswordToken: token },
+    });
+    if (user?.resetPasswordExpires && user.resetPasswordExpires < new Date()) return null;
+    return user ?? null;
+  }
+
+  async clearResetToken(userId: string): Promise<void> {
     await this.usersRepository.update(userId, {
-      password: hashedPassword,
+      resetPasswordToken: null,
+      resetPasswordExpires: null,
+    });
+  }
+
+  // ── DEACTIVATION ───────────────────────────────────────────────────────────
+
+  async deactivateAccount(userId: string, reason?: string): Promise<void> {
+    await this.usersRepository.update(userId, {
+      isDeactivated: true,
+      deactivatedAt: new Date(),
+      deactivationReason: reason ?? null,
+    });
+  }
+
+  async reactivateAccount(userId: string): Promise<void> {
+    await this.usersRepository.update(userId, {
+      isDeactivated: false,
+      deactivatedAt: null,
+      deactivationReason: null,
     });
   }
 }

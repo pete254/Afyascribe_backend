@@ -1,12 +1,16 @@
 // src/patients/entities/patient.entity.ts
+// UPDATED: Added facilityId and facility relation
 import {
   Entity,
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
   OneToMany,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import { SoapNote } from '../../soap-notes/entities/soap-note.entity';
+import { Facility } from '../../facilities/entities/facility.entity';
 
 @Entity('patients')
 export class Patient {
@@ -14,9 +18,21 @@ export class Patient {
   id: string;
 
   @Column({ unique: true })
-  patientId: string; // Auto-generated e.g. "AFY/2026/00042"
+  patientId: string; // Auto-generated e.g. "KNH/2026/00042" (now uses facility code)
 
-  // ── Personal Info ─────────────────────────────────────
+  // ── Facility Link ──────────────────────────────────────────────────────────
+  // nullable: true during migration — will be NOT NULL after backfill
+  @Column({ nullable: true, type: 'uuid' })
+  facilityId: string | null;
+
+  @ManyToOne(() => Facility, (facility) => facility.patients, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'facilityId' })
+  facility: Facility;
+
+  // ── Personal Info ──────────────────────────────────────────────────────────
   @Column({ nullable: true })
   title: string;
 
@@ -44,21 +60,21 @@ export class Patient {
   @Column({ nullable: true })
   occupation: string;
 
-  // ── Contact ───────────────────────────────────────────
+  // ── Contact ───────────────────────────────────────────────────────────────
   @Column({ nullable: true })
   phoneNumber: string;
 
   @Column({ nullable: true })
   email: string;
 
-  // ── Identity ──────────────────────────────────────────
+  // ── Identity ─────────────────────────────────────────────────────────────
   @Column({ nullable: true })
   idType: string;
 
   @Column({ nullable: true })
   idNumber: string;
 
-  // ── Location ──────────────────────────────────────────
+  // ── Location ─────────────────────────────────────────────────────────────
   @Column({ nullable: true })
   nationality: string;
 
@@ -71,7 +87,7 @@ export class Patient {
   @Column({ nullable: true })
   postalCode: string;
 
-  // ── Facility ──────────────────────────────────────────
+  // ── Facility/Admin ────────────────────────────────────────────────────────
   @Column({ nullable: true })
   howKnown: string;
 
@@ -84,9 +100,8 @@ export class Patient {
   @Column({ nullable: true })
   membershipNo: string;
 
-  // ── Next of Kin ───────────────────────────────────────
-
-    @Column({ type: 'jsonb', nullable: true })
+  // ── Next of Kin ───────────────────────────────────────────────────────────
+  @Column({ type: 'jsonb', nullable: true })
   nextOfKin: {
     firstName: string;
     lastName: string;
@@ -94,13 +109,14 @@ export class Patient {
     phone: string;
   }[];
 
-  // ── Timestamps ────────────────────────────────────────
+  // ── Timestamps ────────────────────────────────────────────────────────────
   @CreateDateColumn()
   registeredAt: Date;
 
   @Column({ type: 'timestamp', nullable: true })
   lastVisit: Date;
 
+  // ── Relations ─────────────────────────────────────────────────────────────
   @OneToMany(() => SoapNote, (soapNote) => soapNote.patient)
   soapNotes: SoapNote[];
 }

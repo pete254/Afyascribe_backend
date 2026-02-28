@@ -1,4 +1,4 @@
-// src/app.module.ts
+// src/app.module.ts — FINAL VERSION with all multi-facility modules
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -14,31 +14,27 @@ import { SoapNotesModule } from './soap-notes/soap-notes.module';
 import { PatientsModule } from './patients/patients.module';
 import { TranscriptionModule } from './transcription/transcription.module';
 import { Icd10Module } from './icd10/icd10.module';
+import { FacilitiesModule } from './facilities/facilities.module';
 
 import { User } from './users/entities/user.entity';
 import { SoapNote } from './soap-notes/entities/soap-note.entity';
 import { Patient } from './patients/entities/patient.entity';
+import { Facility } from './facilities/entities/facility.entity';
+import { FacilityInviteCode } from './facilities/entities/facility-invite-code.entity';
 
 import { KeepAliveService } from './services/keepAlive';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-    }),
-
-    // Enables cron jobs (token refresh, keep-alive, etc.)
+    ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
-
     HttpModule,
 
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        const isProduction =
-          configService.get('NODE_ENV') === 'production';
-
+        const isProduction = configService.get('NODE_ENV') === 'production';
         const config: any = {
           type: 'postgres',
           host: configService.get('DB_HOST'),
@@ -46,23 +42,15 @@ import { KeepAliveService } from './services/keepAlive';
           username: configService.get('DB_USERNAME'),
           password: configService.get('DB_PASSWORD'),
           database: configService.get('DB_DATABASE'),
-          entities: [User, SoapNote, Patient],
+          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode],
           autoLoadEntities: true,
-          synchronize: !isProduction,
+          synchronize: !isProduction, // Never sync in production — run migrations manually
           logging: !isProduction,
         };
-
-        // ✅ REQUIRED for Render / Neon Postgres
         if (isProduction) {
-          config.ssl = {
-            rejectUnauthorized: false,
-          };
-
-          config.extra = {
-            sslmode: 'require',
-          };
+          config.ssl = { rejectUnauthorized: false };
+          config.extra = { sslmode: 'require' };
         }
-
         return config;
       },
     }),
@@ -73,6 +61,7 @@ import { KeepAliveService } from './services/keepAlive';
     PatientsModule,
     TranscriptionModule,
     Icd10Module,
+    FacilitiesModule,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],

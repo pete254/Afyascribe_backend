@@ -1,209 +1,166 @@
 // src/soap-notes/soap-notes.controller.ts
-import { 
-  Controller, 
-  Get, 
-  Post, 
-  Body, 
-  Patch, 
-  Param, 
-  Delete, 
-  UseGuards, 
+// UPDATED: All endpoints now pass facilityId from JWT via @CurrentUser()
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  UseGuards,
   Request,
   Query,
   HttpCode,
-  HttpStatus
+  HttpStatus,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+} from '@nestjs/swagger';
+
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.decorator';
 import { SoapNotesService } from './soap-notes.service';
 import { CreateSoapNoteDto } from './dto/create-soap-note.dto';
 import { UpdateSoapNoteDto } from './dto/update-soap-note.dto';
 import { UpdateSoapNoteStatusDto } from './dto/update-soap-note-status.dto';
 import { QuerySoapNotesDto } from './dto/query-soap-notes.dto';
-import { 
-  ApiTags, 
-  ApiBearerAuth, 
-  ApiOperation, 
-  ApiResponse,
-} from '@nestjs/swagger';
 
 @ApiTags('soap-notes')
 @ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('soap-notes')
 export class SoapNotesController {
   constructor(private readonly soapNotesService: SoapNotesService) {}
 
+  // ── CREATE ─────────────────────────────────────────────────────────────────
+
   @Post()
-  @ApiOperation({ 
-    summary: 'Create a new SOAP note',
-    description: 'Create a SOAP note linked to an existing patient. All four sections are required.'
-  })
-  @ApiResponse({ 
-    status: 201, 
-    description: 'SOAP note created successfully',
-  })
-  @ApiResponse({ 
-    status: 400, 
-    description: 'Invalid input data or patient not found' 
-  })
-  @ApiResponse({ 
-    status: 401, 
-    description: 'Unauthorized' 
-  })
-  create(@Body() createSoapNoteDto: CreateSoapNoteDto, @Request() req) {
-    return this.soapNotesService.create(createSoapNoteDto, req.user.userId);
+  @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Create a new SOAP note' })
+  @ApiResponse({ status: 201, description: 'SOAP note created successfully' })
+  create(
+    @Body() createSoapNoteDto: CreateSoapNoteDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.soapNotesService.create(createSoapNoteDto, user.id, user.facilityId);
   }
+
+  // ── LIST (own notes, scoped to facility) ───────────────────────────────────
 
   @Get()
-  @ApiOperation({ 
-    summary: 'Get all SOAP notes for current user',
-    description: 'Returns paginated list of SOAP notes with patient information.'
-  })
-  @ApiResponse({ 
-    status: 200, 
-    description: 'Returns paginated SOAP notes with patient details',
-  })
-  findAll(@Query() queryDto: QuerySoapNotesDto, @Request() req) {
-    return this.soapNotesService.findAll(req.user.userId, queryDto);
+  @ApiOperation({ summary: 'Get my SOAP notes (scoped to facility)' })
+  findAll(
+    @Query() queryDto: QuerySoapNotesDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.soapNotesService.findAll(user.id, user.facilityId, queryDto);
   }
+
+  // ── LIST ALL IN FACILITY (facility_admin / super_admin only) ───────────────
+
+  @Get('facility-all')
+  @Roles('facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Get all SOAP notes in facility (admin only)' })
+  findAllForFacility(
+    @Query() queryDto: QuerySoapNotesDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.soapNotesService.findAllForFacility(user.facilityId, queryDto);
+  }
+
+  // ── STATISTICS ─────────────────────────────────────────────────────────────
 
   @Get('statistics')
-  @ApiOperation({ 
-    summary: 'Get SOAP notes statistics',
-    description: 'Returns statistics about SOAP notes for the current user'
-  })
-  @ApiResponse({ 
-    status: 200, 
-    description: 'Returns statistics',
-  })
-  getStatistics(@Request() req) {
-    return this.soapNotesService.getStatistics(req.user.userId);
+  @ApiOperation({ summary: 'Get my SOAP note statistics' })
+  getStatistics(@CurrentUser() user: CurrentUserType) {
+    return this.soapNotesService.getStatistics(user.id, user.facilityId);
   }
 
-  // 🆕 NEW: Get all SOAP notes for a specific patient
+  // ── BY PATIENT ─────────────────────────────────────────────────────────────
+
   @Get('patient/:patientId')
-  @ApiOperation({ 
-    summary: 'Get all SOAP notes for a specific patient',
-    description: 'Returns all notes for a patient, ordered by most recent first. Used for patient history view.'
-  })
-  @ApiResponse({ 
-    status: 200, 
-    description: 'Returns all SOAP notes for the patient',
-  })
-  @ApiResponse({ 
-    status: 404, 
-    description: 'Patient not found' 
-  })
-  async getPatientHistory(@Param('patientId') patientId: string) {
-    return this.soapNotesService.findByPatient(patientId);
+  @ApiOperation({ summary: 'Get all SOAP notes for a patient (scoped to facility)' })
+  getPatientHistory(
+    @Param('patientId') patientId: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.soapNotesService.findByPatient(patientId, user.facilityId);
   }
+
+  // ── FIND ONE ───────────────────────────────────────────────────────────────
 
   @Get(':id')
-  @ApiOperation({ 
-    summary: 'Get a specific SOAP note',
-    description: 'Returns a single SOAP note with full patient and creator information'
-  })
-  @ApiResponse({ 
-    status: 200, 
-    description: 'Returns the SOAP note with patient details' 
-  })
-  @ApiResponse({ 
-    status: 404, 
-    description: 'SOAP note not found' 
-  })
-  findOne(@Param('id') id: string, @Request() req) {
-    return this.soapNotesService.findOne(id, req.user.userId);
+  @ApiOperation({ summary: 'Get a specific SOAP note' })
+  findOne(@Param('id') id: string, @CurrentUser() user: CurrentUserType) {
+    return this.soapNotesService.findOne(id, user.id, user.facilityId);
   }
 
+  // ── UPDATE ─────────────────────────────────────────────────────────────────
+
   @Patch(':id')
-  @ApiOperation({ 
-    summary: 'Update a SOAP note',
-    description: 'Update any section of a SOAP note. Automatically marks note as edited if content is changed.'
-  })
-  @ApiResponse({ 
-    status: 200, 
-    description: 'SOAP note updated successfully' 
-  })
-  @ApiResponse({ 
-    status: 404, 
-    description: 'SOAP note not found' 
-  })
+  @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Update a SOAP note' })
   update(
     @Param('id') id: string,
     @Body() updateSoapNoteDto: UpdateSoapNoteDto,
-    @Request() req
+    @CurrentUser() user: CurrentUserType,
   ) {
-    return this.soapNotesService.update(id, updateSoapNoteDto, req.user.userId);
+    return this.soapNotesService.update(id, updateSoapNoteDto, user.id, user.facilityId);
   }
 
-  // 🆕 NEW: Edit a note with history tracking
+  // ── EDIT WITH HISTORY ──────────────────────────────────────────────────────
+
   @Patch(':id/edit')
-  @ApiOperation({ 
-    summary: 'Edit a SOAP note with history tracking',
-    description: 'Allows any doctor to edit a note. Tracks who edited it and when. Preserves edit history.'
-  })
-  @ApiResponse({ 
-    status: 200, 
-    description: 'Note edited successfully with history tracked' 
-  })
-  @ApiResponse({ 
-    status: 404, 
-    description: 'SOAP note not found' 
-  })
-  async editNoteWithHistory(
+  @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Edit a SOAP note with history tracking' })
+  editNoteWithHistory(
     @Param('id') id: string,
-    @Body() updateData: { 
+    @Body() updateData: {
       symptoms?: string;
       physicalExamination?: string;
+      labInvestigations?: string;
+      imaging?: string;
       diagnosis?: string;
+      icd10Code?: string;
+      icd10Description?: string;
       management?: string;
     },
-    @Request() req
+    @CurrentUser() user: CurrentUserType,
   ) {
     return this.soapNotesService.editWithHistory(
-      id, 
-      updateData, 
-      req.user.userId,
-      `${req.user.firstName} ${req.user.lastName}`
+      id,
+      updateData,
+      user.id,
+      `${user.firstName} ${user.lastName}`,
+      user.facilityId,
     );
   }
 
+  // ── STATUS ─────────────────────────────────────────────────────────────────
+
   @Patch(':id/status')
-  @ApiOperation({ 
-    summary: 'Update SOAP note status',
-    description: 'Change the status of a SOAP note (pending, submitted, reviewed, archived)'
-  })
-  @ApiResponse({ 
-    status: 200, 
-    description: 'Status updated successfully' 
-  })
-  @ApiResponse({ 
-    status: 404, 
-    description: 'SOAP note not found' 
-  })
+  @ApiOperation({ summary: 'Update SOAP note status' })
   updateStatus(
     @Param('id') id: string,
     @Body() updateStatusDto: UpdateSoapNoteStatusDto,
-    @Request() req
+    @CurrentUser() user: CurrentUserType,
   ) {
-    return this.soapNotesService.updateStatus(id, updateStatusDto.status, req.user.userId);
+    return this.soapNotesService.updateStatus(id, updateStatusDto.status, user.id, user.facilityId);
   }
+
+  // ── DELETE ─────────────────────────────────────────────────────────────────
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ 
-    summary: 'Delete a SOAP note',
-    description: 'Permanently delete a SOAP note'
-  })
-  @ApiResponse({ 
-    status: 204, 
-    description: 'SOAP note deleted successfully' 
-  })
-  @ApiResponse({ 
-    status: 404, 
-    description: 'SOAP note not found' 
-  })
-  remove(@Param('id') id: string, @Request() req) {
-    return this.soapNotesService.remove(id, req.user.userId);
+  @Roles('doctor', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Delete a SOAP note' })
+  remove(@Param('id') id: string, @CurrentUser() user: CurrentUserType) {
+    return this.soapNotesService.remove(id, user.id, user.facilityId);
   }
 }

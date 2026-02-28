@@ -1,5 +1,6 @@
-// src/auth/auth.controller.ts - UPDATED WITH 6-DIGIT CODE ENDPOINTS
-import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
+// src/auth/auth.controller.ts
+// UPDATED: Added register-with-invite and validate-invite-code endpoints
+import { Controller, Post, Body, HttpCode, HttpStatus, Get, Param } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { LoginDto } from './dto/login.dto';
@@ -7,153 +8,100 @@ import { RegisterDto } from './dto/register.dto';
 import { RequestResetCodeDto } from './dto/request-reset-code.dto';
 import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
 import { ResetPasswordWithCodeDto } from './dto/reset-password-with-code.dto';
+import { UseInviteCodeDto } from '../facilities/dto/use-invite-code.dto';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
 
+  // ── LOGIN ──────────────────────────────────────────────────────────────────
+
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ 
-    summary: 'Login user',
-    description: 'Authenticate user with email and password. Returns JWT token and user information.'
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Login successful',
-    schema: {
-      example: {
-        access_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-        user: {
-          id: 'uuid',
-          email: 'doctor@example.com',
-          firstName: 'John',
-          lastName: 'Doe',
-          role: 'doctor'
-        }
-      }
-    }
-  })
-  @ApiResponse({
-    status: 401,
-    description: 'Invalid credentials'
-  })
+  @ApiOperation({ summary: 'Login with email and password' })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto.email, loginDto.password);
   }
 
+  // ── REGISTER WITH INVITE CODE (primary staff sign-up flow) ────────────────
+
   @Post('register')
-  @ApiOperation({ 
-    summary: 'Register new user',
-    description: 'Create a new user account. Default role is "doctor" if not specified.'
+  @ApiOperation({
+    summary: 'Register a new staff account using a facility invite code',
+    description:
+      'Staff enter the 8-character invite code from their facility admin, ' +
+      'plus their personal details. The code automatically links them to the correct facility.',
   })
   @ApiResponse({
     status: 201,
-    description: 'User registered successfully',
+    description: 'Account created and logged in',
     schema: {
       example: {
-        id: 'uuid',
-        email: 'doctor@example.com',
-        firstName: 'John',
-        lastName: 'Doe',
-        role: 'doctor',
-        isActive: true,
-        createdAt: '2025-01-15T10:00:00.000Z'
-      }
-    }
+        access_token: 'eyJ...',
+        user: {
+          id: 'uuid',
+          email: 'john.doe@knh.go.ke',
+          firstName: 'John',
+          lastName: 'Doe',
+          role: 'doctor',
+          facilityId: 'uuid',
+          facilityCode: 'KNH',
+          facilityName: 'Kenyatta National Hospital',
+        },
+      },
+    },
   })
-  @ApiResponse({
-    status: 409,
-    description: 'Email already exists'
-  })
-  async register(@Body() registerDto: RegisterDto) {
-    return this.authService.register(
-      registerDto.email,
-      registerDto.password,
-      registerDto.firstName,
-      registerDto.lastName,
-      registerDto.role,
-    );
+  @ApiResponse({ status: 400, description: 'Invalid or expired invite code' })
+  @ApiResponse({ status: 409, description: 'Email already registered' })
+  async register(@Body() dto: UseInviteCodeDto) {
+    return this.authService.registerWithInviteCode(dto);
   }
 
-  // ✅ NEW: Request 6-digit reset code
+  // ── VALIDATE INVITE CODE (call before showing sign-up form) ───────────────
+
+  @Get('validate-invite/:code')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Check if an invite code is valid',
+    description:
+      'Call this when the user enters their code on the landing screen. ' +
+      'Returns facility name so you can show "You are joining: Kenyatta National Hospital"',
+  })
+  @ApiResponse({
+    status: 200,
+    schema: {
+      example: {
+        facilityId: 'uuid',
+        facilityName: 'Kenyatta National Hospital',
+        facilityCode: 'KNH',
+      },
+    },
+  })
+  async validateInviteCode(@Param('code') code: string) {
+    return this.authService.validateInviteCode(code);
+  }
+
+  // ── PASSWORD RESET ─────────────────────────────────────────────────────────
+
   @Post('request-reset-code')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ 
-    summary: 'Request 6-digit password reset code',
-    description: 'Send a 6-digit reset code to user email. Code expires in 10 minutes with 5 max attempts.'
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Reset code sent successfully',
-    schema: {
-      example: {
-        message: 'If the email exists, a reset code has been sent'
-      }
-    }
-  })
-  @ApiResponse({
-    status: 400,
-    description: 'Invalid email format'
-  })
-  async requestResetCode(@Body() requestResetCodeDto: RequestResetCodeDto) {
-    return this.authService.requestResetCode(requestResetCodeDto.email);
+  @ApiOperation({ summary: 'Request a 6-digit password reset code' })
+  async requestResetCode(@Body() dto: RequestResetCodeDto) {
+    return this.authService.requestResetCode(dto.email);
   }
 
-  // ✅ NEW: Verify 6-digit reset code
   @Post('verify-reset-code')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ 
-    summary: 'Verify 6-digit reset code',
-    description: 'Validate the reset code before allowing password reset. Returns whether code is valid.'
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Code verification result',
-    schema: {
-      example: {
-        valid: true,
-        message: 'Code verified successfully'
-      }
-    }
-  })
-  @ApiResponse({
-    status: 400,
-    description: 'Invalid code format'
-  })
-  async verifyResetCode(@Body() verifyResetCodeDto: VerifyResetCodeDto) {
-    return this.authService.verifyResetCode(
-      verifyResetCodeDto.email,
-      verifyResetCodeDto.code
-    );
+  @ApiOperation({ summary: 'Verify a 6-digit reset code' })
+  async verifyResetCode(@Body() dto: VerifyResetCodeDto) {
+    return this.authService.verifyResetCode(dto.email, dto.code);
   }
 
-  // ✅ NEW: Reset password with 6-digit code
   @Post('reset-password-with-code')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ 
-    summary: 'Reset password using 6-digit code',
-    description: 'Reset user password using verified 6-digit code. Code must be valid and not expired.'
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Password reset successful',
-    schema: {
-      example: {
-        message: 'Password reset successfully'
-      }
-    }
-  })
-  @ApiResponse({
-    status: 400,
-    description: 'Invalid code or password requirements not met'
-  })
-  async resetPasswordWithCode(@Body() resetPasswordDto: ResetPasswordWithCodeDto) {
-    return this.authService.resetPasswordWithCode(
-      resetPasswordDto.email,
-      resetPasswordDto.code,
-      resetPasswordDto.newPassword
-    );
+  @ApiOperation({ summary: 'Reset password using verified 6-digit code' })
+  async resetPasswordWithCode(@Body() dto: ResetPasswordWithCodeDto) {
+    return this.authService.resetPasswordWithCode(dto.email, dto.code, dto.newPassword);
   }
 }

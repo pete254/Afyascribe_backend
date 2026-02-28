@@ -1,5 +1,6 @@
 // src/soap-notes/soap-notes.service.ts
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+// UPDATED: All queries scoped to facilityId — notes are fully isolated per facility
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SoapNote } from './entities/soap-note.entity';
@@ -18,56 +19,70 @@ export class SoapNotesService {
     private patientsService: PatientsService,
   ) {}
 
-  async create(createSoapNoteDto: CreateSoapNoteDto, userId: string): Promise<SoapNote> {
-    // Validate that patient exists
-    const patientExists = await this.patientsService.patientExists(createSoapNoteDto.patientId);
+  // ── CREATE ─────────────────────────────────────────────────────────────────
+
+  async create(
+    createSoapNoteDto: CreateSoapNoteDto,
+    userId: string,
+    facilityId: string,
+  ): Promise<SoapNote> {
+    // Verify patient belongs to same facility
+    const patientExists = await this.patientsService.patientExists(
+      createSoapNoteDto.patientId,
+      facilityId,
+    );
     if (!patientExists) {
-      throw new BadRequestException(`Patient with ID ${createSoapNoteDto.patientId} not found`);
+      throw new BadRequestException(
+        `Patient with ID ${createSoapNoteDto.patientId} not found in your facility`,
+      );
     }
 
     const soapNote = this.soapNotesRepository.create({
       ...createSoapNoteDto,
       createdById: userId,
+      facilityId,
     });
-    
-    return await this.soapNotesRepository.save(soapNote);
+
+    return this.soapNotesRepository.save(soapNote);
   }
 
+  // ── FIND ALL (paginated, scoped to facility) ───────────────────────────────
+
   async findAll(
-    userId: string, 
-    queryDto: QuerySoapNotesDto
+    userId: string,
+    facilityId: string,
+    queryDto: QuerySoapNotesDto,
   ): Promise<PaginatedResponse<SoapNote>> {
     const page = queryDto.page ?? 1;
     const limit = queryDto.limit ?? 10;
     const sortBy = queryDto.sortBy ?? 'createdAt';
     const sortOrder = queryDto.sortOrder ?? 'DESC';
     const { status, patientName } = queryDto;
-    
-    const queryBuilder = this.soapNotesRepository
+
+    const qb = this.soapNotesRepository
       .createQueryBuilder('soap_note')
       .leftJoinAndSelect('soap_note.patient', 'patient')
       .leftJoinAndSelect('soap_note.createdBy', 'createdBy')
-      .where('soap_note.createdById = :userId', { userId });
-    
+      // Facility scope — users only see notes from their own facility
+      .where('soap_note.facilityId = :facilityId', { facilityId })
+      // Doctors/nurses see their own notes; admins see all within facility
+      .andWhere('soap_note.createdById = :userId', { userId });
+
     if (status) {
-      queryBuilder.andWhere('soap_note.status = :status', { status });
+      qb.andWhere('soap_note.status = :status', { status });
     }
-    
+
     if (patientName) {
-      queryBuilder.andWhere(
-        "(patient.firstName ILIKE :patientName OR patient.lastName ILIKE :patientName OR CONCAT(patient.firstName, ' ', patient.lastName) ILIKE :patientName)",
-        { patientName: `%${patientName}%` }
+      qb.andWhere(
+        `(patient.firstName ILIKE :name OR patient.lastName ILIKE :name OR CONCAT(patient.firstName, ' ', patient.lastName) ILIKE :name)`,
+        { name: `%${patientName}%` },
       );
     }
 
     const skip = (page - 1) * limit;
-    queryBuilder
-      .orderBy(`soap_note.${sortBy}`, sortOrder)
-      .skip(skip)
-      .take(limit);
+    qb.orderBy(`soap_note.${sortBy}`, sortOrder).skip(skip).take(limit);
 
-    const [data, total] = await queryBuilder.getManyAndCount();
-
+    const [data, total] = await qb.getManyAndCount();
     const totalPages = Math.ceil(total / limit);
 
     return {
@@ -83,149 +98,163 @@ export class SoapNotesService {
     };
   }
 
-  async findOne(id: string, userId: string): Promise<SoapNote> {
-    const soapNote = await this.soapNotesRepository.findOne({
-      where: { id, createdById: userId },
-      relations: ['patient', 'createdBy'],
-    });
-    
-    if (!soapNote) {
-      throw new NotFoundException(`SOAP note with ID ${id} not found`);
-    }
-    
-    return soapNote;
+  // ── FIND ALL FOR FACILITY (facility_admin view) ────────────────────────────
+
+  async findAllForFacility(
+    facilityId: string,
+    queryDto: QuerySoapNotesDto,
+  ): Promise<PaginatedResponse<SoapNote>> {
+    const page = queryDto.page ?? 1;
+    const limit = queryDto.limit ?? 10;
+    const sortBy = queryDto.sortBy ?? 'createdAt';
+    const sortOrder = queryDto.sortOrder ?? 'DESC';
+
+    const qb = this.soapNotesRepository
+      .createQueryBuilder('soap_note')
+      .leftJoinAndSelect('soap_note.patient', 'patient')
+      .leftJoinAndSelect('soap_note.createdBy', 'createdBy')
+      .where('soap_note.facilityId = :facilityId', { facilityId });
+
+    const skip = (page - 1) * limit;
+    qb.orderBy(`soap_note.${sortBy}`, sortOrder).skip(skip).take(limit);
+
+    const [data, total] = await qb.getManyAndCount();
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data,
+      meta: { total, page, limit, totalPages, hasNextPage: page < totalPages, hasPreviousPage: page > 1 },
+    };
   }
 
-  // 🆕 NEW: Get all notes for a specific patient
-  async findByPatient(patientId: string): Promise<SoapNote[]> {
-    // Verify patient exists
-    const patientExists = await this.patientsService.patientExists(patientId);
+  // ── FIND ONE (scoped to facility) ──────────────────────────────────────────
+
+  async findOne(id: string, userId: string, facilityId: string): Promise<SoapNote> {
+    const note = await this.soapNotesRepository.findOne({
+      where: { id, createdById: userId, facilityId },
+      relations: ['patient', 'createdBy'],
+    });
+
+    if (!note) throw new NotFoundException(`SOAP note with ID ${id} not found`);
+    return note;
+  }
+
+  // ── FIND BY PATIENT (scoped to facility) ──────────────────────────────────
+
+  async findByPatient(patientId: string, facilityId: string): Promise<SoapNote[]> {
+    const patientExists = await this.patientsService.patientExists(patientId, facilityId);
     if (!patientExists) {
-      throw new NotFoundException(`Patient with ID ${patientId} not found`);
+      throw new NotFoundException(`Patient with ID ${patientId} not found in your facility`);
     }
 
-    const notes = await this.soapNotesRepository.find({
-      where: { patientId },
+    return this.soapNotesRepository.find({
+      where: { patientId, facilityId },
       relations: ['patient', 'createdBy'],
-      order: { createdAt: 'DESC' }, // Most recent first
+      order: { createdAt: 'DESC' },
     });
-
-    return notes;
   }
 
-  async update(id: string, updateSoapNoteDto: UpdateSoapNoteDto, userId: string): Promise<SoapNote> {
-    const soapNote = await this.findOne(id, userId);
-    
-    // Mark as edited if any content fields were changed
+  // ── UPDATE ─────────────────────────────────────────────────────────────────
+
+  async update(
+    id: string,
+    updateSoapNoteDto: UpdateSoapNoteDto,
+    userId: string,
+    facilityId: string,
+  ): Promise<SoapNote> {
+    const note = await this.findOne(id, userId, facilityId);
+
     const contentFields = ['symptoms', 'physicalExamination', 'diagnosis', 'management'];
-    const wasContentEdited = contentFields.some(field => 
-      updateSoapNoteDto[field] !== undefined && updateSoapNoteDto[field] !== soapNote[field]
+    const wasContentEdited = contentFields.some(
+      (f) => updateSoapNoteDto[f] !== undefined && updateSoapNoteDto[f] !== note[f],
     );
-    
-    if (wasContentEdited) {
-      updateSoapNoteDto.wasEdited = true;
-    }
-    
-    Object.assign(soapNote, updateSoapNoteDto);
-    return await this.soapNotesRepository.save(soapNote);
+    if (wasContentEdited) updateSoapNoteDto.wasEdited = true;
+
+    Object.assign(note, updateSoapNoteDto);
+    return this.soapNotesRepository.save(note);
   }
 
-  // 🆕 NEW: Edit note with history tracking
+  // ── EDIT WITH HISTORY ──────────────────────────────────────────────────────
+
   async editWithHistory(
     id: string,
     updateData: {
       symptoms?: string;
       physicalExamination?: string;
+      labInvestigations?: string;
+      imaging?: string;
       diagnosis?: string;
+      icd10Code?: string;
+      icd10Description?: string;
       management?: string;
     },
     userId: string,
     userName: string,
+    facilityId: string,
   ): Promise<SoapNote> {
     const note = await this.soapNotesRepository.findOne({
-      where: { id },
+      where: { id, facilityId },
       relations: ['patient', 'createdBy'],
     });
+    if (!note) throw new NotFoundException(`SOAP note with ID ${id} not found`);
 
-    if (!note) {
-      throw new NotFoundException(`SOAP note with ID ${id} not found`);
-    }
+    const fields = Object.keys(updateData) as Array<keyof typeof updateData>;
+    const changes: { field: string; oldValue: string; newValue: string }[] = [];
 
-    // Track what changed
-    const changes: Array<{
-      field: string;
-      oldValue: string;
-      newValue: string;
-    }> = [];
-    const fields: Array<keyof typeof updateData> = ['symptoms', 'physicalExamination', 'diagnosis', 'management'];
-    
-    fields.forEach(field => {
+    fields.forEach((field) => {
       if (updateData[field] !== undefined && updateData[field] !== note[field]) {
-        changes.push({
-          field,
-          oldValue: note[field],
-          newValue: updateData[field],
-        });
+        changes.push({ field, oldValue: note[field] ?? '', newValue: updateData[field] });
       }
     });
 
-    // Only save if there are actual changes
-    if (changes.length === 0) {
-      return note; // No changes, return as is
-    }
+    if (changes.length === 0) return note;
 
-    // Initialize editHistory if it doesn't exist
-    if (!note.editHistory) {
-      note.editHistory = [];
-    }
+    if (!note.editHistory) note.editHistory = [];
+    note.editHistory.push({ editedBy: userId, editedByName: userName, editedAt: new Date(), changes });
 
-    // Add edit entry to history
-    note.editHistory.push({
-      editedBy: userId,
-      editedByName: userName,
-      editedAt: new Date(),
-      changes,
-    });
-
-    // Update the fields
     Object.assign(note, updateData);
-
-    // Update last edited metadata
     note.lastEditedBy = userId;
     note.lastEditedByName = userName;
     note.lastEditedAt = new Date();
     note.wasEdited = true;
 
-    return await this.soapNotesRepository.save(note);
+    return this.soapNotesRepository.save(note);
   }
 
-  async updateStatus(id: string, status: SoapNoteStatus, userId: string): Promise<SoapNote> {
-    const soapNote = await this.findOne(id, userId);
-    soapNote.status = status;
-    
-    if (status === SoapNoteStatus.SUBMITTED) {
-      soapNote.submittedAt = new Date();
-    }
-    
-    return await this.soapNotesRepository.save(soapNote);
+  // ── STATUS ─────────────────────────────────────────────────────────────────
+
+  async updateStatus(
+    id: string,
+    status: SoapNoteStatus,
+    userId: string,
+    facilityId: string,
+  ): Promise<SoapNote> {
+    const note = await this.findOne(id, userId, facilityId);
+    note.status = status;
+    if (status === SoapNoteStatus.SUBMITTED) note.submittedAt = new Date();
+    return this.soapNotesRepository.save(note);
   }
 
-  async remove(id: string, userId: string): Promise<void> {
-    const soapNote = await this.findOne(id, userId);
-    await this.soapNotesRepository.remove(soapNote);
+  // ── DELETE ─────────────────────────────────────────────────────────────────
+
+  async remove(id: string, userId: string, facilityId: string): Promise<void> {
+    const note = await this.findOne(id, userId, facilityId);
+    await this.soapNotesRepository.remove(note);
   }
 
-  async getStatistics(userId: string) {
-    const qb = this.soapNotesRepository.createQueryBuilder('soap_note')
-      .where('soap_note.createdById = :userId', { userId });
+  // ── STATISTICS (scoped to facility + user) ─────────────────────────────────
 
-    const total = await qb.getCount();
-    
+  async getStatistics(userId: string, facilityId: string) {
+    const total = await this.soapNotesRepository.count({
+      where: { createdById: userId, facilityId },
+    });
+
     const byStatus = await this.soapNotesRepository
       .createQueryBuilder('soap_note')
       .select('soap_note.status', 'status')
       .addSelect('COUNT(*)', 'count')
       .where('soap_note.createdById = :userId', { userId })
+      .andWhere('soap_note.facilityId = :facilityId', { facilityId })
       .groupBy('soap_note.status')
       .getRawMany();
 
