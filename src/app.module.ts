@@ -16,6 +16,7 @@ import { TranscriptionModule } from './transcription/transcription.module';
 import { Icd10Module } from './icd10/icd10.module';
 import { FacilitiesModule } from './facilities/facilities.module';
 import { PatientVisitsModule } from './patient-visits/patient-visits.module';
+import { AdminModule } from './admin/admin.module';
 
 import { User } from './users/entities/user.entity';
 import { SoapNote } from './soap-notes/entities/soap-note.entity';
@@ -65,6 +66,7 @@ import { KeepAliveService } from './services/keepAlive';
     Icd10Module,
     FacilitiesModule,
     PatientVisitsModule, // ✅ NEW
+    AdminModule,         // ✅ NEW
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],
