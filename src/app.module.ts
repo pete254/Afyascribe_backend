@@ -1,4 +1,4 @@
-// src/app.module.ts — FINAL VERSION with all multi-facility modules
+// src/app.module.ts — UPDATED: Added PatientVisitsModule
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -15,12 +15,14 @@ import { PatientsModule } from './patients/patients.module';
 import { TranscriptionModule } from './transcription/transcription.module';
 import { Icd10Module } from './icd10/icd10.module';
 import { FacilitiesModule } from './facilities/facilities.module';
+import { PatientVisitsModule } from './patient-visits/patient-visits.module';
 
 import { User } from './users/entities/user.entity';
 import { SoapNote } from './soap-notes/entities/soap-note.entity';
 import { Patient } from './patients/entities/patient.entity';
 import { Facility } from './facilities/entities/facility.entity';
 import { FacilityInviteCode } from './facilities/entities/facility-invite-code.entity';
+import { PatientVisit } from './patient-visits/entities/patient-visit.entity';
 
 import { KeepAliveService } from './services/keepAlive';
 
@@ -42,9 +44,9 @@ import { KeepAliveService } from './services/keepAlive';
           username: configService.get('DB_USERNAME'),
           password: configService.get('DB_PASSWORD'),
           database: configService.get('DB_DATABASE'),
-          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode],
+          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit],
           autoLoadEntities: true,
-          synchronize: !isProduction, // Never sync in production — run migrations manually
+          synchronize: !isProduction,
           logging: !isProduction,
         };
         if (isProduction) {
@@ -62,6 +64,7 @@ import { KeepAliveService } from './services/keepAlive';
     TranscriptionModule,
     Icd10Module,
     FacilitiesModule,
+    PatientVisitsModule, // ✅ NEW
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],
