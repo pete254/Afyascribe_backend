@@ -6,13 +6,15 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { UsersModule } from '../users/users.module';
-import { EmailModule } from '../common/services/email.module'; // ✅ Add this import
+import { EmailModule } from '../common/services/email.module'; 
+import { FacilitiesModule } from '../facilities/facilities.module';
 
 @Module({
   imports: [
     UsersModule,
     PassportModule,
-    EmailModule, // ✅ Add this line
+    EmailModule,
+    FacilitiesModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
