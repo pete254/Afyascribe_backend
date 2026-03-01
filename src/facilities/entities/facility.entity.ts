@@ -29,26 +29,17 @@ export class Facility {
   id: string;
 
   @Column({ unique: true, length: 10 })
-  code: string; // e.g. "KNH", "AAR", "KIJABE" — used in patient IDs
+  code: string;
 
   @Column({ length: 200 })
-  name: string; // e.g. "Kenyatta National Hospital"
+  name: string;
 
-  @Column({
-    type: 'enum',
-    enum: FacilityType,
-    default: FacilityType.HOSPITAL,
-  })
+  @Column({ type: 'enum', enum: FacilityType, default: FacilityType.HOSPITAL })
   type: FacilityType;
 
-  @Column({
-    type: 'enum',
-    enum: FacilityStatus,
-    default: FacilityStatus.ACTIVE,
-  })
+  @Column({ type: 'enum', enum: FacilityStatus, default: FacilityStatus.ACTIVE })
   status: FacilityStatus;
 
-  // Contact
   @Column({ nullable: true })
   phone: string;
 
@@ -61,24 +52,21 @@ export class Facility {
   @Column({ nullable: true })
   county: string;
 
-  @Column({ nullable: true })
+  @Column({ name: 'sub_county', nullable: true })  // ✅ fixed
   subCounty: string;
 
-  // License / Registration
-  @Column({ nullable: true, length: 100 })
+  @Column({ name: 'license_number', nullable: true, length: 100 })  // ✅ fixed
   licenseNumber: string;
 
-  // Metadata
-  @Column({ default: true })
+  @Column({ name: 'is_active', default: true })  // ✅ fixed
   isActive: boolean;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })  // ✅ fixed
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updated_at' })  // ✅ fixed
   updatedAt: Date;
 
-  // Relations
   @OneToMany(() => User, (user) => user.facility)
   users: User[];
 
