@@ -26,6 +26,15 @@ export class AuthService {
     private inviteCodesService: InviteCodesService,
   ) {}
 
+  async validateUser(email: string, password: string): Promise<any> {
+  const user = await this.usersService.findByEmail(email);
+  if (user && await bcrypt.compare(password, user.password)) {
+    const { password: _, ...result } = user;
+    return result;
+  }
+  return null;
+}
+
   // ── LOGIN ──────────────────────────────────────────────────────────────────
 
   async login(email: string, password: string) {
