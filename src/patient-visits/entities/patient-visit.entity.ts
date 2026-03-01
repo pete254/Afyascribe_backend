@@ -13,12 +13,12 @@ import { User } from '../../users/entities/user.entity';
 import { Facility } from '../../facilities/entities/facility.entity';
 
 export enum VisitStatus {
-  CHECKED_IN = 'checked_in',           // Receptionist checked patient in
-  TRIAGE = 'triage',                   // Being triaged
-  WAITING_FOR_DOCTOR = 'waiting_for_doctor', // Assigned, waiting
-  WITH_DOCTOR = 'with_doctor',         // Doctor opened their record
-  COMPLETED = 'completed',             // Visit done
-  CANCELLED = 'cancelled',             // No-show / left
+  CHECKED_IN = 'checked_in',
+  TRIAGE = 'triage',
+  WAITING_FOR_DOCTOR = 'waiting_for_doctor',
+  WITH_DOCTOR = 'with_doctor',
+  COMPLETED = 'completed',
+  CANCELLED = 'cancelled',
 }
 
 @Entity('patient_visits')
@@ -27,23 +27,23 @@ export class PatientVisit {
   id: string;
 
   // ── Facility scope ─────────────────────────────────────────────────────────
-  @Column({ type: 'uuid' })
+  @Column({ name: 'facility_id', type: 'uuid' })
   facilityId: string;
 
   @ManyToOne(() => Facility, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'facilityId' })
+  @JoinColumn({ name: 'facility_id' })
   facility: Facility;
 
   // ── Patient ────────────────────────────────────────────────────────────────
-  @Column({ type: 'uuid' })
+  @Column({ name: 'patient_id', type: 'uuid' })
   patientId: string;
 
   @ManyToOne(() => Patient, { eager: true, onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'patientId' })
+  @JoinColumn({ name: 'patient_id' })
   patient: Patient;
 
-  // ── Check-in info (receptionist) ───────────────────────────────────────────
-  @Column({ type: 'text' })
+  // ── Check-in info ──────────────────────────────────────────────────────────
+  @Column({ name: 'reason_for_visit', type: 'text' })
   reasonForVisit: string;
 
   @Column({
@@ -53,49 +53,48 @@ export class PatientVisit {
   })
   status: VisitStatus;
 
-  @Column({ type: 'uuid' })
+  @Column({ name: 'checked_in_by_id', type: 'uuid', nullable: true })
   checkedInById: string;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
-  @JoinColumn({ name: 'checkedInById' })
+  @JoinColumn({ name: 'checked_in_by_id' })
   checkedInBy: User;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ name: 'checked_in_at', type: 'timestamp with time zone', nullable: true })
   checkedInAt: Date;
 
   // ── Doctor assignment ──────────────────────────────────────────────────────
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ name: 'assigned_doctor_id', type: 'uuid', nullable: true })
   assignedDoctorId: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
-  @JoinColumn({ name: 'assignedDoctorId' })
+  @JoinColumn({ name: 'assigned_doctor_id' })
   assignedDoctor: User;
 
-  // ── Triage data (optional) ─────────────────────────────────────────────────
-  @Column({ default: false })
+  // ── Triage ─────────────────────────────────────────────────────────────────
+  @Column({ name: 'triage_completed', default: false })
   triageCompleted: boolean;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ name: 'triaged_by_id', type: 'uuid', nullable: true })
   triagedById: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
-  @JoinColumn({ name: 'triagedById' })
+  @JoinColumn({ name: 'triaged_by_id' })
   triagedBy: User;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ name: 'triaged_at', type: 'timestamp with time zone', nullable: true })
   triagedAt: Date | null;
 
-  // Vitals stored as jsonb for flexibility
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ name: 'triage_data', type: 'jsonb', nullable: true })
   triageData: {
-    bloodPressure?: string;    // e.g. "120/80"
-    temperature?: string;      // e.g. "37.2°C"
-    pulse?: string;            // e.g. "72 bpm"
-    weight?: string;           // e.g. "70 kg"
-    height?: string;           // e.g. "170 cm"
-    spO2?: string;             // e.g. "98%"
-    respiratoryRate?: string;  // e.g. "16/min"
-    notes?: string;            // Additional triage notes
+    bloodPressure?: string;
+    temperature?: string;
+    pulse?: string;
+    weight?: string;
+    height?: string;
+    spO2?: string;
+    respiratoryRate?: string;
+    notes?: string;
   } | null;
 
   // ── Timestamps ─────────────────────────────────────────────────────────────
