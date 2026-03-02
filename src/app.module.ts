@@ -65,8 +65,8 @@ import { KeepAliveService } from './services/keepAlive';
     TranscriptionModule,
     Icd10Module,
     FacilitiesModule,
-    PatientVisitsModule, // ✅ NEW
-    AdminModule,         // ✅ NEW
+    PatientVisitsModule,
+    AdminModule,         
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],
