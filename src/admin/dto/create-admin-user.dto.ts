@@ -35,6 +35,6 @@ export class CreateAdminUserDto {
     example: '00000000-0000-0000-0000-000000000001',
   })
   @IsOptional()
-  @IsUUID("all")
+  @IsString()
   facilityId?: string;
 }
