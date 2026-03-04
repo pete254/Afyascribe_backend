@@ -3,11 +3,11 @@ import { IsEmail, IsString, MinLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class BootstrapSuperAdminDto {
-  @ApiProperty({ example: 'admin@afyascribe.com' })
+  @ApiProperty({ example: 'afyascribe@gmail.com' })
   @IsEmail()
   email: string;
 
-  @ApiProperty({ example: 'SuperSecurePassword123!' })
+  @ApiProperty({ example: 'Afyascribe@2026' })
   @IsString()
   @MinLength(8)
   password: string;
