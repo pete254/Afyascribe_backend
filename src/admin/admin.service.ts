@@ -8,9 +8,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { User, UserRole } from '../users/entities/user.entity';
-import { Facility, FacilityType, FacilityStatus } from '../facilities/entities/facility.entity';
+import { Facility } from '../facilities/entities/facility.entity';
 
-const AFYASCRIBE_FACILITY_CODE = 'AFYASCRIBE';
+const AFYASCRIBE_FACILITY_CODE = 'AFY';
 
 @Injectable()
 export class AdminService {
@@ -31,23 +31,17 @@ export class AdminService {
     return count > 0;
   }
 
-  // ── Find or create the Afyascribe system facility ─────────────────────────
+  // ── Get the Afyascribe system facility ────────────────────────────────────
 
-  private async findOrCreateAfyascribeFacility(): Promise<Facility> {
-    let facility = await this.facilityRepository.findOne({
+  private async getAfyascribeFacility(): Promise<Facility> {
+    const facility = await this.facilityRepository.findOne({
       where: { code: AFYASCRIBE_FACILITY_CODE },
     });
 
     if (!facility) {
-      facility = this.facilityRepository.create({
-        code: AFYASCRIBE_FACILITY_CODE,
-        name: 'Afyascribe',
-        type: FacilityType.CLINIC,
-        status: FacilityStatus.ACTIVE,
-        isActive: true,
-        email: 'admin@afyascribe.com',
-      });
-      facility = await this.facilityRepository.save(facility);
+      throw new NotFoundException(
+        `Afyascribe facility (code: ${AFYASCRIBE_FACILITY_CODE}) not found. Ensure it exists in the database.`,
+      );
     }
 
     return facility;
@@ -68,8 +62,8 @@ export class AdminService {
       throw new ConflictException('Email already registered');
     }
 
-    // Ensure Afyascribe facility exists
-    const afyascribeFacility = await this.findOrCreateAfyascribeFacility();
+    // Link super admin to the existing Afyascribe facility
+    const afyascribeFacility = await this.getAfyascribeFacility();
 
     const user = this.usersRepository.create({
       email: data.email,
