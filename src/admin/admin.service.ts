@@ -8,12 +8,17 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { User, UserRole } from '../users/entities/user.entity';
+import { Facility, FacilityType, FacilityStatus } from '../facilities/entities/facility.entity';
+
+const AFYASCRIBE_FACILITY_CODE = 'AFYASCRIBE';
 
 @Injectable()
 export class AdminService {
   constructor(
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
+    @InjectRepository(Facility)
+    private readonly facilityRepository: Repository<Facility>,
     private readonly jwtService: JwtService,
   ) {}
 
@@ -24,6 +29,28 @@ export class AdminService {
       where: { role: UserRole.SUPER_ADMIN },
     });
     return count > 0;
+  }
+
+  // ── Find or create the Afyascribe system facility ─────────────────────────
+
+  private async findOrCreateAfyascribeFacility(): Promise<Facility> {
+    let facility = await this.facilityRepository.findOne({
+      where: { code: AFYASCRIBE_FACILITY_CODE },
+    });
+
+    if (!facility) {
+      facility = this.facilityRepository.create({
+        code: AFYASCRIBE_FACILITY_CODE,
+        name: 'Afyascribe',
+        type: FacilityType.CLINIC,
+        status: FacilityStatus.ACTIVE,
+        isActive: true,
+        email: 'admin@afyascribe.com',
+      });
+      facility = await this.facilityRepository.save(facility);
+    }
+
+    return facility;
   }
 
   // ── Create the first super_admin (bootstrap only) ─────────────────────────
@@ -41,13 +68,16 @@ export class AdminService {
       throw new ConflictException('Email already registered');
     }
 
+    // Ensure Afyascribe facility exists
+    const afyascribeFacility = await this.findOrCreateAfyascribeFacility();
+
     const user = this.usersRepository.create({
       email: data.email,
       password: data.password,
       firstName: data.firstName,
       lastName: data.lastName,
       role: UserRole.SUPER_ADMIN,
-      facilityId: null,
+      facilityId: afyascribeFacility.id,
       isActive: true,
     });
 
@@ -60,8 +90,8 @@ export class AdminService {
       role: saved.role,
       firstName: saved.firstName,
       lastName: saved.lastName,
-      facilityId: null,
-      facilityCode: null,
+      facilityId: afyascribeFacility.id,
+      facilityCode: afyascribeFacility.code,
     };
 
     return {
@@ -72,9 +102,9 @@ export class AdminService {
         firstName: saved.firstName,
         lastName: saved.lastName,
         role: saved.role,
-        facilityId: null,
-        facilityCode: null,
-        facilityName: null,
+        facilityId: afyascribeFacility.id,
+        facilityCode: afyascribeFacility.code,
+        facilityName: afyascribeFacility.name,
       },
       message: 'super_admin created successfully. Remove BOOTSTRAP_SECRET from env to disable this endpoint.',
     };
