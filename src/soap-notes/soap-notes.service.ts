@@ -266,4 +266,125 @@ export class SoapNotesService {
       }, {}),
     };
   }
+
+  // ── SAVE DRAFT (create or update) ─────────────────────────────────────────
+  // Call with draftId = undefined to create a new draft.
+  // Call with draftId = existing note UUID to update an existing draft.
+  async saveDraft(
+    dto: CreateSoapNoteDto,
+    userId: string,
+    facilityId: string,
+    draftId?: string,
+  ): Promise<SoapNote> {
+    // Verify patient belongs to this facility
+    const patientExists = await this.patientsService.patientExists(dto.patientId, facilityId);
+    if (!patientExists) {
+      throw new BadRequestException(
+        `Patient ${dto.patientId} not found in your facility`,
+      );
+    }
+
+    if (draftId) {
+      // Update existing draft — only the author can update their own draft
+      const existing = await this.soapNotesRepository.findOne({
+        where: { id: draftId, facilityId, createdById: userId, status: SoapNoteStatus.DRAFT },
+      });
+      if (!existing) {
+        throw new NotFoundException(`Draft ${draftId} not found or already finalised`);
+      }
+
+      Object.assign(existing, {
+        symptoms: dto.symptoms ?? existing.symptoms,
+        physicalExamination: dto.physicalExamination ?? existing.physicalExamination,
+        labInvestigations: dto.labInvestigations ?? existing.labInvestigations,
+        imaging: dto.imaging ?? existing.imaging,
+        diagnosis: dto.diagnosis ?? existing.diagnosis,
+        icd10Code: dto.icd10Code ?? existing.icd10Code,
+        icd10Description: dto.icd10Description ?? existing.icd10Description,
+        management: dto.management ?? existing.management,
+      });
+
+      const saved = await this.soapNotesRepository.save(existing);
+      console.log(`📝 Draft updated: ${saved.id}`);
+      return saved;
+    }
+
+    // Create new draft
+    const draft = this.soapNotesRepository.create({
+      ...dto,
+      symptoms: dto.symptoms ?? '',
+      physicalExamination: dto.physicalExamination ?? '',
+      labInvestigations: dto.labInvestigations ?? '',
+      imaging: dto.imaging ?? '',
+      diagnosis: dto.diagnosis ?? '',
+      management: dto.management ?? '',
+      createdById: userId,
+      facilityId,
+      status: SoapNoteStatus.DRAFT,
+    });
+
+    const saved = await this.soapNotesRepository.save(draft);
+    console.log(`📝 Draft created: ${saved.id}`);
+    return saved;
+  }
+
+  // ── GET MY DRAFTS ──────────────────────────────────────────────────────────
+  async getMyDrafts(userId: string, facilityId: string): Promise<SoapNote[]> {
+    return this.soapNotesRepository.find({
+      where: { createdById: userId, facilityId, status: SoapNoteStatus.DRAFT },
+      relations: ['patient'],
+      order: { updatedAt: 'DESC' },
+    });
+  }
+
+  // ── FINALISE DRAFT → sets status to 'pending' ─────────────────────────────
+  async finaliseDraft(
+    draftId: string,
+    dto: CreateSoapNoteDto,
+    userId: string,
+    facilityId: string,
+  ): Promise<SoapNote> {
+    const draft = await this.soapNotesRepository.findOne({
+      where: { id: draftId, facilityId, createdById: userId, status: SoapNoteStatus.DRAFT },
+    });
+    if (!draft) {
+      throw new NotFoundException(`Draft ${draftId} not found`);
+    }
+
+    const hasContent =
+      (dto.symptoms ?? draft.symptoms)?.trim() ||
+      (dto.physicalExamination ?? draft.physicalExamination)?.trim() ||
+      (dto.diagnosis ?? draft.diagnosis)?.trim() ||
+      (dto.management ?? draft.management)?.trim();
+
+    if (!hasContent) {
+      throw new BadRequestException('Cannot finalise a draft with no content');
+    }
+
+    Object.assign(draft, {
+      symptoms: dto.symptoms ?? draft.symptoms ?? '',
+      physicalExamination: dto.physicalExamination ?? draft.physicalExamination ?? '',
+      labInvestigations: dto.labInvestigations ?? draft.labInvestigations ?? '',
+      imaging: dto.imaging ?? draft.imaging ?? '',
+      diagnosis: dto.diagnosis ?? draft.diagnosis ?? '',
+      icd10Code: dto.icd10Code ?? draft.icd10Code,
+      icd10Description: dto.icd10Description ?? draft.icd10Description,
+      management: dto.management ?? draft.management ?? '',
+      status: SoapNoteStatus.PENDING,
+    });
+
+    const saved = await this.soapNotesRepository.save(draft);
+    console.log(`✅ Draft finalised → pending: ${saved.id}`);
+    return saved;
+  }
+
+  // ── DELETE DRAFT ───────────────────────────────────────────────────────────
+  async deleteDraft(draftId: string, userId: string, facilityId: string): Promise<void> {
+    const draft = await this.soapNotesRepository.findOne({
+      where: { id: draftId, facilityId, createdById: userId, status: SoapNoteStatus.DRAFT },
+    });
+    if (!draft) throw new NotFoundException(`Draft ${draftId} not found`);
+    await this.soapNotesRepository.remove(draft);
+    console.log(`🗑️ Draft deleted: ${draftId}`);
+  }
 }

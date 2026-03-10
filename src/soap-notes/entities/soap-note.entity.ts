@@ -1,5 +1,5 @@
 // src/soap-notes/entities/soap-note.entity.ts
-// UPDATED: Added facilityId for facility-scoped data isolation
+// UPDATED: nullable SOAP content columns (supports drafts) + draft status
 import {
   Entity,
   Column,
@@ -19,7 +19,6 @@ export class SoapNote {
   id: string;
 
   // ── Facility Scope ─────────────────────────────────────────────────────────
-  // nullable: true during migration — backfill then enforce NOT NULL
   @Column({ nullable: true, type: 'uuid' })
   facilityId: string | null;
 
@@ -36,16 +35,17 @@ export class SoapNote {
   patientId: string;
 
   // ── SOAP Content ───────────────────────────────────────────────────────────
-  @Column('text')
+  // nullable: true + default '' allows saving partial drafts
+  @Column({ type: 'text', nullable: true, default: '' })
   symptoms: string;
 
-  @Column('text')
+  @Column({ type: 'text', nullable: true, default: '' })
   physicalExamination: string;
 
-  @Column('text')
+  @Column({ type: 'text', nullable: true, default: '' })
   diagnosis: string;
 
-  @Column('text')
+  @Column({ type: 'text', nullable: true, default: '' })
   management: string;
 
   @Column({ type: 'text', nullable: true, name: 'lab_investigations' })
@@ -63,7 +63,7 @@ export class SoapNote {
   // ── Status ─────────────────────────────────────────────────────────────────
   @Column({
     type: 'enum',
-    enum: ['pending', 'submitted', 'reviewed', 'archived'],
+    enum: ['draft', 'pending', 'submitted', 'reviewed', 'archived'],
     default: 'pending',
   })
   status: string;

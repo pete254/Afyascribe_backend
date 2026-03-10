@@ -13,6 +13,7 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -49,6 +50,66 @@ export class SoapNotesController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.soapNotesService.create(createSoapNoteDto, user.id, user.facilityId);
+  }
+
+  // ── SAVE / UPDATE DRAFT ────────────────────────────────────────────────────
+  // POST /soap-notes/draft            → create new draft
+  // POST /soap-notes/draft/:id        → update existing draft
+
+  @Post('draft')
+  @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Create a new SOAP note draft' })
+  saveDraft(
+    @Body() dto: CreateSoapNoteDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.soapNotesService.saveDraft(dto, user.id, user.facilityId);
+  }
+
+  @Post('draft/:id')
+  @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Update an existing SOAP note draft' })
+  updateDraft(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateSoapNoteDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.soapNotesService.saveDraft(dto, user.id, user.facilityId, id);
+  }
+
+  // ── GET MY DRAFTS ──────────────────────────────────────────────────────────
+
+  @Get('drafts')
+  @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: "Get the current user's SOAP note drafts" })
+  getMyDrafts(@CurrentUser() user: CurrentUserType) {
+    return this.soapNotesService.getMyDrafts(user.id, user.facilityId);
+  }
+
+  // ── FINALISE DRAFT → status becomes 'pending' ──────────────────────────────
+
+  @Post('draft/:id/finalise')
+  @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Finalise a draft — saves it as a completed SOAP note' })
+  finaliseDraft(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateSoapNoteDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.soapNotesService.finaliseDraft(id, dto, user.id, user.facilityId);
+  }
+
+  // ── DELETE DRAFT ───────────────────────────────────────────────────────────
+
+  @Delete('draft/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Delete a draft' })
+  deleteDraft(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.soapNotesService.deleteDraft(id, user.id, user.facilityId);
   }
 
   // ── LIST (own notes, scoped to facility) ───────────────────────────────────
