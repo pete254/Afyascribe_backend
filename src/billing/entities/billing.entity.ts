@@ -26,6 +26,22 @@ export enum BillingStatus {
   UNPAID = 'unpaid',
   PAID = 'paid',
   WAIVED = 'waived',
+  INSURANCE_PENDING = 'insurance_pending', // insurance portion awaiting claim
+}
+
+// How the bill is being settled
+export enum PaymentMode {
+  CASH = 'cash',           // patient pays everything
+  INSURANCE = 'insurance', // insurer pays everything, no patient cash needed
+  SPLIT = 'split',         // patient pays copay, insurer covers the rest
+}
+
+// How the patient's cash portion was received
+export enum PaymentMethod {
+  CASH = 'cash',
+  MPESA = 'mpesa',
+  CARD = 'card',
+  INSURANCE_CLAIM = 'insurance_claim', // no cash collected — goes to insurer
 }
 
 @Entity('billing')
@@ -73,6 +89,19 @@ export class Billing {
   @Column({ name: 'amount', type: 'decimal', precision: 10, scale: 2 })
   amount: number;
 
+  // ── Payment mode (set at bill creation) ───────────────────────────────────
+  @Column({
+    name: 'payment_mode',
+    type: 'varchar',
+    length: 20,
+    default: PaymentMode.CASH,
+  })
+  paymentMode: PaymentMode;
+
+  // For insurance / split bills — name of the insurer
+  @Column({ name: 'insurance_scheme_name', type: 'varchar', length: 200, nullable: true })
+  insuranceSchemeName: string | null;
+
   // ── Payment status ─────────────────────────────────────────────────────────
   @Column({
     name: 'status',
@@ -85,6 +114,19 @@ export class Billing {
 
   @Column({ name: 'paid_at', type: 'timestamp with time zone', nullable: true })
   paidAt: Date | null;
+
+  // How the cash portion was collected
+  @Column({
+    name: 'payment_method',
+    type: 'varchar',
+    length: 20,
+    nullable: true,
+  })
+  paymentMethod: PaymentMethod | null;
+
+  // M-Pesa transaction reference — optional, no validation
+  @Column({ name: 'mpesa_reference', type: 'varchar', length: 100, nullable: true })
+  mpesaReference: string | null;
 
   @Column({ name: 'collected_by_id', type: 'uuid', nullable: true })
   collectedById: string | null;

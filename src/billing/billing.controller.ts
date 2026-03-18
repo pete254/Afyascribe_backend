@@ -12,11 +12,11 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { BillingService } from './billing.service';
 import { CreateBillingDto } from './dto/create-billing.dto';
-import { WaiveBillingDto } from './dto/mark-paid.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { CollectPaymentDto, WaiveBillingDto } from './dto/mark-paid.dto';
 
 @ApiTags('billing')
 @ApiBearerAuth('JWT-auth')
@@ -63,15 +63,16 @@ export class BillingController {
     return this.billingService.getVisitBillingSummary(visitId, user.facilityId);
   }
 
-  // ── MARK AS PAID ───────────────────────────────────────────────────────────
+  // ── COLLECT PAYMENT ────────────────────────────────────────────────────────
   @Patch(':id/pay')
   @Roles('receptionist', 'facility_admin', 'super_admin')
-  @ApiOperation({ summary: 'Mark a bill as paid — advances visit to waiting queue' })
+  @ApiOperation({ summary: 'Collect payment for a bill — advances visit when all cash bills cleared' })
   markPaid(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: any,
+  @Param('id', ParseUUIDPipe) id: string,
+  @Body() dto: CollectPaymentDto,
+  @CurrentUser() user: any,
   ) {
-    return this.billingService.markPaid(id, user.userId, user.facilityId);
+  return this.billingService.markPaid(id, dto, user.userId, user.facilityId);
   }
 
   // ── WAIVE BILL ─────────────────────────────────────────────────────────────
