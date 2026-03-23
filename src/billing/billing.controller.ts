@@ -68,11 +68,12 @@ export class BillingController {
   @Roles('receptionist', 'facility_admin', 'super_admin')
   @ApiOperation({ summary: 'Collect payment for a bill — advances visit when all cash bills cleared' })
   markPaid(
-  @Param('id', ParseUUIDPipe) id: string,
-  @Body() dto: CollectPaymentDto,
-  @CurrentUser() user: any,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CollectPaymentDto,
+    @CurrentUser() user: any,
   ) {
-  return this.billingService.markPaid(id, dto, user.userId, user.facilityId);
+    // FIX: was user.userId — JWT strategy exposes user.id
+    return this.billingService.markPaid(id, dto, user.id, user.facilityId);
   }
 
   // ── WAIVE BILL ─────────────────────────────────────────────────────────────
@@ -84,6 +85,7 @@ export class BillingController {
     @Body() dto: WaiveBillingDto,
     @CurrentUser() user: any,
   ) {
-    return this.billingService.waive(id, dto.waiverReason, user.userId, user.facilityId);
+    // FIX: was user.userId
+    return this.billingService.waive(id, dto.waiverReason, user.id, user.facilityId);
   }
 }

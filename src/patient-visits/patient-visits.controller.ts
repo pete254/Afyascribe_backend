@@ -33,7 +33,8 @@ export class PatientVisitsController {
   @Roles('receptionist', 'facility_admin', 'super_admin')
   @ApiOperation({ summary: 'Check in a patient and assign to a doctor' })
   async checkIn(@Body() dto: CheckInDto, @CurrentUser() user: any) {
-    return this.visitsService.checkIn(dto, user.userId, user.facilityId);
+    // FIX: JWT strategy sets req.user.id (not userId)
+    return this.visitsService.checkIn(dto, user.id, user.facilityId);
   }
 
   // ── GET ACTIVE QUEUE (all staff in facility) ───────────────────────────────
@@ -49,7 +50,8 @@ export class PatientVisitsController {
   @Roles('doctor')
   @ApiOperation({ summary: "Get the current doctor's patient queue" })
   async getMyQueue(@CurrentUser() user: any) {
-    return this.visitsService.getDoctorQueue(user.userId, user.facilityId);
+    // FIX: was user.userId — JWT strategy exposes user.id
+    return this.visitsService.getDoctorQueue(user.id, user.facilityId);
   }
 
   // ── GET QUEUE STATS (for home screen cards) ────────────────────────────────
@@ -57,7 +59,8 @@ export class PatientVisitsController {
   @Roles('doctor', 'nurse', 'receptionist', 'facility_admin', 'super_admin')
   @ApiOperation({ summary: 'Get queue stats for home screen counters' })
   async getStats(@CurrentUser() user: any) {
-    const doctorId = user.role === 'doctor' ? user.userId : undefined;
+    // FIX: was user.userId — pass user.id for doctor's personal myQueue count
+    const doctorId = user.role === 'doctor' ? user.id : undefined;
     return this.visitsService.getQueueStats(user.facilityId, doctorId);
   }
 
@@ -86,7 +89,8 @@ export class PatientVisitsController {
     @Body() dto: TriageDto,
     @CurrentUser() user: any,
   ) {
-    return this.visitsService.submitTriage(id, dto, user.userId, user.facilityId);
+    // FIX: was user.userId
+    return this.visitsService.submitTriage(id, dto, user.id, user.facilityId);
   }
 
   // ── REASSIGN DOCTOR (receptionist / facility_admin only) ───────────────────
@@ -106,7 +110,8 @@ export class PatientVisitsController {
   @Roles('doctor')
   @ApiOperation({ summary: 'Mark patient as currently with doctor' })
   async markWithDoctor(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
-    return this.visitsService.markWithDoctor(id, user.userId, user.facilityId);
+    // FIX: was user.userId
+    return this.visitsService.markWithDoctor(id, user.id, user.facilityId);
   }
 
   // ── COMPLETE VISIT ─────────────────────────────────────────────────────────
