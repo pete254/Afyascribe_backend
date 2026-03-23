@@ -96,6 +96,12 @@ export class PatientVisitsService {
   }
 
   // ── GET DOCTOR'S QUEUE ─────────────────────────────────────────────────────
+  // FIX: Include CHECKED_IN so patients are visible to the doctor from the
+  // moment they are assigned, regardless of billing status. Previously only
+  // WAITING_FOR_DOCTOR / WITH_DOCTOR / TRIAGE were included, which meant
+  // patients disappeared after triage completed (triage → WAITING_FOR_DOCTOR
+  // works fine) but newly checked-in patients with unpaid bills (still
+  // CHECKED_IN) were never shown. Including CHECKED_IN fixes both cases.
   async getDoctorQueue(doctorId: string, facilityId: string): Promise<PatientVisit[]> {
     return this.visitsRepository
       .createQueryBuilder('visit')
@@ -105,7 +111,12 @@ export class PatientVisitsService {
       .where('visit.assignedDoctorId = :doctorId', { doctorId })
       .andWhere('visit.facilityId = :facilityId', { facilityId })
       .andWhere('visit.status IN (:...statuses)', {
-        statuses: [VisitStatus.WAITING_FOR_DOCTOR, VisitStatus.WITH_DOCTOR, VisitStatus.TRIAGE],
+        statuses: [
+          VisitStatus.CHECKED_IN,          // awaiting billing clearance
+          VisitStatus.TRIAGE,              // nurse recording vitals
+          VisitStatus.WAITING_FOR_DOCTOR,  // ready for the doctor
+          VisitStatus.WITH_DOCTOR,         // currently in consultation
+        ],
       })
       .orderBy('visit.created_at', 'ASC')
       .getMany();
@@ -139,7 +150,16 @@ export class PatientVisitsService {
     visit.triageCompleted = true;
     visit.triagedById = triagedById;
     visit.triagedAt = new Date();
-    visit.status = VisitStatus.WAITING_FOR_DOCTOR;
+    // Only advance to WAITING_FOR_DOCTOR if billing has been cleared
+    // (i.e. visit is already WAITING_FOR_DOCTOR or beyond).
+    // If still CHECKED_IN (unpaid cash bill), keep it there so the
+    // billing gate still applies.
+    if (visit.status === VisitStatus.CHECKED_IN) {
+      // Stay CHECKED_IN — billing service will advance it when paid
+      visit.status = VisitStatus.CHECKED_IN;
+    } else {
+      visit.status = VisitStatus.WAITING_FOR_DOCTOR;
+    }
 
     return this.visitsRepository.save(visit);
   }
@@ -222,7 +242,12 @@ export class PatientVisitsService {
         .clone()
         .andWhere('visit.assignedDoctorId = :doctorId', { doctorId })
         .andWhere('visit.status IN (:...statuses)', {
-          statuses: [VisitStatus.WAITING_FOR_DOCTOR, VisitStatus.WITH_DOCTOR],
+          statuses: [
+            VisitStatus.CHECKED_IN,
+            VisitStatus.TRIAGE,
+            VisitStatus.WAITING_FOR_DOCTOR,
+            VisitStatus.WITH_DOCTOR,
+          ],
         })
         .getCount();
     }
