@@ -51,7 +51,7 @@ export class PatientVisitsService {
       assignedDoctorId: dto.assignedDoctorId,
       checkedInById,
       checkedInAt: new Date(),
-      status: VisitStatus.WAITING_FOR_DOCTOR,
+      status: VisitStatus.CHECKED_IN,
     });
 
     return this.visitsRepository.save(visit);
