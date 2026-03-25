@@ -252,8 +252,9 @@ export class PatientVisitsService {
     if (doctorId) {
       // Count ALL active statuses so the badge always matches what the
       // doctor sees in their queue screen
-      myQueue = await base
-        .clone()
+      myQueue = await this.visitsRepository
+        .createQueryBuilder('visit')
+        .where('visit.facilityId = :facilityId', { facilityId })
         .andWhere('visit.assignedDoctorId = :doctorId', { doctorId })
         .andWhere('visit.status IN (:...statuses)', { statuses: ACTIVE_DOCTOR_STATUSES })
         .getCount();
