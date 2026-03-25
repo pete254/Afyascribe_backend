@@ -9,6 +9,6 @@ import { PatientVisitsController } from './patient-visits.controller';
   imports: [TypeOrmModule.forFeature([PatientVisit])],
   controllers: [PatientVisitsController],
   providers: [PatientVisitsService],
-  exports: [PatientVisitsService],
+  exports: [PatientVisitsService], // Export so SoapNotesModule can use it
 })
 export class PatientVisitsModule {}

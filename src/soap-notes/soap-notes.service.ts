@@ -1,6 +1,6 @@
 // src/soap-notes/soap-notes.service.ts
-// UPDATED: All queries scoped to facilityId — notes are fully isolated per facility
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+// Auto-completes the patient's active visit when a SOAP note is saved
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SoapNote } from './entities/soap-note.entity';
@@ -10,6 +10,7 @@ import { QuerySoapNotesDto } from './dto/query-soap-notes.dto';
 import { SoapNoteStatus } from './enums/soap-note-status.enum';
 import { PaginatedResponse } from '../common/dto/pagination.dto';
 import { PatientsService } from '../patients/patients.service';
+import { PatientVisitsService } from '../patient-visits/patient-visits.service';
 
 @Injectable()
 export class SoapNotesService {
@@ -17,16 +18,15 @@ export class SoapNotesService {
     @InjectRepository(SoapNote)
     private soapNotesRepository: Repository<SoapNote>,
     private patientsService: PatientsService,
+    private patientVisitsService: PatientVisitsService,
   ) {}
 
   // ── CREATE ─────────────────────────────────────────────────────────────────
-
   async create(
     createSoapNoteDto: CreateSoapNoteDto,
     userId: string,
     facilityId: string,
   ): Promise<SoapNote> {
-    // Verify patient belongs to same facility
     const patientExists = await this.patientsService.patientExists(
       createSoapNoteDto.patientId,
       facilityId,
@@ -43,11 +43,18 @@ export class SoapNotesService {
       facilityId,
     });
 
-    return this.soapNotesRepository.save(soapNote);
+    const saved = await this.soapNotesRepository.save(soapNote);
+
+    // Auto-complete the patient's active visit when a SOAP note is saved
+    await this.patientVisitsService.completeVisitForPatient(
+      createSoapNoteDto.patientId,
+      facilityId,
+    );
+
+    return saved;
   }
 
   // ── FIND ALL (paginated, scoped to facility) ───────────────────────────────
-
   async findAll(
     userId: string,
     facilityId: string,
@@ -63,9 +70,7 @@ export class SoapNotesService {
       .createQueryBuilder('soap_note')
       .leftJoinAndSelect('soap_note.patient', 'patient')
       .leftJoinAndSelect('soap_note.createdBy', 'createdBy')
-      // Facility scope — users only see notes from their own facility
       .where('soap_note.facilityId = :facilityId', { facilityId })
-      // Doctors/nurses see their own notes; admins see all within facility
       .andWhere('soap_note.createdById = :userId', { userId });
 
     if (status) {
@@ -99,7 +104,6 @@ export class SoapNotesService {
   }
 
   // ── FIND ALL FOR FACILITY (facility_admin view) ────────────────────────────
-
   async findAllForFacility(
     facilityId: string,
     queryDto: QuerySoapNotesDto,
@@ -128,7 +132,6 @@ export class SoapNotesService {
   }
 
   // ── FIND ONE (scoped to facility) ──────────────────────────────────────────
-
   async findOne(id: string, userId: string, facilityId: string): Promise<SoapNote> {
     const note = await this.soapNotesRepository.findOne({
       where: { id, createdById: userId, facilityId },
@@ -139,8 +142,7 @@ export class SoapNotesService {
     return note;
   }
 
-  // ── FIND BY PATIENT (scoped to facility) ──────────────────────────────────
-
+  // ── FIND BY PATIENT ────────────────────────────────────────────────────────
   async findByPatient(patientId: string, facilityId: string): Promise<SoapNote[]> {
     const patientExists = await this.patientsService.patientExists(patientId, facilityId);
     if (!patientExists) {
@@ -155,7 +157,6 @@ export class SoapNotesService {
   }
 
   // ── UPDATE ─────────────────────────────────────────────────────────────────
-
   async update(
     id: string,
     updateSoapNoteDto: UpdateSoapNoteDto,
@@ -175,7 +176,6 @@ export class SoapNotesService {
   }
 
   // ── EDIT WITH HISTORY ──────────────────────────────────────────────────────
-
   async editWithHistory(
     id: string,
     updateData: {
@@ -222,7 +222,6 @@ export class SoapNotesService {
   }
 
   // ── STATUS ─────────────────────────────────────────────────────────────────
-
   async updateStatus(
     id: string,
     status: SoapNoteStatus,
@@ -236,14 +235,12 @@ export class SoapNotesService {
   }
 
   // ── DELETE ─────────────────────────────────────────────────────────────────
-
   async remove(id: string, userId: string, facilityId: string): Promise<void> {
     const note = await this.findOne(id, userId, facilityId);
     await this.soapNotesRepository.remove(note);
   }
 
-  // ── STATISTICS (scoped to facility + user) ─────────────────────────────────
-
+  // ── STATISTICS ─────────────────────────────────────────────────────────────
   async getStatistics(userId: string, facilityId: string) {
     const total = await this.soapNotesRepository.count({
       where: { createdById: userId, facilityId },
@@ -267,25 +264,19 @@ export class SoapNotesService {
     };
   }
 
-  // ── SAVE DRAFT (create or update) ─────────────────────────────────────────
-  // Call with draftId = undefined to create a new draft.
-  // Call with draftId = existing note UUID to update an existing draft.
+  // ── SAVE DRAFT ─────────────────────────────────────────────────────────────
   async saveDraft(
     dto: CreateSoapNoteDto,
     userId: string,
     facilityId: string,
     draftId?: string,
   ): Promise<SoapNote> {
-    // Verify patient belongs to this facility
     const patientExists = await this.patientsService.patientExists(dto.patientId, facilityId);
     if (!patientExists) {
-      throw new BadRequestException(
-        `Patient ${dto.patientId} not found in your facility`,
-      );
+      throw new BadRequestException(`Patient ${dto.patientId} not found in your facility`);
     }
 
     if (draftId) {
-      // Update existing draft — only the author can update their own draft
       const existing = await this.soapNotesRepository.findOne({
         where: { id: draftId, facilityId, createdById: userId, status: SoapNoteStatus.DRAFT },
       });
@@ -309,7 +300,6 @@ export class SoapNotesService {
       return saved;
     }
 
-    // Create new draft
     const draft = this.soapNotesRepository.create({
       ...dto,
       symptoms: dto.symptoms ?? '',
@@ -337,7 +327,7 @@ export class SoapNotesService {
     });
   }
 
-  // ── FINALISE DRAFT → sets status to 'pending' ─────────────────────────────
+  // ── FINALISE DRAFT → sets status to 'pending' and auto-completes visit ─────
   async finaliseDraft(
     draftId: string,
     dto: CreateSoapNoteDto,
@@ -375,6 +365,13 @@ export class SoapNotesService {
 
     const saved = await this.soapNotesRepository.save(draft);
     console.log(`✅ Draft finalised → pending: ${saved.id}`);
+
+    // Auto-complete the patient's active visit
+    await this.patientVisitsService.completeVisitForPatient(
+      draft.patientId,
+      facilityId,
+    );
+
     return saved;
   }
 

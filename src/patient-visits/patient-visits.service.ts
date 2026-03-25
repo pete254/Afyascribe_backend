@@ -13,6 +13,14 @@ import { TriageDto } from './dto/triage.dto';
 import { ReassignDto } from './dto/reassign.dto';
 import { QueryVisitsDto } from './dto/query-visits.dto';
 
+// All statuses that mean a patient is still actively in the doctor's queue
+const ACTIVE_DOCTOR_STATUSES = [
+  VisitStatus.CHECKED_IN,
+  VisitStatus.TRIAGE,
+  VisitStatus.WAITING_FOR_DOCTOR,
+  VisitStatus.WITH_DOCTOR,
+];
+
 @Injectable()
 export class PatientVisitsService {
   constructor(
@@ -26,15 +34,11 @@ export class PatientVisitsService {
     checkedInById: string,
     facilityId: string,
   ): Promise<PatientVisit> {
-    // Prevent duplicate active visits for same patient
     const existing = await this.visitsRepository.findOne({
-      where: {
-        patientId: dto.patientId,
-        facilityId,
-      },
+      where: { patientId: dto.patientId, facilityId },
     });
 
-    if (existing && ![VisitStatus.COMPLETED, VisitStatus.CANCELLED].includes(existing.status)) {
+    if (existing && !([VisitStatus.COMPLETED, VisitStatus.CANCELLED] as string[]).includes(existing.status)) {
       throw new BadRequestException(
         'This patient already has an active visit. Complete or cancel it first.',
       );
@@ -96,12 +100,6 @@ export class PatientVisitsService {
   }
 
   // ── GET DOCTOR'S QUEUE ─────────────────────────────────────────────────────
-  // FIX: Include CHECKED_IN so patients are visible to the doctor from the
-  // moment they are assigned, regardless of billing status. Previously only
-  // WAITING_FOR_DOCTOR / WITH_DOCTOR / TRIAGE were included, which meant
-  // patients disappeared after triage completed (triage → WAITING_FOR_DOCTOR
-  // works fine) but newly checked-in patients with unpaid bills (still
-  // CHECKED_IN) were never shown. Including CHECKED_IN fixes both cases.
   async getDoctorQueue(doctorId: string, facilityId: string): Promise<PatientVisit[]> {
     return this.visitsRepository
       .createQueryBuilder('visit')
@@ -110,14 +108,7 @@ export class PatientVisitsService {
       .leftJoinAndSelect('visit.triagedBy', 'triagedBy')
       .where('visit.assignedDoctorId = :doctorId', { doctorId })
       .andWhere('visit.facilityId = :facilityId', { facilityId })
-      .andWhere('visit.status IN (:...statuses)', {
-        statuses: [
-          VisitStatus.CHECKED_IN,          // awaiting billing clearance
-          VisitStatus.TRIAGE,              // nurse recording vitals
-          VisitStatus.WAITING_FOR_DOCTOR,  // ready for the doctor
-          VisitStatus.WITH_DOCTOR,         // currently in consultation
-        ],
-      })
+      .andWhere('visit.status IN (:...statuses)', { statuses: ACTIVE_DOCTOR_STATUSES })
       .orderBy('visit.created_at', 'ASC')
       .getMany();
   }
@@ -150,21 +141,18 @@ export class PatientVisitsService {
     visit.triageCompleted = true;
     visit.triagedById = triagedById;
     visit.triagedAt = new Date();
-    // Only advance to WAITING_FOR_DOCTOR if billing has been cleared
-    // (i.e. visit is already WAITING_FOR_DOCTOR or beyond).
-    // If still CHECKED_IN (unpaid cash bill), keep it there so the
-    // billing gate still applies.
-    if (visit.status === VisitStatus.CHECKED_IN) {
-      // Stay CHECKED_IN — billing service will advance it when paid
-      visit.status = VisitStatus.CHECKED_IN;
-    } else {
+
+    // Only advance to WAITING_FOR_DOCTOR if billing has been cleared.
+    // If still CHECKED_IN (unpaid cash bill), keep it — billing service
+    // will advance it when payment is collected.
+    if (visit.status !== VisitStatus.CHECKED_IN) {
       visit.status = VisitStatus.WAITING_FOR_DOCTOR;
     }
 
     return this.visitsRepository.save(visit);
   }
 
-  // ── REASSIGN DOCTOR (receptionist / facility_admin only) ───────────────────
+  // ── REASSIGN DOCTOR ────────────────────────────────────────────────────────
   async reassign(
     visitId: string,
     dto: ReassignDto,
@@ -180,7 +168,7 @@ export class PatientVisitsService {
     return this.visitsRepository.save(visit);
   }
 
-  // ── MARK AS WITH DOCTOR (when doctor opens the visit) ─────────────────────
+  // ── MARK AS WITH DOCTOR ────────────────────────────────────────────────────
   async markWithDoctor(visitId: string, doctorId: string, facilityId: string): Promise<PatientVisit> {
     const visit = await this.findOne(visitId, facilityId);
 
@@ -203,6 +191,30 @@ export class PatientVisitsService {
     return this.visitsRepository.save(visit);
   }
 
+  // ── AUTO-COMPLETE VISIT WHEN SOAP NOTE IS SAVED ────────────────────────────
+  // Finds today's active visit for the patient and marks it completed.
+  // Silently does nothing if no active visit exists (doctor wrote note
+  // outside of a queued visit — perfectly valid).
+  async completeVisitForPatient(patientId: string, facilityId: string): Promise<void> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const visit = await this.visitsRepository
+      .createQueryBuilder('visit')
+      .where('visit.patientId = :patientId', { patientId })
+      .andWhere('visit.facilityId = :facilityId', { facilityId })
+      .andWhere('visit.created_at >= :today', { today })
+      .andWhere('visit.status IN (:...statuses)', { statuses: ACTIVE_DOCTOR_STATUSES })
+      .orderBy('visit.created_at', 'DESC')
+      .getOne();
+
+    if (visit) {
+      visit.status = VisitStatus.COMPLETED;
+      await this.visitsRepository.save(visit);
+      console.log(`✅ Visit ${visit.id} auto-completed after SOAP note saved for patient ${patientId}`);
+    }
+  }
+
   // ── CANCEL VISIT ───────────────────────────────────────────────────────────
   async cancel(visitId: string, facilityId: string): Promise<PatientVisit> {
     const visit = await this.findOne(visitId, facilityId);
@@ -215,7 +227,7 @@ export class PatientVisitsService {
     return this.visitsRepository.save(visit);
   }
 
-  // ── GET STATS (for home screen counters) ──────────────────────────────────
+  // ── GET STATS ──────────────────────────────────────────────────────────────
   async getQueueStats(facilityId: string, doctorId?: string): Promise<{
     checkedIn: number;
     waitingForDoctor: number;
@@ -238,17 +250,12 @@ export class PatientVisitsService {
 
     let myQueue: number | undefined;
     if (doctorId) {
+      // Count ALL active statuses so the badge always matches what the
+      // doctor sees in their queue screen
       myQueue = await base
         .clone()
         .andWhere('visit.assignedDoctorId = :doctorId', { doctorId })
-        .andWhere('visit.status IN (:...statuses)', {
-          statuses: [
-            VisitStatus.CHECKED_IN,
-            VisitStatus.TRIAGE,
-            VisitStatus.WAITING_FOR_DOCTOR,
-            VisitStatus.WITH_DOCTOR,
-          ],
-        })
+        .andWhere('visit.status IN (:...statuses)', { statuses: ACTIVE_DOCTOR_STATUSES })
         .getCount();
     }
 
