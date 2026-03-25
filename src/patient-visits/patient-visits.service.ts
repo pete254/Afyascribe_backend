@@ -203,7 +203,6 @@ export class PatientVisitsService {
       .createQueryBuilder('visit')
       .where('visit.patientId = :patientId', { patientId })
       .andWhere('visit.facilityId = :facilityId', { facilityId })
-      .andWhere('visit.created_at >= :today', { today })
       .andWhere('visit.status IN (:...statuses)', { statuses: ACTIVE_DOCTOR_STATUSES })
       .orderBy('visit.created_at', 'DESC')
       .getOne();
