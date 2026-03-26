@@ -18,6 +18,7 @@ import { FacilitiesModule } from './facilities/facilities.module';
 import { PatientVisitsModule } from './patient-visits/patient-visits.module';
 import { AdminModule } from './admin/admin.module';
 import { BillingModule } from './billing/billing.module';
+import { PatientDocumentsModule } from './patient-documents/patient-documents.module';
 
 import { User } from './users/entities/user.entity';
 import { SoapNote } from './soap-notes/entities/soap-note.entity';
@@ -26,6 +27,7 @@ import { Facility } from './facilities/entities/facility.entity';
 import { FacilityInviteCode } from './facilities/entities/facility-invite-code.entity';
 import { PatientVisit } from './patient-visits/entities/patient-visit.entity';
 import { Billing } from './billing/entities/billing.entity';
+import { PatientDocument } from './patient-documents/entities/patient-document.entity';
 
 import { KeepAliveService } from './services/keepAlive';
 import { InsuranceSchemesModule } from './insurance-schemes/insurance-schemes.module';
@@ -49,7 +51,7 @@ import { ReportsModule } from './reports/reports.module';
           username: configService.get('DB_USERNAME'),
           password: configService.get('DB_PASSWORD'),
           database: configService.get('DB_DATABASE'),
-          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit, Billing,InsuranceScheme],
+          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit, Billing, InsuranceScheme, PatientDocument],
           autoLoadEntities: true,
           synchronize: !isProduction,
           logging: !isProduction,
@@ -74,6 +76,7 @@ import { ReportsModule } from './reports/reports.module';
     BillingModule,
     InsuranceSchemesModule,
     ReportsModule,
+    PatientDocumentsModule,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],
