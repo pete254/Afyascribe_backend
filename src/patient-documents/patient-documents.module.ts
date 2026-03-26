@@ -9,7 +9,7 @@ import { PatientsModule } from '../patients/patients.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([PatientDocument]),
-    PatientsModule, // For patientExists check
+    PatientsModule,
   ],
   controllers: [PatientDocumentsController],
   providers: [PatientDocumentsService],
