@@ -18,7 +18,6 @@ import {
   ApiOperation,
   ApiBearerAuth,
   ApiConsumes,
-  ApiBody,
 } from '@nestjs/swagger';
 import { memoryStorage } from 'multer';
 import { PatientDocumentsService } from './patient-documents.service';
@@ -26,6 +25,13 @@ import { DocumentCategory } from './entities/patient-document.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+
+type UploadedMulterFile = {
+  buffer: Buffer;
+  originalname: string;
+  mimetype: string;
+  size: number;
+};
 
 const fileInterceptor = FileInterceptor('file', {
   storage: memoryStorage(),
@@ -45,7 +51,7 @@ export class PatientDocumentsController {
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(fileInterceptor)
   async uploadPatientDoc(
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: UploadedMulterFile,
     @Body('patientId') patientId: string,
     @Body('documentName') documentName: string,
     @Body('category') category: DocumentCategory,
@@ -76,7 +82,7 @@ export class PatientDocumentsController {
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(fileInterceptor)
   async uploadSoapNoteDoc(
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: UploadedMulterFile,
     @Body('patientId') patientId: string,
     @Body('soapNoteId') soapNoteId: string,
     @Body('documentName') documentName: string,
