@@ -33,6 +33,8 @@ import { KeepAliveService } from './services/keepAlive';
 import { InsuranceSchemesModule } from './insurance-schemes/insurance-schemes.module';
 import { InsuranceScheme } from './insurance-schemes/entities/insurance-scheme.entity';
 import { ReportsModule } from './reports/reports.module';
+import { ServiceCatalogModule } from './service-catalog/service-catalog.module';
+import { ServiceCatalogItem } from './service-catalog/entities/service-catalog.entity'
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -51,7 +53,7 @@ import { ReportsModule } from './reports/reports.module';
           username: configService.get('DB_USERNAME'),
           password: configService.get('DB_PASSWORD'),
           database: configService.get('DB_DATABASE'),
-          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit, Billing, InsuranceScheme, PatientDocument],
+          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit, Billing, InsuranceScheme, PatientDocument, ServiceCatalogItem],
           autoLoadEntities: true,
           synchronize: !isProduction,
           logging: !isProduction,
@@ -77,6 +79,7 @@ import { ReportsModule } from './reports/reports.module';
     InsuranceSchemesModule,
     ReportsModule,
     PatientDocumentsModule,
+    ServiceCatalogModule,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],
