@@ -47,7 +47,7 @@ export class ServiceCatalogController {
 
   // ── SEED defaults ─────────────────────────────────────────────────────────
   @Post('seed-defaults')
-  @Roles('facility_admin', 'super_admin')
+  @Roles('facility_admin', 'super_admin','doctor', 'nurse', 'receptionist')
   @ApiOperation({ summary: 'Seed default services into the catalog (safe to run multiple times)' })
   async seedDefaults(@CurrentUser() user: any) {
     await this.service.seedDefaults(user.facilityId);
@@ -56,7 +56,7 @@ export class ServiceCatalogController {
 
   // ── CREATE ────────────────────────────────────────────────────────────────
   @Post()
-  @Roles('facility_admin', 'super_admin')
+  @Roles('facility_admin', 'super_admin','doctor', 'nurse', 'receptionist')
   @ApiOperation({ summary: 'Add a service to the catalog' })
   create(@Body() dto: CreateServiceCatalogDto, @CurrentUser() user: any) {
     return this.service.create(dto, user.facilityId);
@@ -64,7 +64,7 @@ export class ServiceCatalogController {
 
   // ── UPDATE ────────────────────────────────────────────────────────────────
   @Patch(':id')
-  @Roles('facility_admin', 'super_admin')
+  @Roles('facility_admin', 'super_admin','doctor', 'nurse', 'receptionist')
   @ApiOperation({ summary: 'Update a catalog service' })
   update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -85,7 +85,7 @@ export class ServiceCatalogController {
 
   // ── REORDER ───────────────────────────────────────────────────────────────
   @Patch('bulk/reorder')
-  @Roles('facility_admin', 'super_admin')
+  @Roles('facility_admin', 'super_admin','doctor', 'nurse', 'receptionist')
   @ApiOperation({ summary: 'Reorder catalog items' })
   reorder(
     @Body() body: { items: { id: string; sortOrder: number }[] },
