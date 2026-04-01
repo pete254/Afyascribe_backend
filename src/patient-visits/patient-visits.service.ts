@@ -91,7 +91,6 @@ export class PatientVisitsService {
       .leftJoinAndSelect('visit.checkedInBy', 'checkedInBy')
       .leftJoinAndSelect('visit.triagedBy', 'triagedBy')
       .where('visit.facilityId = :facilityId', { facilityId })
-      .andWhere('visit.created_at >= :today', { today })
       .andWhere('visit.status NOT IN (:...statuses)', {
         statuses: [VisitStatus.COMPLETED, VisitStatus.CANCELLED],
       })
