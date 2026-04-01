@@ -4,10 +4,13 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Param,
   Body,
   UseGuards,
   ParseUUIDPipe,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { BillingService } from './billing.service';
@@ -27,7 +30,7 @@ export class BillingController {
 
   // ── CREATE BILL ────────────────────────────────────────────────────────────
   @Post()
-  @Roles('receptionist', 'facility_admin', 'super_admin')
+  @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
   @ApiOperation({ summary: 'Create a bill for a visit' })
   create(@Body() dto: CreateBillingDto, @CurrentUser() user: any) {
     return this.billingService.create(dto, user.facilityId);
@@ -63,6 +66,30 @@ export class BillingController {
     return this.billingService.getVisitBillingSummary(visitId, user.facilityId);
   }
 
+  // ── UPDATE BILL (amount / description — unpaid only) ──────────────────────
+  @Patch(':id')
+  @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
+  @ApiOperation({ summary: 'Update an unpaid bill (amount or description)' })
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: { amount?: number; serviceDescription?: string },
+    @CurrentUser() user: any,
+  ) {
+    return this.billingService.updateBill(id, dto, user.facilityId);
+  }
+
+  // ── DELETE BILL (unpaid only) ──────────────────────────────────────────────
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
+  @ApiOperation({ summary: 'Delete an unpaid bill' })
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.billingService.deleteBill(id, user.facilityId);
+  }
+
   // ── COLLECT PAYMENT ────────────────────────────────────────────────────────
   @Patch(':id/pay')
   @Roles('receptionist', 'facility_admin', 'super_admin')
@@ -72,7 +99,6 @@ export class BillingController {
     @Body() dto: CollectPaymentDto,
     @CurrentUser() user: any,
   ) {
-    // FIX: was user.userId — JWT strategy exposes user.id
     return this.billingService.markPaid(id, dto, user.id, user.facilityId);
   }
 
@@ -85,7 +111,6 @@ export class BillingController {
     @Body() dto: WaiveBillingDto,
     @CurrentUser() user: any,
   ) {
-    // FIX: was user.userId
     return this.billingService.waive(id, dto.waiverReason, user.id, user.facilityId);
   }
 }

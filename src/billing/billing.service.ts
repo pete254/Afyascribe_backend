@@ -1,4 +1,5 @@
 // src/billing/billing.service.ts
+// UPDATED: Added updateBill() and deleteBill() methods
 import {
   Injectable,
   NotFoundException,
@@ -25,7 +26,7 @@ export class BillingService {
     private readonly visitsRepo: Repository<PatientVisit>,
   ) {}
 
-  // ── CREATE BILL (called at check-in time) ──────────────────────────────────
+  // ── CREATE BILL ──────────────────────────────────────────────────────────
   async create(dto: CreateBillingDto, facilityId: string): Promise<Billing> {
     const visit = await this.visitsRepo.findOne({
       where: { id: dto.visitId, facilityId },
@@ -43,8 +44,6 @@ export class BillingService {
       amount: dto.amount,
       paymentMode,
       insuranceSchemeName: dto.insuranceSchemeName ?? null,
-      // Insurance-only bills are immediately set to insurance_pending —
-      // no cash collection needed, visit advances straight away
       status:
         paymentMode === PaymentMode.INSURANCE
           ? BillingStatus.INSURANCE_PENDING
@@ -53,18 +52,43 @@ export class BillingService {
 
     const saved = await this.billingRepo.save(bill);
 
-    // If pure insurance bill, advance visit immediately (no cash gate)
+    // Insurance-only bills advance visit immediately
     if (paymentMode === PaymentMode.INSURANCE) {
       await this._tryAdvanceVisit(dto.visitId, facilityId);
     }
 
-    console.log(
-      `💰 Bill created: ${saved.id} | ${paymentMode.toUpperCase()} | KES ${dto.amount}`,
-    );
+    console.log(`💰 Bill created: ${saved.id} | ${paymentMode.toUpperCase()} | KES ${dto.amount}`);
     return saved;
   }
 
-  // ── GET BILLS FOR A VISIT ──────────────────────────────────────────────────
+  // ── UPDATE BILL (amount / description — unpaid only) ──────────────────────
+  async updateBill(
+    billId: string,
+    data: { amount?: number; serviceDescription?: string },
+    facilityId: string,
+  ): Promise<Billing> {
+    const bill = await this.billingRepo.findOne({ where: { id: billId, facilityId } });
+    if (!bill) throw new NotFoundException(`Bill ${billId} not found`);
+    if (bill.status !== BillingStatus.UNPAID) {
+      throw new BadRequestException('Only unpaid bills can be edited');
+    }
+    if (data.amount !== undefined) bill.amount = data.amount;
+    if (data.serviceDescription !== undefined) bill.serviceDescription = data.serviceDescription;
+    return this.billingRepo.save(bill);
+  }
+
+  // ── DELETE BILL (unpaid only) ──────────────────────────────────────────────
+  async deleteBill(billId: string, facilityId: string): Promise<void> {
+    const bill = await this.billingRepo.findOne({ where: { id: billId, facilityId } });
+    if (!bill) throw new NotFoundException(`Bill ${billId} not found`);
+    if (bill.status !== BillingStatus.UNPAID) {
+      throw new BadRequestException('Only unpaid bills can be deleted');
+    }
+    await this.billingRepo.remove(bill);
+    console.log(`🗑️ Bill deleted: ${billId}`);
+  }
+
+  // ── GET BILLS FOR A VISIT ────────────────────────────────────────────────
   async findByVisit(visitId: string, facilityId: string): Promise<Billing[]> {
     return this.billingRepo.find({
       where: { visitId, facilityId },
@@ -73,7 +97,7 @@ export class BillingService {
     });
   }
 
-  // ── GET ALL UNPAID BILLS FOR FACILITY (today) ──────────────────────────────
+  // ── GET ALL UNPAID BILLS FOR FACILITY (today) ─────────────────────────────
   async findUnpaidToday(facilityId: string): Promise<Billing[]> {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -89,16 +113,14 @@ export class BillingService {
       .getMany();
   }
 
-  // ── COLLECT PAYMENT → advances visit when all cash bills are cleared ───────
+  // ── COLLECT PAYMENT ──────────────────────────────────────────────────────
   async markPaid(
     billId: string,
     dto: CollectPaymentDto,
     collectedById: string,
     facilityId: string,
   ): Promise<{ bill: Billing; visit: PatientVisit | null }> {
-    const bill = await this.billingRepo.findOne({
-      where: { id: billId, facilityId },
-    });
+    const bill = await this.billingRepo.findOne({ where: { id: billId, facilityId } });
     if (!bill) throw new NotFoundException(`Bill ${billId} not found`);
     if (bill.status === BillingStatus.PAID) {
       throw new BadRequestException('This bill is already marked as paid');
@@ -107,19 +129,17 @@ export class BillingService {
       throw new BadRequestException('This bill has been waived');
     }
 
-    // Cash / split bills: enforce full collection before marking paid
     if (
       bill.paymentMode === PaymentMode.CASH &&
       dto.paymentMethod !== PaymentMethod.INSURANCE_CLAIM
     ) {
       if (dto.amountReceived < Number(bill.amount)) {
         throw new BadRequestException(
-          `Amount received (KES ${dto.amountReceived}) is less than the bill amount (KES ${bill.amount}). Full payment is required for cash patients.`,
+          `Amount received (KES ${dto.amountReceived}) is less than the bill amount (KES ${bill.amount}). Full payment is required.`,
         );
       }
     }
 
-    // Record payment details
     bill.status = BillingStatus.PAID;
     bill.paidAt = new Date();
     bill.collectedById = collectedById;
@@ -127,26 +147,20 @@ export class BillingService {
     bill.mpesaReference = dto.mpesaReference ?? null;
 
     const savedBill = await this.billingRepo.save(bill);
-
-    // Try to advance visit — only when ALL non-insurance bills are cleared
     const visit = await this._tryAdvanceVisit(bill.visitId, facilityId);
 
-    console.log(
-      `✅ Payment collected: Bill ${billId} | ${dto.paymentMethod.toUpperCase()} | KES ${dto.amountReceived}`,
-    );
+    console.log(`✅ Payment collected: Bill ${billId} | ${dto.paymentMethod.toUpperCase()} | KES ${dto.amountReceived}`);
     return { bill: savedBill, visit };
   }
 
-  // ── WAIVE BILL ─────────────────────────────────────────────────────────────
+  // ── WAIVE BILL ───────────────────────────────────────────────────────────
   async waive(
     billId: string,
     waiverReason: string | undefined,
     collectedById: string,
     facilityId: string,
   ): Promise<Billing> {
-    const bill = await this.billingRepo.findOne({
-      where: { id: billId, facilityId },
-    });
+    const bill = await this.billingRepo.findOne({ where: { id: billId, facilityId } });
     if (!bill) throw new NotFoundException(`Bill ${billId} not found`);
     if (bill.status !== BillingStatus.UNPAID) {
       throw new BadRequestException('Only unpaid bills can be waived');
@@ -162,7 +176,7 @@ export class BillingService {
     return saved;
   }
 
-  // ── SUMMARY FOR VISIT (used in queue display) ──────────────────────────────
+  // ── SUMMARY FOR VISIT ────────────────────────────────────────────────────
   async getVisitBillingSummary(
     visitId: string,
     facilityId: string,
@@ -185,21 +199,14 @@ export class BillingService {
       (b) => b.status === BillingStatus.INSURANCE_PENDING,
     );
 
-    return {
-      total,
-      paid,
-      unpaid,
-      hasPendingBills: unpaid > 0,
-      hasInsuranceClaims,
-    };
+    return { total, paid, unpaid, hasPendingBills: unpaid > 0, hasInsuranceClaims };
   }
 
-  // ── PRIVATE: advance visit to WAITING_FOR_DOCTOR when cash is all cleared ──
+  // ── ADVANCE VISIT when all cash bills cleared ─────────────────────────────
   private async _tryAdvanceVisit(
     visitId: string,
     facilityId: string,
   ): Promise<PatientVisit | null> {
-    // Only unpaid (cash/split) bills block the queue — insurance_pending does NOT
     const blockingBillCount = await this.billingRepo.count({
       where: { visitId, facilityId, status: BillingStatus.UNPAID },
     });
