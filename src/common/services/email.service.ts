@@ -81,6 +81,26 @@ export class EmailService {
   }
 
   /**
+   * Send a custom HTML email (used for appointments)
+   */
+  async sendCustomEmail(to: string, subject: string, htmlContent: string): Promise<void> {
+    try {
+      this.logger.log(`📧 Sending custom email to: ${to} | Subject: ${subject}`);
+      const { data, error } = await this.resend.emails.send({
+        from: this.fromEmail,
+        to: [to],
+        subject,
+        html: htmlContent,
+      });
+      if (error) throw new Error(error.message);
+      this.logger.log(`✅ Custom email sent. ID: ${data?.id}`);
+    } catch (error) {
+      this.logger.error(`❌ Failed to send custom email to ${to}:`, error);
+      throw new Error('Failed to send email');
+    }
+  }
+
+  /**
    * Email template for 6-digit reset code
    */
   private getResetCodeTemplate(userName: string, resetCode: string): string {
