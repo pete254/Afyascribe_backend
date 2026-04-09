@@ -35,6 +35,7 @@ import { InsuranceScheme } from './insurance-schemes/entities/insurance-scheme.e
 import { ReportsModule } from './reports/reports.module';
 import { ServiceCatalogModule } from './service-catalog/service-catalog.module';
 import { ServiceCatalogItem } from './service-catalog/entities/service-catalog.entity'
+import { AppointmentsModule } from './appointments/appointments.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -80,6 +81,7 @@ import { ServiceCatalogItem } from './service-catalog/entities/service-catalog.e
     ReportsModule,
     PatientDocumentsModule,
     ServiceCatalogModule,
+    AppointmentsModule,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],
