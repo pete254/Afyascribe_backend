@@ -237,8 +237,7 @@ export class PatientVisitsService {
 
     const base = this.visitsRepository
       .createQueryBuilder('visit')
-      .where('visit.facilityId = :facilityId', { facilityId })
-      .andWhere('visit.created_at >= :today', { today });
+      .where('visit.facilityId = :facilityId', { facilityId });
 
     const [checkedIn, waitingForDoctor, withDoctor] = await Promise.all([
       base.clone().andWhere('visit.status = :s', { s: VisitStatus.CHECKED_IN }).getCount(),
