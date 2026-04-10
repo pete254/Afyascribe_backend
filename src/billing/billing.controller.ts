@@ -1,4 +1,5 @@
 // src/billing/billing.controller.ts
+// UPDATED: Added partial payment endpoint
 import {
   Controller,
   Get,
@@ -28,7 +29,6 @@ import { CollectPaymentDto, WaiveBillingDto } from './dto/mark-paid.dto';
 export class BillingController {
   constructor(private readonly billingService: BillingService) {}
 
-  // ── CREATE BILL ────────────────────────────────────────────────────────────
   @Post()
   @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
   @ApiOperation({ summary: 'Create a bill for a visit' })
@@ -36,7 +36,6 @@ export class BillingController {
     return this.billingService.create(dto, user.facilityId);
   }
 
-  // ── GET BILLS FOR A VISIT ──────────────────────────────────────────────────
   @Get('visit/:visitId')
   @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
   @ApiOperation({ summary: 'Get all bills for a specific visit' })
@@ -47,7 +46,6 @@ export class BillingController {
     return this.billingService.findByVisit(visitId, user.facilityId);
   }
 
-  // ── GET UNPAID BILLS TODAY ─────────────────────────────────────────────────
   @Get('unpaid-today')
   @Roles('receptionist', 'facility_admin', 'super_admin')
   @ApiOperation({ summary: "Get today's unpaid bills for the facility" })
@@ -55,7 +53,6 @@ export class BillingController {
     return this.billingService.findUnpaidToday(user.facilityId);
   }
 
-  // ── GET SUMMARY FOR VISIT ──────────────────────────────────────────────────
   @Get('visit/:visitId/summary')
   @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
   @ApiOperation({ summary: 'Get billing summary (totals) for a visit' })
@@ -66,7 +63,6 @@ export class BillingController {
     return this.billingService.getVisitBillingSummary(visitId, user.facilityId);
   }
 
-  // ── UPDATE BILL (amount / description — unpaid only) ──────────────────────
   @Patch(':id')
   @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
   @ApiOperation({ summary: 'Update an unpaid bill (amount or description)' })
@@ -78,7 +74,6 @@ export class BillingController {
     return this.billingService.updateBill(id, dto, user.facilityId);
   }
 
-  // ── DELETE BILL (unpaid only) ──────────────────────────────────────────────
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
@@ -90,10 +85,26 @@ export class BillingController {
     return this.billingService.deleteBill(id, user.facilityId);
   }
 
-  // ── COLLECT PAYMENT ────────────────────────────────────────────────────────
+  // ── PARTIAL / FULL PAYMENT ─────────────────────────────────────────────────
+  @Patch(':id/collect')
+  @Roles('receptionist', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Collect partial or full payment — supports multiple payment methods' })
+  collectPayment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: { paymentMethod: string; amountReceived: number; mpesaReference?: string },
+    @CurrentUser() user: any,
+  ) {
+    return this.billingService.collectPayment(
+      id,
+      { ...dto, collectedById: user.id },
+      user.facilityId,
+    );
+  }
+
+  // ── LEGACY ─────────────────────────────────────────────────────────────────
   @Patch(':id/pay')
   @Roles('receptionist', 'facility_admin', 'super_admin')
-  @ApiOperation({ summary: 'Collect payment for a bill — advances visit when all cash bills cleared' })
+  @ApiOperation({ summary: 'Mark bill as paid (legacy — use /collect for partial payments)' })
   markPaid(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CollectPaymentDto,
@@ -102,7 +113,6 @@ export class BillingController {
     return this.billingService.markPaid(id, dto, user.id, user.facilityId);
   }
 
-  // ── WAIVE BILL ─────────────────────────────────────────────────────────────
   @Patch(':id/waive')
   @Roles('facility_admin', 'super_admin')
   @ApiOperation({ summary: 'Waive a bill (admin only)' })

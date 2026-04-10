@@ -1,4 +1,5 @@
 // src/billing/entities/billing.entity.ts
+// UPDATED: Added amountPaid and paymentHistory for partial payments
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -26,22 +27,20 @@ export enum BillingStatus {
   UNPAID = 'unpaid',
   PAID = 'paid',
   WAIVED = 'waived',
-  INSURANCE_PENDING = 'insurance_pending', // insurance portion awaiting claim
+  INSURANCE_PENDING = 'insurance_pending',
 }
 
-// How the bill is being settled
 export enum PaymentMode {
-  CASH = 'cash',           // patient pays everything
-  INSURANCE = 'insurance', // insurer pays everything, no patient cash needed
-  SPLIT = 'split',         // patient pays copay, insurer covers the rest
+  CASH = 'cash',
+  INSURANCE = 'insurance',
+  SPLIT = 'split',
 }
 
-// How the patient's cash portion was received
 export enum PaymentMethod {
   CASH = 'cash',
   MPESA = 'mpesa',
   CARD = 'card',
-  INSURANCE_CLAIM = 'insurance_claim', // no cash collected — goes to insurer
+  INSURANCE_CLAIM = 'insurance_claim',
 }
 
 @Entity('billing')
@@ -49,7 +48,6 @@ export class Billing {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  // ── Facility scope ─────────────────────────────────────────────────────────
   @Column({ name: 'facility_id', type: 'uuid' })
   facilityId: string;
 
@@ -57,7 +55,6 @@ export class Billing {
   @JoinColumn({ name: 'facility_id' })
   facility: Facility;
 
-  // ── Visit link ─────────────────────────────────────────────────────────────
   @Column({ name: 'visit_id', type: 'uuid' })
   visitId: string;
 
@@ -65,7 +62,6 @@ export class Billing {
   @JoinColumn({ name: 'visit_id' })
   visit: PatientVisit;
 
-  // ── Patient (denormalised for easy querying) ───────────────────────────────
   @Column({ name: 'patient_id', type: 'uuid' })
   patientId: string;
 
@@ -73,7 +69,6 @@ export class Billing {
   @JoinColumn({ name: 'patient_id' })
   patient: Patient;
 
-  // ── Service details ────────────────────────────────────────────────────────
   @Column({
     name: 'service_type',
     type: 'enum',
@@ -89,7 +84,19 @@ export class Billing {
   @Column({ name: 'amount', type: 'decimal', precision: 10, scale: 2 })
   amount: number;
 
-  // ── Payment mode (set at bill creation) ───────────────────────────────────
+  // ── Partial payment tracking ───────────────────────────────────────────────
+  @Column({ name: 'amount_paid', type: 'decimal', precision: 10, scale: 2, default: 0 })
+  amountPaid: number;
+
+  @Column({ name: 'payment_history', type: 'jsonb', default: [] })
+  paymentHistory: {
+    paymentMethod: string;
+    amount: number;
+    mpesaReference?: string;
+    paidAt: string;
+    collectedById: string;
+  }[];
+
   @Column({
     name: 'payment_mode',
     type: 'varchar',
@@ -98,11 +105,9 @@ export class Billing {
   })
   paymentMode: PaymentMode;
 
-  // For insurance / split bills — name of the insurer
   @Column({ name: 'insurance_scheme_name', type: 'varchar', length: 200, nullable: true })
   insuranceSchemeName: string | null;
 
-  // ── Payment status ─────────────────────────────────────────────────────────
   @Column({
     name: 'status',
     type: 'enum',
@@ -115,7 +120,6 @@ export class Billing {
   @Column({ name: 'paid_at', type: 'timestamp with time zone', nullable: true })
   paidAt: Date | null;
 
-  // How the cash portion was collected
   @Column({
     name: 'payment_method',
     type: 'varchar',
@@ -124,7 +128,6 @@ export class Billing {
   })
   paymentMethod: PaymentMethod | null;
 
-  // M-Pesa transaction reference — optional, no validation
   @Column({ name: 'mpesa_reference', type: 'varchar', length: 100, nullable: true })
   mpesaReference: string | null;
 
@@ -138,7 +141,6 @@ export class Billing {
   @Column({ name: 'waiver_reason', type: 'text', nullable: true })
   waiverReason: string | null;
 
-  // ── Timestamps ─────────────────────────────────────────────────────────────
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
