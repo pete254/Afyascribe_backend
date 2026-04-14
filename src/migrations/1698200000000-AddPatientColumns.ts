@@ -4,20 +4,20 @@ export class AddPatientColumns1698200000000 implements MigrationInterface {
   name = 'AddPatientColumns1698200000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN "middleName" character varying`);
-    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN "title" character varying`);
-    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN "maritalStatus" character varying`);
-    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN "occupation" character varying`);
-    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN "idType" character varying`);
-    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN "idNumber" character varying`);
-    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN "nationality" character varying`);
-    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN "county" character varying`);
-    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN "subCounty" character varying`);
-    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN "postalCode" character varying`);
-    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN "howKnown" character varying`);
-    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN "patientType" character varying`);
-    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN "medicalPlan" character varying`);
-    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN "membershipNo" character varying`);
+    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN IF NOT EXISTS "middleName" character varying`);
+    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN IF NOT EXISTS "title" character varying`);
+    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN IF NOT EXISTS "maritalStatus" character varying`);
+    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN IF NOT EXISTS "occupation" character varying`);
+    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN IF NOT EXISTS "idType" character varying`);
+    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN IF NOT EXISTS "idNumber" character varying`);
+    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN IF NOT EXISTS "nationality" character varying`);
+    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN IF NOT EXISTS "county" character varying`);
+    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN IF NOT EXISTS "subCounty" character varying`);
+    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN IF NOT EXISTS "postalCode" character varying`);
+    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN IF NOT EXISTS "howKnown" character varying`);
+    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN IF NOT EXISTS "patientType" character varying`);
+    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN IF NOT EXISTS "medicalPlan" character varying`);
+    await queryRunner.query(`ALTER TABLE "patients" ADD COLUMN IF NOT EXISTS "membershipNo" character varying`);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

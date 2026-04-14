@@ -58,6 +58,8 @@ import { AppointmentsModule } from './appointments/appointments.module';
           autoLoadEntities: true,
           synchronize: !isProduction,
           logging: !isProduction,
+          migrations: ['dist/migrations/*.js'],
+          migrationsRun: true,
         };
         if (isProduction) {
           config.ssl = { rejectUnauthorized: false };
