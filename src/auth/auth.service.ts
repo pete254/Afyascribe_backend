@@ -1,5 +1,6 @@
 // src/auth/auth.service.ts
-// UPDATED: Added registerWithInviteCode() for staff onboarding flow
+// UPDATED: isOwner + clinicMode now included in JWT payload and user response
+// so permissions survive logout/login cycles.
 import {
   Injectable,
   UnauthorizedException,
@@ -31,13 +32,13 @@ export class AuthService {
   ) {}
 
   async validateUser(email: string, password: string): Promise<any> {
-  const user = await this.usersService.findByEmail(email);
-  if (user && await bcrypt.compare(password, user.password)) {
-    const { password: _, ...result } = user;
-    return result;
+    const user = await this.usersService.findByEmail(email);
+    if (user && await bcrypt.compare(password, user.password)) {
+      const { password: _, ...result } = user;
+      return result;
+    }
+    return null;
   }
-  return null;
-}
 
   // ── LOGIN ──────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,10 @@ export class AuthService {
     const passwordValid = await bcrypt.compare(password, user.password);
     if (!passwordValid) throw new UnauthorizedException('Invalid credentials');
 
+    // isOwner: true if the user was the one who created the clinic
+    const isOwner = (user as any).isOwner === true;
+    const clinicMode = (user.facility as any)?.clinicMode ?? null;
+
     const payload = {
       sub: user.id,
       email: user.email,
@@ -58,6 +63,9 @@ export class AuthService {
       lastName: user.lastName,
       facilityId: user.facilityId ?? null,
       facilityCode: user.facility?.code ?? null,
+      // Persist these so capabilities work after re-login
+      isOwner,
+      clinicMode,
     };
 
     return {
@@ -71,29 +79,21 @@ export class AuthService {
         facilityId: user.facilityId ?? null,
         facilityCode: user.facility?.code ?? null,
         facilityName: user.facility?.name ?? null,
+        isOwner,
+        clinicMode,
       },
     };
   }
 
   // ── REGISTER WITH INVITE CODE (staff onboarding) ───────────────────────────
 
-  /**
-   * Staff sign-up flow:
-   * 1. Validate the invite code → get facilityId
-   * 2. Create user linked to that facility
-   * 3. Record invite code usage
-   * 4. Return JWT immediately (no need to log in separately)
-   */
   async registerWithInviteCode(dto: UseInviteCodeDto) {
-    // 1. Validate the invite code
     const { facilityId, facilityName, facilityCode } =
       await this.inviteCodesService.validateCode(dto.inviteCode);
 
-    // 2. Check email not already taken
     const existing = await this.usersService.findByEmail(dto.email);
     if (existing) throw new ConflictException('Email already registered');
 
-    // 3. Create the user
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     const user = await this.usersService.create({
       email: dto.email,
@@ -104,10 +104,8 @@ export class AuthService {
       facilityId,
     });
 
-    // 4. Record usage
     await this.inviteCodesService.recordUsage(dto.inviteCode);
 
-    // 5. Send welcome email
     try {
       await this.emailService.sendWelcomeEmail(
         user.email,
@@ -117,7 +115,10 @@ export class AuthService {
       console.error('Welcome email failed:', e);
     }
 
-    // 6. Return JWT immediately so user is logged in right after sign-up
+    // Fetch the facility to get clinicMode
+    const facility = await this.facilitiesService.findOne(facilityId);
+    const clinicMode = (facility as any).clinicMode ?? null;
+
     const payload = {
       sub: user.id,
       email: user.email,
@@ -126,6 +127,8 @@ export class AuthService {
       lastName: user.lastName,
       facilityId,
       facilityCode,
+      isOwner: false,
+      clinicMode,
     };
 
     return {
@@ -139,6 +142,8 @@ export class AuthService {
         facilityId,
         facilityCode,
         facilityName,
+        isOwner: false,
+        clinicMode,
       },
     };
   }
@@ -172,7 +177,7 @@ export class AuthService {
     return result;
   }
 
-  // ── VALIDATE INVITE CODE (check before filling form) ──────────────────────
+  // ── VALIDATE INVITE CODE ───────────────────────────────────────────────────
 
   async validateInviteCode(code: string) {
     return this.inviteCodesService.validateCode(code);
@@ -186,7 +191,7 @@ export class AuthService {
 
     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + this.CODE_EXPIRY_MINUTES * 60 * 1000);
-    
+
     console.log(`🔑 [DEV] Reset code for ${email}: ${resetCode}`);
     await this.usersService.setResetCode(user.id, resetCode, expiresAt);
 
@@ -231,27 +236,25 @@ export class AuthService {
 
   // ── CREATE CLINIC (facility owner setup) ────────────────────────────────────
 
-  /**
-   * Clinic creation flow (owner signup):
-   * 1. Check email not taken
-   * 2. Create the facility (clinic)
-   * 3. Create owner-doctor account linked to facility
-   * 4. Generate invite code for the new clinic
-   * 5. Return JWT immediately (owner is logged in)
-   */
   async createClinic(dto: CreateClinicDto) {
-    // 1. Check email not taken
     const existing = await this.usersService.findByEmail(dto.email);
     if (existing) throw new ConflictException('Email already registered');
 
-    // 2. Create facility
+    // Create facility with clinicMode
     const facility = await this.facilitiesService.create({
       name: dto.facilityName,
       code: dto.facilityCode.toUpperCase(),
       type: FacilityType.CLINIC,
     });
 
-    // 3. Create owner-doctor account
+    // Store clinicMode on facility (update after creation)
+    try {
+      await this.facilitiesService.update(facility.id, { clinicMode: dto.clinicMode } as any);
+    } catch (e) {
+      console.log('clinicMode field may not exist yet:', e.message);
+    }
+
+    // Create owner-doctor with isOwner flag
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     const user = await this.usersService.create({
       email: dto.email,
@@ -260,12 +263,12 @@ export class AuthService {
       lastName: dto.lastName,
       role: UserRole.DOCTOR,
       facilityId: facility.id,
-    });
+      isOwner: true,
+    } as any);
 
-    // 4. Generate invite code for the new clinic
+    // Generate invite code
     const inviteCode = await this.inviteCodesService.generateCode(facility.id, user.id);
 
-    // 5. Send welcome email
     try {
       await this.emailService.sendWelcomeEmail(
         user.email,
@@ -275,7 +278,6 @@ export class AuthService {
       console.error('Welcome email failed:', e);
     }
 
-    // 6. Return JWT immediately so owner is logged in right after setup
     const payload = {
       sub: user.id,
       email: user.email,
@@ -284,6 +286,8 @@ export class AuthService {
       lastName: user.lastName,
       facilityId: facility.id,
       facilityCode: facility.code,
+      isOwner: true,
+      clinicMode: dto.clinicMode,
     };
 
     return {

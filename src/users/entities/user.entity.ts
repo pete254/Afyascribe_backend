@@ -1,5 +1,5 @@
 // src/users/entities/user.entity.ts
-// UPDATED: Added facilityId, facility relation, and new roles
+// UPDATED: Added isOwner field — true for clinic founders
 import {
   Entity,
   Column,
@@ -14,11 +14,11 @@ import { SoapNote } from '../../soap-notes/entities/soap-note.entity';
 import { Facility } from '../../facilities/entities/facility.entity';
 
 export enum UserRole {
-  SUPER_ADMIN = 'super_admin',       // Can manage all facilities
-  FACILITY_ADMIN = 'facility_admin', // Manages one facility's users
-  DOCTOR = 'doctor',                 // Creates SOAP notes
-  NURSE = 'nurse',                   // Assists, views SOAP notes
-  RECEPTIONIST = 'receptionist',     // Registers patients only
+  SUPER_ADMIN     = 'super_admin',
+  FACILITY_ADMIN  = 'facility_admin',
+  DOCTOR          = 'doctor',
+  NURSE           = 'nurse',
+  RECEPTIONIST    = 'receptionist',
 }
 
 @Entity('users')
@@ -46,7 +46,6 @@ export class User {
   role: UserRole;
 
   // ── Facility Link ──────────────────────────────────────────────────────────
-  // nullable: true during migration — will be NOT NULL after backfill
   @Column({ nullable: true, type: 'uuid' })
   facilityId: string | null;
 
@@ -56,6 +55,12 @@ export class User {
   })
   @JoinColumn({ name: 'facilityId' })
   facility: Facility;
+
+  // ── Owner flag ─────────────────────────────────────────────────────────────
+  // true = this doctor created the clinic (solo / team mode owner)
+  // Persisted in the JWT so capabilities survive re-login without a DB query.
+  @Column({ name: 'is_owner', default: false })
+  isOwner: boolean;
 
   // ── Status ─────────────────────────────────────────────────────────────────
   @Column({ default: true })

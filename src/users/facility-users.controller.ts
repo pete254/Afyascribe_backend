@@ -1,5 +1,6 @@
 // src/users/facility-users.controller.ts
-// Facility admin manages users within their own facility only
+// UPDATED: Allows doctors who are clinic owners to manage staff.
+// The `doctor` role is accepted alongside `facility_admin` for owner operations.
 import {
   Controller,
   Get,
@@ -27,6 +28,19 @@ import { UsersService } from './users.service';
 import { InviteCodesService } from '../facilities/invite-codes.service';
 import { CreateStaffDto } from './dto/create-staff.dto';
 
+/**
+ * Guard helper — user is allowed to manage staff if they are:
+ * - facility_admin or super_admin (always)
+ * - A doctor with isOwner === true on their token
+ */
+function assertCanManageStaff(user: any): void {
+  const isAdmin = user.role === 'facility_admin' || user.role === 'super_admin';
+  const isOwner = (user as any).isOwner === true;
+  if (!isAdmin && !isOwner) {
+    throw new ForbiddenException('Only clinic owners and admins can manage staff');
+  }
+}
+
 @ApiTags('facility-users')
 @ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -40,23 +54,26 @@ export class FacilityUsersController {
   // ── LIST all users in my facility ──────────────────────────────────────────
 
   @Get()
-  @Roles('facility_admin', 'super_admin')
+  @Roles('facility_admin', 'super_admin', 'doctor')
   @ApiOperation({ summary: 'List all staff in your facility' })
   async listFacilityUsers(@CurrentUser() user: CurrentUserType) {
+    assertCanManageStaff(user);
     return this.usersService.findByFacility(user.facilityId);
   }
 
   // ── CREATE staff directly (no invite code) ─────────────────────────────────
 
   @Post()
-  @Roles('facility_admin', 'super_admin')
+  @Roles('facility_admin', 'super_admin', 'doctor')
   @ApiOperation({ summary: 'Create a staff account in your facility' })
   @ApiResponse({ status: 201, description: 'Staff account created' })
+  @ApiResponse({ status: 403, description: 'Not a clinic owner' })
   @ApiResponse({ status: 409, description: 'Email already exists' })
   async createStaff(
     @Body() dto: CreateStaffDto,
     @CurrentUser() user: CurrentUserType,
   ) {
+    assertCanManageStaff(user);
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     return this.usersService.create({
       email: dto.email,
@@ -71,12 +88,13 @@ export class FacilityUsersController {
   // ── GET invite code for my facility ───────────────────────────────────────
 
   @Get('invite-code')
-  @Roles('facility_admin', 'super_admin')
+  @Roles('facility_admin', 'super_admin', 'doctor')
   @ApiOperation({
     summary: 'Get the current active invite code for your facility',
     description: 'Share this code with new staff. Valid for 30 days.',
   })
   async getInviteCode(@CurrentUser() user: CurrentUserType) {
+    assertCanManageStaff(user);
     const code = await this.inviteCodesService.getActiveCode(user.facilityId);
     if (!code) {
       return {
@@ -99,13 +117,14 @@ export class FacilityUsersController {
   // ── GENERATE / REGENERATE invite code ─────────────────────────────────────
 
   @Post('invite-code/generate')
-  @Roles('facility_admin', 'super_admin')
+  @Roles('facility_admin', 'super_admin', 'doctor')
   @ApiOperation({
     summary: 'Generate (or regenerate) invite code for your facility',
     description:
       'Creates a new 30-day invite code. If one already exists it is immediately invalidated.',
   })
   async generateInviteCode(@CurrentUser() user: CurrentUserType) {
+    assertCanManageStaff(user);
     const inviteCode = await this.inviteCodesService.generateCode(
       user.facilityId,
       user.id,
@@ -124,23 +143,24 @@ export class FacilityUsersController {
   // ── GET invite code history ────────────────────────────────────────────────
 
   @Get('invite-code/history')
-  @Roles('facility_admin', 'super_admin')
+  @Roles('facility_admin', 'super_admin', 'doctor')
   @ApiOperation({ summary: 'View invite code generation history for audit' })
   async getInviteCodeHistory(@CurrentUser() user: CurrentUserType) {
+    assertCanManageStaff(user);
     return this.inviteCodesService.getCodeHistory(user.facilityId);
   }
 
   // ── DEACTIVATE a staff member ──────────────────────────────────────────────
 
   @Patch(':userId/deactivate')
-  @Roles('facility_admin', 'super_admin')
+  @Roles('facility_admin', 'super_admin', 'doctor')
   @ApiOperation({ summary: 'Deactivate a staff member in your facility' })
   async deactivateStaff(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Body() body: { reason?: string },
     @CurrentUser() admin: CurrentUserType,
   ) {
-    // Ensure target user is in the same facility
+    assertCanManageStaff(admin);
     const targetUser = await this.usersService.findById(userId);
     if (targetUser.facilityId !== admin.facilityId && admin.role !== 'super_admin') {
       throw new ForbiddenException('You can only manage users in your own facility');
@@ -152,12 +172,13 @@ export class FacilityUsersController {
   // ── REACTIVATE a staff member ──────────────────────────────────────────────
 
   @Patch(':userId/reactivate')
-  @Roles('facility_admin', 'super_admin')
+  @Roles('facility_admin', 'super_admin', 'doctor')
   @ApiOperation({ summary: 'Reactivate a deactivated staff member' })
   async reactivateStaff(
     @Param('userId', ParseUUIDPipe) userId: string,
     @CurrentUser() admin: CurrentUserType,
   ) {
+    assertCanManageStaff(admin);
     const targetUser = await this.usersService.findById(userId);
     if (targetUser.facilityId !== admin.facilityId && admin.role !== 'super_admin') {
       throw new ForbiddenException('You can only manage users in your own facility');

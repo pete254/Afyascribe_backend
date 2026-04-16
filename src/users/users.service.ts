@@ -1,5 +1,5 @@
 // src/users/users.service.ts
-// UPDATED: Added findByFacility() for facility admin user listing
+// UPDATED: create() now accepts optional isOwner flag
 import {
   Injectable,
   ConflictException,
@@ -20,7 +20,7 @@ export class UsersService {
 
   // ── CREATE ─────────────────────────────────────────────────────────────────
 
-  async create(createUserDto: CreateUserDto): Promise<User> {
+  async create(createUserDto: CreateUserDto & { isOwner?: boolean }): Promise<User> {
     const existingUser = await this.findByEmail(createUserDto.email);
     if (existingUser) {
       throw new ConflictException('Email already exists');
@@ -33,6 +33,8 @@ export class UsersService {
       lastName: createUserDto.lastName,
       role: createUserDto.role,
       facilityId: createUserDto.facilityId ?? null,
+      // isOwner is stored if the column exists (migration has been run)
+      ...(createUserDto.isOwner !== undefined ? { isOwner: createUserDto.isOwner } : {}),
     });
 
     return this.usersRepository.save(user);
@@ -64,7 +66,7 @@ export class UsersService {
 
   /**
    * Get all users belonging to a specific facility.
-   * Used by facility_admin to list and manage their staff.
+   * Used by facility_admin / owner-doctor to list and manage their staff.
    */
   async findByFacility(facilityId: string): Promise<Omit<User, 'password'>[]> {
     const users = await this.usersRepository.find({
