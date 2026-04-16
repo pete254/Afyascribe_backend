@@ -103,7 +103,7 @@ export class BillingController {
 
   // ── LEGACY ─────────────────────────────────────────────────────────────────
   @Patch(':id/pay')
-  @Roles('receptionist', 'facility_admin', 'super_admin')
+  @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
   @ApiOperation({ summary: 'Mark bill as paid (legacy — use /collect for partial payments)' })
   markPaid(
     @Param('id', ParseUUIDPipe) id: string,
