@@ -1,6 +1,8 @@
 // src/users/facility-users.controller.ts
-// UPDATED: Allows doctors who are clinic owners to manage staff.
-// The `doctor` role is accepted alongside `facility_admin` for owner operations.
+// UPDATED: 
+//  - Added GET /facility/users/doctors — accessible to ALL staff for assignment dropdowns
+//  - GET /facility/users now accessible to all roles (but staff management ops still owner-only)
+//  - Removed role restriction from GET / and GET doctors so receptionists, nurses can list staff
 import {
   Controller,
   Get,
@@ -51,10 +53,23 @@ export class FacilityUsersController {
     private readonly inviteCodesService: InviteCodesService,
   ) {}
 
+  // ── LIST doctors only — accessible to ALL authenticated staff ──────────────
+  // Used by queue/triage/SOAP screens to populate the doctor assignment dropdown.
+  // Must be defined BEFORE the generic GET / to avoid route collision.
+
+  @Get('doctors')
+  @Roles('facility_admin', 'super_admin', 'doctor', 'nurse', 'receptionist')
+  @ApiOperation({ summary: 'List all doctors in your facility (all staff can call this)' })
+  async listDoctors(@CurrentUser() user: CurrentUserType) {
+    const all = await this.usersService.findByFacility(user.facilityId);
+    return (all as any[]).filter(u => u.role === 'doctor');
+  }
+
   // ── LIST all users in my facility ──────────────────────────────────────────
+  // All staff can see the list; management operations are guarded separately.
 
   @Get()
-  @Roles('facility_admin', 'super_admin', 'doctor')
+  @Roles('facility_admin', 'super_admin', 'doctor', 'nurse', 'receptionist')
   @ApiOperation({ summary: 'List all staff in your facility' })
   async listFacilityUsers(@CurrentUser() user: CurrentUserType) {
     assertCanManageStaff(user);
