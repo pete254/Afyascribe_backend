@@ -10,8 +10,11 @@ import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
 import { EmailService } from '../common/services/email.service';
 import { InviteCodesService } from '../facilities/invite-codes.service';
+import { FacilitiesService } from '../facilities/facilities.service';
 import { UserRole } from '../users/entities/user.entity';
+import { FacilityType } from '../facilities/entities/facility.entity';
 import { UseInviteCodeDto } from '../facilities/dto/use-invite-code.dto';
+import { CreateClinicDto } from './dto/create-clinic.dto';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -24,6 +27,7 @@ export class AuthService {
     private jwtService: JwtService,
     private emailService: EmailService,
     private inviteCodesService: InviteCodesService,
+    private facilitiesService: FacilitiesService,
   ) {}
 
   async validateUser(email: string, password: string): Promise<any> {
@@ -223,5 +227,80 @@ export class AuthService {
     await this.usersService.updatePassword(user.id, await bcrypt.hash(newPassword, 10));
     await this.usersService.clearResetCode(user.id);
     return { message: 'Password reset successfully' };
+  }
+
+  // ── CREATE CLINIC (facility owner setup) ────────────────────────────────────
+
+  /**
+   * Clinic creation flow (owner signup):
+   * 1. Check email not taken
+   * 2. Create the facility (clinic)
+   * 3. Create owner-doctor account linked to facility
+   * 4. Generate invite code for the new clinic
+   * 5. Return JWT immediately (owner is logged in)
+   */
+  async createClinic(dto: CreateClinicDto) {
+    // 1. Check email not taken
+    const existing = await this.usersService.findByEmail(dto.email);
+    if (existing) throw new ConflictException('Email already registered');
+
+    // 2. Create facility
+    const facility = await this.facilitiesService.create({
+      name: dto.facilityName,
+      code: dto.facilityCode.toUpperCase(),
+      type: FacilityType.CLINIC,
+    });
+
+    // 3. Create owner-doctor account
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const user = await this.usersService.create({
+      email: dto.email,
+      password: hashedPassword,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      role: UserRole.DOCTOR,
+      facilityId: facility.id,
+    });
+
+    // 4. Generate invite code for the new clinic
+    const inviteCode = await this.inviteCodesService.generateCode(facility.id, user.id);
+
+    // 5. Send welcome email
+    try {
+      await this.emailService.sendWelcomeEmail(
+        user.email,
+        `${user.firstName} ${user.lastName}`,
+      );
+    } catch (e) {
+      console.error('Welcome email failed:', e);
+    }
+
+    // 6. Return JWT immediately so owner is logged in right after setup
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      facilityId: facility.id,
+      facilityCode: facility.code,
+    };
+
+    return {
+      access_token: this.jwtService.sign(payload),
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        facilityId: facility.id,
+        facilityCode: facility.code,
+        facilityName: facility.name,
+        isOwner: true,
+        clinicMode: dto.clinicMode,
+      },
+      inviteCode: inviteCode.code,
+    };
   }
 }

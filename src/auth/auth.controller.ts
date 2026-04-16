@@ -9,6 +9,7 @@ import { RequestResetCodeDto } from './dto/request-reset-code.dto';
 import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
 import { ResetPasswordWithCodeDto } from './dto/reset-password-with-code.dto';
 import { UseInviteCodeDto } from '../facilities/dto/use-invite-code.dto';
+import { CreateClinicDto } from './dto/create-clinic.dto';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -103,5 +104,13 @@ export class AuthController {
   @ApiOperation({ summary: 'Reset password using verified 6-digit code' })
   async resetPasswordWithCode(@Body() dto: ResetPasswordWithCodeDto) {
     return this.authService.resetPasswordWithCode(dto.email, dto.code, dto.newPassword);
+  }
+
+  // ── CREATE CLINIC (facility owner setup) ────────────────────────────────────
+
+  @Post('create-clinic')
+  @ApiOperation({ summary: 'Create a new clinic and owner account in one step' })
+  async createClinic(@Body() dto: CreateClinicDto) {
+    return this.authService.createClinic(dto);
   }
 }
