@@ -19,7 +19,7 @@ export class EmailService {
       this.logger.log('✅ Resend email service initialized');
     }
 
-    this.fromEmail = 'Afyascribe <onboarding@resend.dev>';
+    this.fromEmail = 'Afyascribe <info@afyascribe.co.ke>';
   }
 
   /**
