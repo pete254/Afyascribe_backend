@@ -87,7 +87,7 @@ export class BillingController {
 
   // ── PARTIAL / FULL PAYMENT ─────────────────────────────────────────────────
   @Patch(':id/collect')
-  @Roles('receptionist', 'facility_admin', 'super_admin')
+  @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
   @ApiOperation({ summary: 'Collect partial or full payment — supports multiple payment methods' })
   collectPayment(
     @Param('id', ParseUUIDPipe) id: string,

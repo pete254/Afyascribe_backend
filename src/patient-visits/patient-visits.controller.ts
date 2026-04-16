@@ -30,7 +30,7 @@ export class PatientVisitsController {
 
   // ── CHECK IN (receptionist, facility_admin) ────────────────────────────────
   @Post('check-in')
-  @Roles('receptionist', 'facility_admin', 'super_admin')
+  @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
   @ApiOperation({ summary: 'Check in a patient and assign to a doctor' })
   async checkIn(@Body() dto: CheckInDto, @CurrentUser() user: any) {
     // FIX: JWT strategy sets req.user.id (not userId)
@@ -93,9 +93,9 @@ export class PatientVisitsController {
     return this.visitsService.submitTriage(id, dto, user.id, user.facilityId);
   }
 
-  // ── REASSIGN DOCTOR (receptionist / facility_admin only) ───────────────────
+  // ── REASSIGN DOCTOR (receptionist / facility_admin / doctor / nurse) ──────
   @Patch(':id/reassign')
-  @Roles('receptionist', 'facility_admin', 'super_admin')
+  @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
   @ApiOperation({ summary: 'Reassign visit to a different doctor' })
   async reassign(
     @Param('id', ParseUUIDPipe) id: string,
