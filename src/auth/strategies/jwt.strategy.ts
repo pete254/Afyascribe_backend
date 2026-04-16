@@ -15,6 +15,7 @@ export interface JwtPayload {
   facilityCode: string | null;
   isOwner?: boolean;     // true if user created the clinic
   clinicMode?: string | null; // 'solo' | 'team' | 'multi'
+  facilityLogoUrl?: string | null;
 }
 
 @Injectable()
@@ -49,6 +50,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       facilityCode: payload.facilityCode,
       isOwner: payload.isOwner ?? false,
       clinicMode: payload.clinicMode ?? null,
+      facilityLogoUrl: payload.facilityLogoUrl ?? null,
     };
   }
 }

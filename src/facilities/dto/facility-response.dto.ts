@@ -49,6 +49,10 @@ export class FacilityResponseDto {
 
   @Expose()
   @ApiProperty()
+  logoUrl: string;
+
+  @Expose()
+  @ApiProperty()
   isActive: boolean;
 
   @Expose()

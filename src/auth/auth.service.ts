@@ -54,6 +54,7 @@ export class AuthService {
     // isOwner: true if the user was the one who created the clinic
     const isOwner = (user as any).isOwner === true;
     const clinicMode = (user.facility as any)?.clinicMode ?? null;
+    const facilityLogoUrl = user.facility?.logoUrl ?? null;
 
     const payload = {
       sub: user.id,
@@ -66,6 +67,7 @@ export class AuthService {
       // Persist these so capabilities work after re-login
       isOwner,
       clinicMode,
+      facilityLogoUrl,
     };
 
     return {
@@ -81,6 +83,7 @@ export class AuthService {
         facilityName: user.facility?.name ?? null,
         isOwner,
         clinicMode,
+        facilityLogoUrl,
       },
     };
   }
@@ -118,6 +121,7 @@ export class AuthService {
     // Fetch the facility to get clinicMode
     const facility = await this.facilitiesService.findOne(facilityId);
     const clinicMode = (facility as any).clinicMode ?? null;
+    const facilityLogoUrl = (facility as any).logoUrl ?? null;
 
     const payload = {
       sub: user.id,
@@ -129,6 +133,7 @@ export class AuthService {
       facilityCode,
       isOwner: false,
       clinicMode,
+      facilityLogoUrl,
     };
 
     return {
@@ -144,6 +149,7 @@ export class AuthService {
         facilityName,
         isOwner: false,
         clinicMode,
+        facilityLogoUrl,
       },
     };
   }
@@ -288,6 +294,7 @@ export class AuthService {
       facilityCode: facility.code,
       isOwner: true,
       clinicMode: dto.clinicMode,
+      facilityLogoUrl: facility.logoUrl ?? null,
     };
 
     return {
@@ -303,6 +310,7 @@ export class AuthService {
         facilityName: facility.name,
         isOwner: true,
         clinicMode: dto.clinicMode,
+        facilityLogoUrl: facility.logoUrl ?? null,
       },
       inviteCode: inviteCode.code,
     };

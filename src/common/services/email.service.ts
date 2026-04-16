@@ -29,9 +29,10 @@ export class EmailService {
     to: string,
     resetCode: string,
     userName: string,
+    logoUrl?: string | null,
   ): Promise<void> {
     try {
-      const htmlContent = this.getResetCodeTemplate(userName, resetCode);
+      const htmlContent = this.getResetCodeTemplate(userName, resetCode, logoUrl);
 
       this.logger.log(`📧 Sending reset code email to: ${to}`);
 
@@ -83,7 +84,7 @@ export class EmailService {
   /**
    * Send a custom HTML email (used for appointments)
    */
-  async sendCustomEmail(to: string, subject: string, htmlContent: string): Promise<void> {
+  async sendCustomEmail(to: string, subject: string, htmlContent: string, logoUrl?: string | null): Promise<void> {
     try {
       this.logger.log(`📧 Sending custom email to: ${to} | Subject: ${subject}`);
       const { data, error } = await this.resend.emails.send({
@@ -103,7 +104,7 @@ export class EmailService {
   /**
    * Email template for 6-digit reset code
    */
-  private getResetCodeTemplate(userName: string, resetCode: string): string {
+  private getResetCodeTemplate(userName: string, resetCode: string, logoUrl?: string | null): string {
     return `
       <!DOCTYPE html>
       <html>
@@ -132,6 +133,11 @@ export class EmailService {
           .logo {
             font-size: 48px;
             margin-bottom: 10px;
+          }
+          .logo img {
+            height: 60px;
+            object-fit: contain;
+            margin-bottom: 8px;
           }
           h1 {
             color: #1e293b;
@@ -187,7 +193,12 @@ export class EmailService {
       <body>
         <div class="container">
           <div class="header">
-            <div class="logo">🏥</div>
+            <div class="logo">
+              ${logoUrl 
+                ? `<img src="${logoUrl}" alt="Logo" style="height:60px;object-fit:contain;margin-bottom:8px;">`
+                : `<div style="font-size:48px;margin-bottom:8px;">🏥</div>`
+              }
+            </div>
             <h1>Password Reset Request</h1>
           </div>
 

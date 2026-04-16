@@ -58,6 +58,12 @@ export class Facility {
   @Column({ name: 'license_number', nullable: true, length: 100 })  // ✅ fixed
   licenseNumber: string;
 
+  @Column({ name: 'logo_url', nullable: true })
+  logoUrl: string;
+
+  @Column({ name: 'logo_public_id', nullable: true })
+  logoPublicId: string;
+
   @Column({ name: 'is_active', default: true })  // ✅ fixed
   isActive: boolean;
 
