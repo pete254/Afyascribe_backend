@@ -29,9 +29,10 @@ export class ReportsController {
 
   // ── PATIENTS TODAY ─────────────────────────────────────────────────────────
   @Get('patients-today')
-  @Roles('facility_admin', 'super_admin', 'receptionist')
+  @Roles('facility_admin', 'super_admin', 'receptionist', 'doctor')
   @ApiOperation({ summary: 'All patients at the facility today with visit status' })
   getPatientsToday(@CurrentUser() user: any) {
+    assertCanViewReports(user);
     return this.reportsService.getPatientsToday(user.facilityId);
   }
 
