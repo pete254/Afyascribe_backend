@@ -6,12 +6,14 @@ import { SoapNotesService } from './soap-notes.service';
 import { SoapNote } from './entities/soap-note.entity';
 import { PatientsModule } from '../patients/patients.module';
 import { PatientVisitsModule } from '../patient-visits/patient-visits.module';
+import { EmailModule } from '../common/services/email.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([SoapNote]),
     PatientsModule,
     PatientVisitsModule, // So SoapNotesService can auto-complete visits on save
+    EmailModule,
   ],
   controllers: [SoapNotesController],
   providers: [SoapNotesService],

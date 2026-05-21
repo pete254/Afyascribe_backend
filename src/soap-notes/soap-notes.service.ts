@@ -11,6 +11,7 @@ import { SoapNoteStatus } from './enums/soap-note-status.enum';
 import { PaginatedResponse } from '../common/dto/pagination.dto';
 import { PatientsService } from '../patients/patients.service';
 import { PatientVisitsService } from '../patient-visits/patient-visits.service';
+import { EmailService } from '../common/services/email.service';
 
 @Injectable()
 export class SoapNotesService {
@@ -19,6 +20,7 @@ export class SoapNotesService {
     private soapNotesRepository: Repository<SoapNote>,
     private patientsService: PatientsService,
     private patientVisitsService: PatientVisitsService,
+    private emailService: EmailService,
   ) {}
 
   // ── CREATE ─────────────────────────────────────────────────────────────────
@@ -383,5 +385,112 @@ export class SoapNotesService {
     if (!draft) throw new NotFoundException(`Draft ${draftId} not found`);
     await this.soapNotesRepository.remove(draft);
     console.log(`🗑️ Draft deleted: ${draftId}`);
+  }
+
+  // ── EMAIL SOAP NOTE TO PATIENT ────────────────────────────────────────────
+  async emailNoteToPatient(
+    noteId: string,
+    facilityId: string,
+    requestingUserId: string,
+  ): Promise<{ message: string }> {
+    const note = await this.soapNotesRepository.findOne({
+      where: { id: noteId, facilityId },
+      relations: ['patient', 'createdBy', 'facility'],
+    });
+
+    if (!note) throw new NotFoundException(`Note ${noteId} not found`);
+
+    const patientEmail = note.patient?.email;
+    if (!patientEmail) {
+      throw new BadRequestException(
+        'Patient has no email address on file. Update the patient profile to add one.',
+      );
+    }
+
+    const facilityName = note.facility?.name || 'Your Healthcare Provider';
+    const doctorName = note.createdBy
+      ? `Dr. ${note.createdBy.firstName} ${note.createdBy.lastName}`
+      : 'Your Doctor';
+    const patientName = `${note.patient.firstName} ${note.patient.lastName}`;
+    const dateStr = new Date(note.createdAt).toLocaleDateString('en-KE', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+    });
+
+    const sections = [
+      note.symptoms && { label: 'Symptoms & History', value: note.symptoms },
+      note.physicalExamination && {
+        label: 'Physical Examination',
+        value: note.physicalExamination,
+      },
+      note.labInvestigations && { label: 'Lab Investigations', value: note.labInvestigations },
+      note.imaging && { label: 'Imaging', value: note.imaging },
+      note.diagnosis && { label: 'Diagnosis', value: note.diagnosis },
+      note.icd10Code && {
+        label: 'ICD-10',
+        value: `${note.icd10Code} — ${note.icd10Description || ''}`,
+      },
+      note.management && { label: 'Management Plan', value: note.management },
+    ].filter(Boolean);
+
+    const sectionHtml = sections
+      .map(
+        (s: any) => `
+      <div style="margin-bottom:16px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#0f766e;margin-bottom:4px;">${s.label}</div>
+        <div style="font-size:14px;color:#1e293b;line-height:1.6;white-space:pre-wrap;">${s.value}</div>
+      </div>`,
+      )
+      .join('');
+
+    const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><style>
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#333;max-width:600px;margin:0 auto;padding:20px;}
+  .header{background:#0f766e;color:#fff;padding:28px 24px;border-radius:8px 8px 0 0;}
+  .body{background:#fff;padding:28px 24px;border:1px solid #e2e8f0;border-top:0;border-radius:0 0 8px 8px;}
+  .meta{background:#f8fafc;border-radius:8px;padding:14px 16px;margin-bottom:20px;font-size:13px;color:#475569;}
+  .divider{height:1px;background:#e2e8f0;margin:20px 0;}
+  .footer{text-align:center;color:#94a3b8;font-size:12px;padding:16px 0;}
+  .disclaimer{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 14px;margin-top:16px;font-size:12px;color:#92400e;}
+</style></head>
+<body>
+  <div class="header">
+    <div style="font-size:20px;font-weight:800;margin-bottom:4px;">🏥 ${facilityName}</div>
+    <div style="opacity:.85;font-size:14px;">Medical Consultation Summary</div>
+  </div>
+  <div class="body">
+    <p>Dear ${patientName},</p>
+    <p>Please find below a summary of your consultation on <strong>${dateStr}</strong> with <strong>${doctorName}</strong>.</p>
+    <div class="meta">
+      <strong>Patient:</strong> ${patientName}<br>
+      <strong>Date:</strong> ${dateStr}<br>
+      <strong>Doctor:</strong> ${doctorName}<br>
+      <strong>Facility:</strong> ${facilityName}
+    </div>
+    <div class="divider"></div>
+    ${sectionHtml}
+    <div class="disclaimer">
+      <strong>⚕️ Medical Disclaimer:</strong> This summary is for your personal records only.
+      Always follow the advice of your healthcare provider. If you have questions about your
+      treatment, please contact ${facilityName} directly.
+    </div>
+  </div>
+  <div class="footer">
+    <p>This is an automated summary from ${facilityName} via AfyaScribe EMR.</p>
+    <p>Please do not reply to this email.</p>
+  </div>
+</body>
+</html>`;
+
+    await this.emailService.sendCustomEmail(
+      patientEmail,
+      `Your Consultation Summary — ${facilityName} (${dateStr})`,
+      html,
+    );
+
+    return { message: `Consultation summary sent to ${patientEmail}` };
   }
 }

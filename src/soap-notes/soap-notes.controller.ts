@@ -162,6 +162,18 @@ export class SoapNotesController {
     return this.soapNotesService.findOne(id, user.id, user.facilityId);
   }
 
+  // ── EMAIL SOAP NOTE TO PATIENT ────────────────────────────────────────────
+
+  @Post(':id/send-email')
+  @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Email SOAP note to patient' })
+  async emailSoapNote(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.soapNotesService.emailNoteToPatient(id, user.facilityId, user.id);
+  }
+
   // ── UPDATE ─────────────────────────────────────────────────────────────────
 
   @Patch(':id')
