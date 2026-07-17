@@ -17,7 +17,9 @@ export class TranscriptionController {
   @ApiResponse({ status: 200, description: 'Audio transcribed successfully' })
   @ApiResponse({ status: 400, description: 'Invalid audio data' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async transcribe(@Body() body: { audioBase64: string; platform: string }) {
+  async transcribe(
+    @Body() body: { audioBase64: string; platform: string; mimeType?: string },
+  ) {
     const startTime = Date.now();
     
     try {
@@ -37,11 +39,31 @@ export class TranscriptionController {
       const audioBuffer = Buffer.from(body.audioBase64, 'base64');
       this.logger.log(`📊 Audio buffer size: ${audioBuffer.length} bytes (${(audioBuffer.length / 1024).toFixed(2)} KB)`);
 
+      // Label the upload with the recorder's actual container. The web recorder
+      // produces webm/ogg/mp4 — if we mislabel it as m4a, ffmpeg on Groq's side
+      // can't decode it and Whisper hallucinates "Thank you." on the silence.
+      // Native (iOS/Android) clients keep sending m4a via the platform fallback.
+      const mimeType: string =
+        body.mimeType || (body.platform === 'ios' ? 'audio/x-m4a' : 'audio/m4a');
+      const ext = mimeType.includes('webm')
+        ? 'webm'
+        : mimeType.includes('ogg')
+          ? 'ogg'
+          : mimeType.includes('mp4') || mimeType.includes('m4a')
+            ? 'm4a'
+            : mimeType.includes('wav')
+              ? 'wav'
+              : mimeType.includes('mpeg') || mimeType.includes('mp3')
+                ? 'mp3'
+                : 'webm';
+
+      this.logger.log(`🎙️  Audio mime: ${mimeType} → recording.${ext}`);
+
       // Create FormData for Groq API
       const formData = new FormData();
       formData.append('file', audioBuffer, {
-        filename: 'recording.m4a',
-        contentType: body.platform === 'ios' ? 'audio/x-m4a' : 'audio/m4a',
+        filename: `recording.${ext}`,
+        contentType: mimeType,
       });
       formData.append('model', 'whisper-large-v3-turbo');
       formData.append('language', 'en');
