@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PatientVisit, VisitStatus } from './entities/patient-visit.entity';
+import { Billing, BillingStatus } from '../billing/entities/billing.entity';
 import { CheckInDto } from './dto/check-in.dto';
 import { TriageDto } from './dto/triage.dto';
 import { ReassignDto } from './dto/reassign.dto';
@@ -26,6 +27,8 @@ export class PatientVisitsService {
   constructor(
     @InjectRepository(PatientVisit)
     private readonly visitsRepository: Repository<PatientVisit>,
+    @InjectRepository(Billing)
+    private readonly billingRepository: Repository<Billing>,
   ) {}
 
   // ── CHECK IN ───────────────────────────────────────────────────────────────
@@ -173,6 +176,18 @@ export class PatientVisitsService {
 
     if (visit.assignedDoctorId !== doctorId) {
       throw new ForbiddenException('This patient is not assigned to you');
+    }
+
+    // Hard payment gate: a patient with any outstanding (unpaid) bill cannot be
+    // seen. Normally an unpaid visit never reaches WAITING_FOR_DOCTOR, but this
+    // also catches a bill added after the visit already advanced.
+    const outstanding = await this.billingRepository.count({
+      where: { visitId, status: BillingStatus.UNPAID },
+    });
+    if (outstanding > 0) {
+      throw new BadRequestException(
+        'Clear the patient’s outstanding bill before starting the consultation.',
+      );
     }
 
     if (visit.status === VisitStatus.WAITING_FOR_DOCTOR) {
