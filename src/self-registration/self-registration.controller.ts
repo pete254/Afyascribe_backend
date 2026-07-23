@@ -15,7 +15,10 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.decorator';
 import { SelfRegistrationService } from './self-registration.service';
-import { CreateSelfRegistrationDto } from './dto/self-registration.dto';
+import {
+  ApproveSelfRegistrationDto,
+  CreateSelfRegistrationDto,
+} from './dto/self-registration.dto';
 import { SelfRegStatus } from './entities/self-registration.entity';
 
 /**
@@ -72,12 +75,21 @@ export class SelfRegistrationController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('receptionist', 'nurse', 'doctor', 'facility_admin', 'super_admin')
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Approve a submission into the patient register' })
-  approve(@Param('code') code: string, @CurrentUser() user: CurrentUserType) {
+  @ApiOperation({
+    summary: 'Approve a submission into the patient register',
+    description:
+      'Send an empty body to approve exactly as submitted, or the corrected ' +
+      'fields to fix what the patient typed before it enters the register.',
+  })
+  approve(
+    @Param('code') code: string,
+    @CurrentUser() user: CurrentUserType,
+    @Body() edits?: ApproveSelfRegistrationDto,
+  ) {
     if (!user.facilityCode) {
       throw new BadRequestException('Your account is not linked to a facility');
     }
-    return this.svc.approve(code, this.facilityOf(user), user.facilityCode, user.id);
+    return this.svc.approve(code, this.facilityOf(user), user.facilityCode, user.id, edits);
   }
 
   @Post(':code/reject')

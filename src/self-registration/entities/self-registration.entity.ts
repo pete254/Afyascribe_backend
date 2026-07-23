@@ -75,6 +75,46 @@ export class SelfRegistration {
   @Column({ nullable: true })
   medicalPlan: string;
 
+  // Mirrors the mobile Onboard Patient screen so a self-registration carries
+  // everything the front desk would otherwise have to re-ask for.
+  @Column({ nullable: true })
+  title: string;
+
+  @Column({ nullable: true })
+  maritalStatus: string;
+
+  @Column({ nullable: true })
+  occupation: string;
+
+  @Column({ nullable: true })
+  idType: string;
+
+  @Column({ nullable: true })
+  nationality: string;
+
+  @Column({ nullable: true })
+  county: string;
+
+  @Column({ nullable: true })
+  subCounty: string;
+
+  @Column({ nullable: true })
+  postalCode: string;
+
+  @Column({ nullable: true })
+  howKnown: string;
+
+  @Column({ nullable: true })
+  patientType: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  nextOfKin: {
+    firstName: string;
+    lastName: string;
+    relationship: string;
+    phone: string;
+  }[];
+
   // ── Review state ──────────────────────────────────────────────────────────
   @Index()
   @Column({ type: 'varchar', length: 20, default: SelfRegStatus.PENDING })

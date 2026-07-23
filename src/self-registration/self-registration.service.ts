@@ -73,6 +73,17 @@ export class SelfRegistrationService {
         idNumber: dto.idNumber?.trim(),
         membershipNo: dto.membershipNo?.trim(),
         medicalPlan: dto.medicalPlan?.trim(),
+        title: dto.title,
+        maritalStatus: dto.maritalStatus,
+        occupation: dto.occupation?.trim(),
+        idType: dto.idType,
+        nationality: dto.nationality,
+        county: dto.county,
+        subCounty: dto.subCounty,
+        postalCode: dto.postalCode?.trim(),
+        howKnown: dto.howKnown,
+        patientType: dto.patientType,
+        nextOfKin: dto.nextOfKin?.length ? (dto.nextOfKin as any) : undefined,
         status: SelfRegStatus.PENDING,
         expiresAt: new Date(Date.now() + TTL_MS),
       });
@@ -112,6 +123,7 @@ export class SelfRegistrationService {
     facilityId: string,
     facilityCode: string,
     reviewerId: string,
+    edits?: Partial<CreateSelfRegistrationDto>,
   ): Promise<{ patient: Patient; merged: boolean }> {
     const reg = await this.getByCode(code, facilityId);
     if (reg.status !== SelfRegStatus.PENDING) {
@@ -121,36 +133,32 @@ export class SelfRegistrationService {
       throw new BadRequestException('This registration has expired — please register again');
     }
 
+    // The front desk may correct what the patient typed before it enters the
+    // register — a misspelt name or a mistyped ID should be fixed here, not
+    // after the record exists. An absent `edits` means "approve as submitted".
+    const final = { ...this.toPatientFields(reg), ...this.prune(edits ?? {}) };
+
     let patient: Patient | null = null;
     let merged = false;
 
-    if (reg.idNumber) {
+    if (final.idNumber) {
       patient = await this.patients.findOne({
-        where: { idNumber: reg.idNumber, facilityId },
+        where: { idNumber: final.idNumber as string, facilityId },
       });
       merged = !!patient;
     }
 
     if (!patient) {
       patient = await this.patientsService.createPatient(
-        {
-          firstName: reg.firstName,
-          middleName: reg.middleName,
-          lastName: reg.lastName,
-          gender: reg.gender,
-          dateOfBirth: reg.dateOfBirth,
-          phoneNumber: reg.phoneNumber,
-          email: reg.email,
-          idNumber: reg.idNumber,
-          idType: reg.idNumber ? 'national_id' : undefined,
-          membershipNo: reg.membershipNo,
-          medicalPlan: reg.medicalPlan,
-          howKnown: 'self-registration',
-        },
+        { ...final, howKnown: final.howKnown ?? 'self-registration' },
         facilityId,
         facilityCode,
       );
     }
+
+    // Keep the submission in step with what was actually approved, so the
+    // reviewed record and the patient record don't tell different stories.
+    Object.assign(reg, this.prune(edits ?? {}));
 
     reg.status = SelfRegStatus.APPROVED;
     reg.patientId = patient.id;
@@ -160,6 +168,42 @@ export class SelfRegistrationService {
     await this.repo.save(reg);
 
     return { patient, merged };
+  }
+
+  /** The submission's fields in the shape the patients table expects. */
+  private toPatientFields(reg: SelfRegistration): Record<string, any> {
+    return this.prune({
+      title: reg.title,
+      firstName: reg.firstName,
+      middleName: reg.middleName,
+      lastName: reg.lastName,
+      gender: reg.gender,
+      dateOfBirth: reg.dateOfBirth,
+      phoneNumber: reg.phoneNumber,
+      email: reg.email,
+      maritalStatus: reg.maritalStatus,
+      occupation: reg.occupation,
+      idType: reg.idType,
+      idNumber: reg.idNumber,
+      nationality: reg.nationality,
+      county: reg.county,
+      subCounty: reg.subCounty,
+      postalCode: reg.postalCode,
+      howKnown: reg.howKnown,
+      patientType: reg.patientType,
+      medicalPlan: reg.medicalPlan,
+      membershipNo: reg.membershipNo,
+      nextOfKin: reg.nextOfKin,
+    });
+  }
+
+  /** Drops blanks so an edit that clears a box doesn't wipe a good value. */
+  private prune(o: Record<string, any>): Record<string, any> {
+    return Object.fromEntries(
+      Object.entries(o).filter(
+        ([k, v]) => k !== 'facilityCode' && v !== '' && v !== null && v !== undefined,
+      ),
+    );
   }
 
   async reject(code: string, facilityId: string, reviewerId: string): Promise<void> {
