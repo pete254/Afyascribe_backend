@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User } from './entities/user.entity';
+import { User, UserRole } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 
 @Injectable()
@@ -144,6 +144,15 @@ export class UsersService {
       deactivatedAt: new Date(),
       deactivationReason: reason ?? null,
     });
+  }
+
+  /**
+   * Change a staff member's role. This is the access-control lever the owner
+   * has: role determines what the app offers and what the API allows, so
+   * moving someone to a narrower role revokes the wider access.
+   */
+  async setRole(userId: string, role: UserRole): Promise<void> {
+    await this.usersRepository.update(userId, { role });
   }
 
   async reactivateAccount(userId: string): Promise<void> {

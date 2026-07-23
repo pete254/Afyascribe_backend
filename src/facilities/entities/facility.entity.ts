@@ -16,6 +16,17 @@ export enum FacilityStatus {
   SUSPENDED = 'suspended',
 }
 
+/**
+ * How the practice is staffed. This drives what the apps offer: a solo
+ * practitioner does reception, triage, consultation and billing themselves, so
+ * splitting those across roles only gets in their way.
+ */
+export enum ClinicMode {
+  SOLO = 'solo',
+  TEAM = 'team',
+  MULTI = 'multi',
+}
+
 export enum FacilityType {
   HOSPITAL = 'hospital',
   CLINIC = 'clinic',
@@ -66,6 +77,21 @@ export class Facility {
 
   @Column({ name: 'is_active', default: true })  // ✅ fixed
   isActive: boolean;
+
+  /**
+   * Added by migration AddClinicModeAndOwner but never declared here, so
+   * TypeORM neither selected nor wrote it — every token carried
+   * `clinicMode: null` and the whole solo/team capability system in
+   * common/capabilities.ts was dead. Declaring it is the fix.
+   */
+  @Column({
+    name: 'clinic_mode',
+    type: 'enum',
+    enum: ClinicMode,
+    enumName: 'clinic_mode_enum',
+    default: ClinicMode.MULTI,
+  })
+  clinicMode: ClinicMode;
 
   @CreateDateColumn({ name: 'created_at' })  // ✅ fixed
   createdAt: Date;

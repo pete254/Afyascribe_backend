@@ -13,6 +13,7 @@ import {
   UseGuards,
   ParseUUIDPipe,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -29,6 +30,7 @@ import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.
 import { UsersService } from './users.service';
 import { InviteCodesService } from '../facilities/invite-codes.service';
 import { CreateStaffDto } from './dto/create-staff.dto';
+import { UserRole } from './entities/user.entity';
 
 /**
  * Guard helper — user is allowed to manage staff if they are:
@@ -200,5 +202,43 @@ export class FacilityUsersController {
     }
     await this.usersService.reactivateAccount(userId);
     return { message: 'User reactivated successfully' };
+  }
+
+  // ── CHANGE a staff member's role ───────────────────────────────────────────
+
+  @Patch(':userId/role')
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({
+    summary: "Change a staff member's role",
+    description:
+      'Role is what the app offers and what the API allows, so this both grants ' +
+      'and revokes access. Owners cannot be demoted, and nobody can change their own role.',
+  })
+  async setStaffRole(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: { role: UserRole },
+    @CurrentUser() admin: CurrentUserType,
+  ) {
+    assertCanManageStaff(admin);
+
+    const allowed = [UserRole.FACILITY_ADMIN, UserRole.DOCTOR, UserRole.NURSE, UserRole.RECEPTIONIST];
+    if (!body?.role || !allowed.includes(body.role)) {
+      throw new BadRequestException(`Role must be one of: ${allowed.join(', ')}`);
+    }
+
+    const target = await this.usersService.findById(userId);
+    if (target.facilityId !== admin.facilityId && admin.role !== 'super_admin') {
+      throw new ForbiddenException('You can only manage users in your own facility');
+    }
+    // Guard against locking the facility out of its own administration.
+    if (target.id === admin.id) {
+      throw new ForbiddenException('You cannot change your own role');
+    }
+    if ((target as any).isOwner === true) {
+      throw new ForbiddenException("The clinic owner's role cannot be changed");
+    }
+
+    await this.usersService.setRole(userId, body.role);
+    return { message: 'Role updated successfully', role: body.role };
   }
 }

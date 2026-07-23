@@ -55,6 +55,11 @@ export class FacilityResponseDto {
   @ApiProperty()
   isActive: boolean;
 
+  /** solo | team | multi — how the practice is staffed. */
+  @Expose()
+  @ApiProperty()
+  clinicMode: string;
+
   @Expose()
   @ApiProperty()
   createdAt: Date;

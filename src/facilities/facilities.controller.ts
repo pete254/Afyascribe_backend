@@ -9,6 +9,7 @@ import {
   UseGuards,
   ParseUUIDPipe,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -22,6 +23,7 @@ import { FacilitiesService } from './facilities.service';
 import { CreateFacilityDto } from './dto/create-facility.dto';
 import { UpdateFacilityDto } from './dto/update-facility.dto';
 import { FacilityResponseDto } from './dto/facility-response.dto';
+import { ClinicMode } from './entities/facility.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -112,6 +114,31 @@ export class FacilitiesController {
   @ApiResponse({ status: 200, type: FacilityResponseDto })
   async deactivate(@Param('id', ParseUUIDPipe) id: string) {
     const facility = await this.facilitiesService.deactivate(id);
+    return plainToInstance(FacilityResponseDto, facility, {
+      excludeExtraneousValues: true,
+    });
+  }
+
+  // ── CLINIC MODE ───────────────────────────────────────────────────────────
+  // How the practice is staffed, which decides how much of the workflow the
+  // apps collapse into one screen. Owner or facility_admin, own facility only.
+  @Patch(':id/clinic-mode')
+  @ApiOperation({ summary: 'Set how the practice is staffed (solo / team / multi)' })
+  @ApiResponse({ status: 200, type: FacilityResponseDto })
+  async setClinicMode(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { clinicMode: ClinicMode },
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    this.assertCanViewFacility(id, user);
+    if (!body?.clinicMode || !Object.values(ClinicMode).includes(body.clinicMode)) {
+      throw new BadRequestException(
+        `clinicMode must be one of: ${Object.values(ClinicMode).join(', ')}`,
+      );
+    }
+    const facility = await this.facilitiesService.update(id, {
+      clinicMode: body.clinicMode,
+    } as any);
     return plainToInstance(FacilityResponseDto, facility, {
       excludeExtraneousValues: true,
     });
