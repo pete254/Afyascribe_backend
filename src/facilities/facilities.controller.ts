@@ -8,6 +8,7 @@ import {
   Body,
   UseGuards,
   ParseUUIDPipe,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -24,6 +25,7 @@ import { FacilityResponseDto } from './dto/facility-response.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.decorator';
 
 @ApiTags('facilities')
 @ApiBearerAuth()
@@ -58,12 +60,16 @@ export class FacilitiesController {
   }
 
   // ── GET ONE ───────────────────────────────────────────────────────────────
+  // No @Roles here: a clinic owner is often an owner-doctor, whose `role` is
+  // 'doctor', so a role-only gate locks them out of their own facility. The
+  // check below mirrors FacilityLogoController.assertCanManageFacility, which
+  // has always honoured isOwner.
   @Get(':id')
-  @Roles('super_admin', 'facility_admin')
   @ApiOperation({ summary: 'Get a single facility by UUID' })
   @ApiResponse({ status: 200, type: FacilityResponseDto })
   @ApiResponse({ status: 404, description: 'Facility not found' })
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: CurrentUserType) {
+    this.assertCanViewFacility(id, user);
     const facility = await this.facilitiesService.findOne(id);
     return plainToInstance(FacilityResponseDto, facility, {
       excludeExtraneousValues: true,
@@ -72,9 +78,9 @@ export class FacilitiesController {
 
   // ── GET STATS ─────────────────────────────────────────────────────────────
   @Get(':id/stats')
-  @Roles('super_admin', 'facility_admin')
   @ApiOperation({ summary: 'Get user and patient counts for a facility' })
-  async getStats(@Param('id', ParseUUIDPipe) id: string) {
+  async getStats(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: CurrentUserType) {
+    this.assertCanViewFacility(id, user);
     const result = await this.facilitiesService.getStats(id);
     return {
       ...result,
@@ -109,5 +115,22 @@ export class FacilitiesController {
     return plainToInstance(FacilityResponseDto, facility, {
       excludeExtraneousValues: true,
     });
+  }
+
+  /**
+   * Owners and facility admins may read their OWN facility; super_admin may read
+   * any. Previously this was `@Roles('super_admin','facility_admin')`, which both
+   * locked out owner-doctors and let a facility_admin read any facility by UUID.
+   */
+  private assertCanViewFacility(id: string, user: CurrentUserType) {
+    if (user.role === 'super_admin') return;
+
+    const isOwner = (user as any).isOwner === true;
+    if (user.role !== 'facility_admin' && !isOwner) {
+      throw new ForbiddenException('Only clinic owners and admins can view facility settings');
+    }
+    if (user.facilityId !== id) {
+      throw new ForbiddenException('You can only view your own facility');
+    }
   }
 }
