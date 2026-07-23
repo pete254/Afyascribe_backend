@@ -36,6 +36,8 @@ import { ReportsModule } from './reports/reports.module';
 import { ServiceCatalogModule } from './service-catalog/service-catalog.module';
 import { ServiceCatalogItem } from './service-catalog/entities/service-catalog.entity'
 import { AppointmentsModule } from './appointments/appointments.module';
+import { SelfRegistrationModule } from './self-registration/self-registration.module';
+import { SelfRegistration } from './self-registration/entities/self-registration.entity';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -54,7 +56,7 @@ import { AppointmentsModule } from './appointments/appointments.module';
           username: configService.get('DB_USERNAME'),
           password: configService.get('DB_PASSWORD'),
           database: configService.get('DB_DATABASE'),
-          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit, Billing, InsuranceScheme, PatientDocument, ServiceCatalogItem],
+          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit, Billing, InsuranceScheme, PatientDocument, ServiceCatalogItem, SelfRegistration],
           autoLoadEntities: true,
           synchronize: !isProduction,
           logging: !isProduction,
@@ -84,6 +86,7 @@ import { AppointmentsModule } from './appointments/appointments.module';
     PatientDocumentsModule,
     ServiceCatalogModule,
     AppointmentsModule,
+    SelfRegistrationModule,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],
