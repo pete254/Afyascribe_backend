@@ -37,6 +37,9 @@ import { ServiceCatalogModule } from './service-catalog/service-catalog.module';
 import { ServiceCatalogItem } from './service-catalog/entities/service-catalog.entity'
 import { AppointmentsModule } from './appointments/appointments.module';
 import { SelfRegistrationModule } from './self-registration/self-registration.module';
+import { PlatformModule } from './platform/platform.module';
+import { FacilityCreationCode } from './platform/entities/facility-creation-code.entity';
+import { SupportRequest } from './platform/entities/support-request.entity';
 import { SelfRegistration } from './self-registration/entities/self-registration.entity';
 @Module({
   imports: [
@@ -56,7 +59,7 @@ import { SelfRegistration } from './self-registration/entities/self-registration
           username: configService.get('DB_USERNAME'),
           password: configService.get('DB_PASSWORD'),
           database: configService.get('DB_DATABASE'),
-          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit, Billing, InsuranceScheme, PatientDocument, ServiceCatalogItem, SelfRegistration],
+          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit, Billing, InsuranceScheme, PatientDocument, ServiceCatalogItem, SelfRegistration, FacilityCreationCode, SupportRequest],
           autoLoadEntities: true,
           synchronize: !isProduction,
           logging: !isProduction,
@@ -87,6 +90,7 @@ import { SelfRegistration } from './self-registration/entities/self-registration
     ServiceCatalogModule,
     AppointmentsModule,
     SelfRegistrationModule,
+    PlatformModule,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],

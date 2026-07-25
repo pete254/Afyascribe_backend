@@ -2,6 +2,13 @@ import { IsString, IsEmail, IsEnum, MinLength, Length } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateClinicDto {
+  @ApiProperty({
+    example: 'K7P2M9QX',
+    description: 'The one-time creation code issued by AfyaScribe. Required.',
+  })
+  @IsString()
+  creationCode: string;
+
   @ApiProperty({ example: 'Wanjiru Family Clinic' })
   @IsString()
   facilityName: string;

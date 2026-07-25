@@ -13,9 +13,10 @@ import { EmailService } from '../common/services/email.service';
 import { InviteCodesService } from '../facilities/invite-codes.service';
 import { FacilitiesService } from '../facilities/facilities.service';
 import { UserRole } from '../users/entities/user.entity';
-import { FacilityType } from '../facilities/entities/facility.entity';
+import { FacilityStatus, FacilityType } from '../facilities/entities/facility.entity';
 import { UseInviteCodeDto } from '../facilities/dto/use-invite-code.dto';
 import { CreateClinicDto } from './dto/create-clinic.dto';
+import { FacilityCodesService } from '../platform/facility-codes.service';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -29,6 +30,7 @@ export class AuthService {
     private emailService: EmailService,
     private inviteCodesService: InviteCodesService,
     private facilitiesService: FacilitiesService,
+    private facilityCodesService: FacilityCodesService,
   ) {}
 
   async validateUser(email: string, password: string): Promise<any> {
@@ -50,6 +52,22 @@ export class AuthService {
 
     const passwordValid = await bcrypt.compare(password, user.password);
     if (!passwordValid) throw new UnauthorizedException('Invalid credentials');
+
+    // AfyaScribe can pause or deactivate a facility (e.g. for non-payment).
+    // When that happens, its staff cannot sign in. super_admin is exempt — they
+    // are platform-level, not tied to a facility's subscription.
+    const facilityStatus = (user.facility as any)?.status;
+    if (
+      user.role !== UserRole.SUPER_ADMIN &&
+      facilityStatus &&
+      facilityStatus !== FacilityStatus.ACTIVE
+    ) {
+      throw new UnauthorizedException(
+        facilityStatus === FacilityStatus.SUSPENDED
+          ? 'Your facility’s access is currently paused. Please contact AfyaScribe to restore it.'
+          : 'Your facility’s access has been deactivated. Please contact AfyaScribe.',
+      );
+    }
 
     // isOwner: true if the user was the one who created the clinic
     const isOwner = (user as any).isOwner === true;
@@ -243,6 +261,11 @@ export class AuthService {
   // ── CREATE CLINIC (facility owner setup) ────────────────────────────────────
 
   async createClinic(dto: CreateClinicDto) {
+    // A facility can only be created with a valid, unused code issued by
+    // AfyaScribe. Validate before touching anything else, and don't consume it
+    // until the facility actually exists, so a failure here never burns a code.
+    const codeRow = await this.facilityCodesService.validateRedeemable(dto.creationCode);
+
     const existing = await this.usersService.findByEmail(dto.email);
     if (existing) throw new ConflictException('Email already registered');
 
@@ -252,6 +275,9 @@ export class AuthService {
       code: dto.facilityCode.toUpperCase(),
       type: FacilityType.CLINIC,
     });
+
+    // Redeem the code now that the facility is real.
+    await this.facilityCodesService.markUsed(codeRow.id, facility.id);
 
     // Store clinicMode on facility (update after creation)
     try {

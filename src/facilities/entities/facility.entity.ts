@@ -93,6 +93,14 @@ export class Facility {
   })
   clinicMode: ClinicMode;
 
+  /**
+   * When this facility's subscription is next due. AfyaScribe (super_admin)
+   * sets it; the platform console flags facilities that are overdue so the
+   * admin can send a reminder or suspend access. Null = not billed / no date set.
+   */
+  @Column({ name: 'subscription_due_date', type: 'timestamptz', nullable: true })
+  subscriptionDueDate: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })  // ✅ fixed
   createdAt: Date;
 

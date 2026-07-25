@@ -8,6 +8,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { UsersModule } from '../users/users.module';
 import { EmailModule } from '../common/services/email.module'; 
 import { FacilitiesModule } from '../facilities/facilities.module';
+import { PlatformModule } from '../platform/platform.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { FacilitiesModule } from '../facilities/facilities.module';
     PassportModule,
     EmailModule,
     FacilitiesModule,
+    PlatformModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
