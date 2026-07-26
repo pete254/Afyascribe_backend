@@ -1,5 +1,15 @@
-import { IsString, IsOptional, IsUUID, Matches, MaxLength } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsUUID,
+  IsArray,
+  ValidateNested,
+  Matches,
+  MaxLength,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
+import { Icd10CodeDto } from './icd10-code.dto';
 
 export class CreateSoapNoteDto {
   @ApiProperty({ example: '550e8400-e29b-41d4-a716-446655440000' })
@@ -58,6 +68,17 @@ export class CreateSoapNoteDto {
   @IsOptional()
   @MaxLength(200)
   icd10Description?: string;
+
+  @ApiProperty({
+    type: [Icd10CodeDto],
+    required: false,
+    description: 'Full set of ICD-10 diagnosis codes on the note',
+  })
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => Icd10CodeDto)
+  icd10Codes?: Icd10CodeDto[];
 
   @ApiProperty({ example: 'Metformin 500mg twice daily...' })
   @IsString()

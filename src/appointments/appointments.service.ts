@@ -164,7 +164,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; c
 </style></head>
 <body>
 <div class="header">
-  <h1 style="margin:0;font-size:24px;">🏥 ${facilityName}</h1>
+  ${appt.facility?.logoUrl ? `<img src="${appt.facility.logoUrl}" alt="" style="height:48px;object-fit:contain;margin-bottom:8px;">` : ''}
+  <h1 style="margin:0;font-size:24px;">${appt.facility?.logoUrl ? '' : '🏥 '}${facilityName}</h1>
   <p style="margin:8px 0 0;opacity:0.9;">Appointment Confirmation</p>
 </div>
 <div class="body">
@@ -221,6 +222,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; c
 </style></head>
 <body>
 <div class="header">
+  ${appt.facility?.logoUrl ? `<img src="${appt.facility.logoUrl}" alt="" style="height:44px;object-fit:contain;margin-bottom:8px;">` : ''}
   <h1 style="margin:0;font-size:24px;">⏰ Appointment Reminder</h1>
   <p style="margin:8px 0 0;opacity:0.9;">${facilityName}</p>
 </div>
@@ -262,6 +264,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; c
 <head><meta charset="utf-8"></head>
 <body style="font-family:sans-serif;color:#333;max-width:600px;margin:0 auto;padding:20px;">
   <div style="background:#2563eb;color:white;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
+    ${appt.facility?.logoUrl ? `<img src="${appt.facility.logoUrl}" alt="" style="height:44px;object-fit:contain;margin-bottom:8px;">` : ''}
     <h1 style="margin:0;">📅 Appointment Rescheduled</h1>
     <p style="margin:8px 0 0;opacity:0.9;">${facilityName}</p>
   </div>

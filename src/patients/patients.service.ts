@@ -82,9 +82,13 @@ export class PatientsService {
       .andWhere(
         `(
           patient.firstName ILIKE :searchTerm OR
+          patient.middleName ILIKE :searchTerm OR
           patient.lastName ILIKE :searchTerm OR
           patient.patientId ILIKE :searchTerm OR
-          CONCAT(patient.firstName, ' ', patient.lastName) ILIKE :searchTerm
+          patient.idNumber ILIKE :searchTerm OR
+          patient.phoneNumber ILIKE :searchTerm OR
+          CONCAT(patient.firstName, ' ', patient.lastName) ILIKE :searchTerm OR
+          CONCAT(patient.firstName, ' ', patient.middleName, ' ', patient.lastName) ILIKE :searchTerm
         )`,
         { searchTerm },
       )

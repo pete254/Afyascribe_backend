@@ -57,9 +57,13 @@ export class EmailService {
   /**
    * Send welcome email (optional - for new user registration)
    */
-  async sendWelcomeEmail(to: string, userName: string): Promise<void> {
+  async sendWelcomeEmail(
+    to: string,
+    userName: string,
+    logoUrl?: string | null,
+  ): Promise<void> {
     try {
-      const htmlContent = this.getWelcomeTemplate(userName);
+      const htmlContent = this.getWelcomeTemplate(userName, logoUrl);
 
       this.logger.log(`📧 Sending welcome email to: ${to}`);
 
@@ -233,7 +237,7 @@ export class EmailService {
   /**
    * Welcome email template
    */
-  private getWelcomeTemplate(userName: string): string {
+  private getWelcomeTemplate(userName: string, logoUrl?: string | null): string {
     return `
       <!DOCTYPE html>
       <html>
@@ -270,7 +274,13 @@ export class EmailService {
       <body>
         <div class="container">
           <div class="header">
-            <div class="logo">🏥</div>
+            <div class="logo">
+              ${
+                logoUrl
+                  ? `<img src="${logoUrl}" alt="Logo" style="height:60px;object-fit:contain;margin-bottom:8px;">`
+                  : '🏥'
+              }
+            </div>
             <h1>Welcome to Afyascribe!</h1>
           </div>
           <p>Hi ${userName},</p>

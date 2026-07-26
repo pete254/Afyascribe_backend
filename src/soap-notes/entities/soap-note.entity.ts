@@ -54,11 +54,18 @@ export class SoapNote {
   @Column({ type: 'text', nullable: true, name: 'imaging' })
   imaging: string;
 
+  // Primary code — kept for backward compatibility (mobile app, receipts,
+  // reports). When multiple codes are chosen this mirrors the first one.
   @Column({ length: 10, nullable: true, name: 'icd10_code' })
   icd10Code: string;
 
   @Column({ length: 200, nullable: true, name: 'icd10_description' })
   icd10Description: string;
+
+  // Full set of diagnosis codes on the note — a consultation can carry more
+  // than one. Each entry is { code, description }.
+  @Column({ type: 'jsonb', nullable: true, name: 'icd10_codes' })
+  icd10Codes: { code: string; description: string }[] | null;
 
   // ── Status ─────────────────────────────────────────────────────────────────
   @Column({

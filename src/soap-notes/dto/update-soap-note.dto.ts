@@ -1,6 +1,16 @@
 // src/soap-notes/dto/update-soap-note.dto.ts
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsBoolean, Matches, MaxLength } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsBoolean,
+  IsArray,
+  ValidateNested,
+  Matches,
+  MaxLength,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import { Icd10CodeDto } from './icd10-code.dto';
 
 export class UpdateSoapNoteDto {
   @ApiPropertyOptional({
@@ -71,6 +81,16 @@ export class UpdateSoapNoteDto {
   @IsOptional()
   @MaxLength(200)
   icd10Description?: string;
+
+  @ApiPropertyOptional({
+    type: [Icd10CodeDto],
+    description: 'Full set of ICD-10 diagnosis codes on the note',
+  })
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => Icd10CodeDto)
+  icd10Codes?: Icd10CodeDto[];
 
   @ApiPropertyOptional({
     description: 'Mark if the note was manually edited',

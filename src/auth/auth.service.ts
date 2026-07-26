@@ -127,19 +127,20 @@ export class AuthService {
 
     await this.inviteCodesService.recordUsage(dto.inviteCode);
 
-    try {
-      await this.emailService.sendWelcomeEmail(
-        user.email,
-        `${user.firstName} ${user.lastName}`,
-      );
-    } catch (e) {
-      console.error('Welcome email failed:', e);
-    }
-
     // Fetch the facility to get clinicMode
     const facility = await this.facilitiesService.findOne(facilityId);
     const clinicMode = (facility as any).clinicMode ?? null;
     const facilityLogoUrl = (facility as any).logoUrl ?? null;
+
+    try {
+      await this.emailService.sendWelcomeEmail(
+        user.email,
+        `${user.firstName} ${user.lastName}`,
+        facilityLogoUrl,
+      );
+    } catch (e) {
+      console.error('Welcome email failed:', e);
+    }
 
     const payload = {
       sub: user.id,
@@ -193,8 +194,20 @@ export class AuthService {
     });
 
     const { password: _, ...result } = user;
+    let facilityLogoUrl: string | null = null;
+    if (facilityId) {
+      try {
+        facilityLogoUrl = ((await this.facilitiesService.findOne(facilityId)) as any)?.logoUrl ?? null;
+      } catch {
+        /* logo is best-effort */
+      }
+    }
     try {
-      await this.emailService.sendWelcomeEmail(user.email, `${user.firstName} ${user.lastName}`);
+      await this.emailService.sendWelcomeEmail(
+        user.email,
+        `${user.firstName} ${user.lastName}`,
+        facilityLogoUrl,
+      );
     } catch (e) {
       console.error('Welcome email failed:', e);
     }
@@ -219,11 +232,22 @@ export class AuthService {
     console.log(`🔑 [DEV] Reset code for ${email}: ${resetCode}`);
     await this.usersService.setResetCode(user.id, resetCode, expiresAt);
 
+    let facilityLogoUrl: string | null = null;
+    if (user.facilityId) {
+      try {
+        facilityLogoUrl =
+          ((await this.facilitiesService.findOne(user.facilityId)) as any)?.logoUrl ?? null;
+      } catch {
+        /* logo is best-effort */
+      }
+    }
+
     try {
       await this.emailService.sendResetCodeEmail(
         user.email,
         resetCode,
         `${user.firstName} ${user.lastName}`,
+        facilityLogoUrl,
       );
     } catch (e) {
       console.error('Reset email failed:', e);
@@ -305,6 +329,7 @@ export class AuthService {
       await this.emailService.sendWelcomeEmail(
         user.email,
         `${user.firstName} ${user.lastName}`,
+        facility.logoUrl ?? null,
       );
     } catch (e) {
       console.error('Welcome email failed:', e);

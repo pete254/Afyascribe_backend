@@ -24,11 +24,28 @@ export class SoapNotesService {
   ) {}
 
   // ── CREATE ─────────────────────────────────────────────────────────────────
+  /**
+   * When a note carries multiple ICD-10 codes, mirror the first onto the legacy
+   * single-code columns so older clients, receipts and reports keep working.
+   * Mutates the dto in place.
+   */
+  private syncPrimaryIcd(dto: {
+    icd10Codes?: { code: string; description?: string }[];
+    icd10Code?: string;
+    icd10Description?: string;
+  }): void {
+    if (dto.icd10Codes && dto.icd10Codes.length > 0) {
+      dto.icd10Code = dto.icd10Codes[0].code;
+      dto.icd10Description = dto.icd10Codes[0].description ?? '';
+    }
+  }
+
   async create(
     createSoapNoteDto: CreateSoapNoteDto,
     userId: string,
     facilityId: string,
   ): Promise<SoapNote> {
+    this.syncPrimaryIcd(createSoapNoteDto);
     const patientExists = await this.patientsService.patientExists(
       createSoapNoteDto.patientId,
       facilityId,
@@ -167,6 +184,8 @@ export class SoapNotesService {
   ): Promise<SoapNote> {
     const note = await this.findOne(id, userId, facilityId);
 
+    this.syncPrimaryIcd(updateSoapNoteDto);
+
     const contentFields = ['symptoms', 'physicalExamination', 'diagnosis', 'management'];
     const wasContentEdited = contentFields.some(
       (f) => updateSoapNoteDto[f] !== undefined && updateSoapNoteDto[f] !== note[f],
@@ -273,6 +292,7 @@ export class SoapNotesService {
     facilityId: string,
     draftId?: string,
   ): Promise<SoapNote> {
+    this.syncPrimaryIcd(dto);
     const patientExists = await this.patientsService.patientExists(dto.patientId, facilityId);
     if (!patientExists) {
       throw new BadRequestException(`Patient ${dto.patientId} not found in your facility`);
@@ -294,6 +314,7 @@ export class SoapNotesService {
         diagnosis: dto.diagnosis ?? existing.diagnosis,
         icd10Code: dto.icd10Code ?? existing.icd10Code,
         icd10Description: dto.icd10Description ?? existing.icd10Description,
+        icd10Codes: dto.icd10Codes ?? existing.icd10Codes,
         management: dto.management ?? existing.management,
       });
 
@@ -343,6 +364,8 @@ export class SoapNotesService {
       throw new NotFoundException(`Draft ${draftId} not found`);
     }
 
+    this.syncPrimaryIcd(dto);
+
     const hasContent =
       (dto.symptoms ?? draft.symptoms)?.trim() ||
       (dto.physicalExamination ?? draft.physicalExamination)?.trim() ||
@@ -361,6 +384,7 @@ export class SoapNotesService {
       diagnosis: dto.diagnosis ?? draft.diagnosis ?? '',
       icd10Code: dto.icd10Code ?? draft.icd10Code,
       icd10Description: dto.icd10Description ?? draft.icd10Description,
+      icd10Codes: dto.icd10Codes ?? draft.icd10Codes,
       management: dto.management ?? draft.management ?? '',
       status: SoapNoteStatus.PENDING,
     });
@@ -458,7 +482,8 @@ export class SoapNotesService {
 </style></head>
 <body>
   <div class="header">
-    <div style="font-size:20px;font-weight:800;margin-bottom:4px;">🏥 ${facilityName}</div>
+    ${note.facility?.logoUrl ? `<img src="${note.facility.logoUrl}" alt="" style="height:48px;object-fit:contain;margin-bottom:8px;">` : ''}
+    <div style="font-size:20px;font-weight:800;margin-bottom:4px;">${note.facility?.logoUrl ? '' : '🏥 '}${facilityName}</div>
     <div style="opacity:.85;font-size:14px;">Medical Consultation Summary</div>
   </div>
   <div class="body">
