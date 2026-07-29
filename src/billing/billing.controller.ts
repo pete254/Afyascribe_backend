@@ -36,6 +36,13 @@ export class BillingController {
     return this.billingService.create(dto, user.facilityId);
   }
 
+  @Post('reconcile-ledger')
+  @Roles('facility_admin', 'super_admin', 'accountant')
+  @ApiOperation({ summary: 'Post journals for bills/payments made before the chart existed' })
+  reconcileLedger(@CurrentUser() user: any) {
+    return this.billingService.reconcileLedger(user.facilityId);
+  }
+
   @Get('visit/:visitId')
   @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
   @ApiOperation({ summary: 'Get all bills for a specific visit' })

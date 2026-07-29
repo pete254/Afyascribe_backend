@@ -141,6 +141,28 @@ export class HmisPostingService {
   }
 
   /**
+   * Catch-up payment for a bill that was paid before the chart existed. Unlike
+   * onPaymentCollected (one journal per live collection), this posts a single
+   * journal for the total already collected, and is idempotency-guarded so a
+   * reconcile can be run repeatedly without double-posting.
+   */
+  async backfillPayment(
+    bill: {
+      id: string;
+      facilityId: string;
+      serviceType?: string;
+      paymentMode?: string;
+      status?: string;
+      insuranceSchemeName?: string | null;
+    },
+    payment: { method: string; amount: number },
+  ): Promise<void> {
+    if (!(payment.amount > 0)) return;
+    if (await this.ledger.alreadyPosted(bill.facilityId, 'billing', 'bill_payment', bill.id)) return;
+    await this.onPaymentCollected(bill, payment);
+  }
+
+  /**
    * Bill waived → write it off.
    *   Dr Bad Debts   Cr Receivable
    */

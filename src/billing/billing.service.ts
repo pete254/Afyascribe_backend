@@ -318,6 +318,31 @@ export class BillingService {
     return visit ?? null;
   }
 
+  // ── RECONCILE EXISTING BILLS INTO THE LEDGER ──────────────────────────────
+  /**
+   * Post the journals for bills/payments that predate the chart of accounts.
+   * Auto-posting is skipped when no chart exists, so anything billed before the
+   * facility set up its books never hit the ledger — this catches them up.
+   * Every step is idempotency-guarded, so it is safe to run more than once.
+   */
+  async reconcileLedger(facilityId: string): Promise<{ bills: number }> {
+    const bills = await this.billingRepo.find({ where: { facilityId } });
+    for (const bill of bills) {
+      // Revenue recognition (guarded inside the posting service).
+      await this.posting.onBillCreated(bill);
+
+      if (bill.status === BillingStatus.WAIVED) {
+        await this.posting.onBillWaived(bill);
+      } else if (Number(bill.amountPaid) > 0) {
+        await this.posting.backfillPayment(bill, {
+          method: bill.paymentMethod ?? 'cash',
+          amount: Number(bill.amountPaid),
+        });
+      }
+    }
+    return { bills: bills.length };
+  }
+
   // ── GET ALL BILLS FOR RECEIPTS/REPORTING ─────────────────────────────────
   async findPaidBills(
     facilityId: string,
