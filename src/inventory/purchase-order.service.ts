@@ -74,6 +74,7 @@ export class PurchaseOrderService {
       deliveryAddress: dto.deliveryAddress ?? null,
       terms: dto.terms ?? null,
       notes: dto.notes ?? null,
+      purchaseRequisitionId: dto.purchaseRequisitionId ?? null,
       createdById: user.id,
       createdByName: this.fullName(user),
       approvedById: authorised ? user.id : null,

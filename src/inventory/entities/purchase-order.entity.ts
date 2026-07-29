@@ -86,6 +86,10 @@ export class PurchaseOrder {
   @Column({ name: 'decision_note', type: 'text', nullable: true })
   decisionNote: string | null;
 
+  /** The requisition this LPO was raised from, if any (procure-to-pay trace). */
+  @Column({ name: 'purchase_requisition_id', type: 'uuid', nullable: true })
+  purchaseRequisitionId: string | null;
+
   /** Set once goods have been received against this LPO. */
   @Column({ name: 'goods_receipt_id', type: 'uuid', nullable: true })
   goodsReceiptId: string | null;

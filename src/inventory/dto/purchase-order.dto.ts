@@ -38,6 +38,11 @@ export class CreatePurchaseOrderDto {
   @IsUUID()
   supplierId: string;
 
+  @ApiPropertyOptional({ description: 'Requisition this LPO fulfils' })
+  @IsUUID()
+  @IsOptional()
+  purchaseRequisitionId?: string;
+
   @ApiPropertyOptional()
   @IsDateString()
   @IsOptional()

@@ -11,11 +11,14 @@ import { GoodsReceiptLine } from './entities/goods-receipt-line.entity';
 import { SupplierPayment } from './entities/supplier-payment.entity';
 import { PurchaseOrder } from './entities/purchase-order.entity';
 import { PurchaseOrderLine } from './entities/purchase-order-line.entity';
+import { PurchaseRequisition } from './entities/purchase-requisition.entity';
+import { PurchaseRequisitionLine } from './entities/purchase-requisition-line.entity';
 import { Facility } from '../facilities/entities/facility.entity';
 
 import { StockService } from './stock.service';
 import { ProcurementService } from './procurement.service';
 import { PurchaseOrderService } from './purchase-order.service';
+import { PurchaseRequisitionService } from './purchase-requisition.service';
 import { InventoryController, ProcurementController } from './inventory.controller';
 import { AccountingModule } from '../accounting/accounting.module';
 
@@ -36,6 +39,8 @@ import { AccountingModule } from '../accounting/accounting.module';
       SupplierPayment,
       PurchaseOrder,
       PurchaseOrderLine,
+      PurchaseRequisition,
+      PurchaseRequisitionLine,
       Facility,
     ]),
     AccountingModule,
@@ -49,7 +54,7 @@ import { AccountingModule } from '../accounting/accounting.module';
     }),
   ],
   controllers: [InventoryController, ProcurementController],
-  providers: [StockService, ProcurementService, PurchaseOrderService],
-  exports: [StockService, ProcurementService, PurchaseOrderService],
+  providers: [StockService, ProcurementService, PurchaseOrderService, PurchaseRequisitionService],
+  exports: [StockService, ProcurementService, PurchaseOrderService, PurchaseRequisitionService],
 })
 export class InventoryModule {}

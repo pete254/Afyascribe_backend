@@ -17,6 +17,7 @@ import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.
 import { StockService } from './stock.service';
 import { ProcurementService } from './procurement.service';
 import { PurchaseOrderService } from './purchase-order.service';
+import { PurchaseRequisitionService } from './purchase-requisition.service';
 import {
   CreateItemDto,
   UpdateItemDto,
@@ -27,6 +28,7 @@ import {
   CreateSupplierPaymentDto,
 } from './dto/inventory.dto';
 import { CreatePurchaseOrderDto, DecisionDto } from './dto/purchase-order.dto';
+import { CreateRequisitionDto } from './dto/purchase-requisition.dto';
 
 function facilityOf(user: CurrentUserType): string {
   if (!user.facilityId) throw new BadRequestException('Your account is not linked to a facility');
@@ -87,7 +89,40 @@ export class ProcurementController {
   constructor(
     private readonly procurement: ProcurementService,
     private readonly purchaseOrders: PurchaseOrderService,
+    private readonly requisitions: PurchaseRequisitionService,
   ) {}
+
+  // ── Purchase requisitions (PRs) ─────────────────────────────────────────────
+
+  @Get('requisitions')
+  listRequisitions(@CurrentUser() user: CurrentUserType, @Query('status') status?: string) {
+    return this.requisitions.list(facilityOf(user), status);
+  }
+
+  @Post('requisitions')
+  createRequisition(@CurrentUser() user: CurrentUserType, @Body() dto: CreateRequisitionDto) {
+    return this.requisitions.create(facilityOf(user), dto, user);
+  }
+
+  @Get('requisitions/:id')
+  getRequisition(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
+    return this.requisitions.get(facilityOf(user), id);
+  }
+
+  @Patch('requisitions/:id/approve')
+  approveRequisition(@CurrentUser() user: CurrentUserType, @Param('id') id: string, @Body() dto: DecisionDto) {
+    return this.requisitions.approve(facilityOf(user), id, user, dto ?? {});
+  }
+
+  @Patch('requisitions/:id/reject')
+  rejectRequisition(@CurrentUser() user: CurrentUserType, @Param('id') id: string, @Body() dto: DecisionDto) {
+    return this.requisitions.reject(facilityOf(user), id, user, dto ?? {});
+  }
+
+  @Patch('requisitions/:id/cancel')
+  cancelRequisition(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
+    return this.requisitions.cancel(facilityOf(user), id, user);
+  }
 
   // ── Purchase orders (LPOs) ──────────────────────────────────────────────────
 
