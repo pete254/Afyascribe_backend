@@ -19,6 +19,16 @@ export class RolesGuard implements CanActivate {
     const { user } = context.switchToHttp().getRequest();
     if (!user) return false;
 
-    return requiredRoles.includes(user.role);
+    if (requiredRoles.includes(user.role)) return true;
+
+    // The facility owner implicitly holds every facility-level role until they
+    // hire dedicated staff, so treat an owner as a facility_admin. This never
+    // grants super_admin/platform access — those routes require 'super_admin'
+    // explicitly, which an owner is not.
+    if (user.isOwner === true && requiredRoles.includes('facility_admin')) {
+      return true;
+    }
+
+    return false;
   }
 }
