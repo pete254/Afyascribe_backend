@@ -81,6 +81,15 @@ export class Billing {
   @Column({ name: 'service_description', type: 'text', nullable: true })
   serviceDescription: string | null;
 
+  // ── Optional link to a stock item ──────────────────────────────────────────
+  // When set, billing this line also depletes stock and posts cost of sales at
+  // the item's moving-average cost (pharmacy/lab dispensing).
+  @Column({ name: 'item_id', type: 'uuid', nullable: true })
+  itemId: string | null;
+
+  @Column({ name: 'quantity', type: 'numeric', precision: 14, scale: 3, nullable: true })
+  quantity: number | null;
+
   @Column({ name: 'amount', type: 'decimal', precision: 10, scale: 2 })
   amount: number;
 

@@ -17,6 +17,7 @@ import { CreateBillingDto } from './dto/create-billing.dto';
 import { CollectPaymentDto } from './dto/mark-paid.dto';
 import { PatientVisit, VisitStatus } from '../patient-visits/entities/patient-visit.entity';
 import { HmisPostingService } from '../accounting/hmis-posting.service';
+import { StockService } from '../inventory/stock.service';
 
 @Injectable()
 export class BillingService {
@@ -27,6 +28,8 @@ export class BillingService {
     private readonly visitsRepo: Repository<PatientVisit>,
     // Posts the matching journal entries; best-effort, never blocks billing.
     private readonly posting: HmisPostingService,
+    // Depletes stock + books COGS when a bill line dispenses a stock item.
+    private readonly stock: StockService,
   ) {}
 
   // ── CREATE BILL ──────────────────────────────────────────────────────────
@@ -44,6 +47,8 @@ export class BillingService {
       facilityId,
       serviceType: dto.serviceType,
       serviceDescription: dto.serviceDescription ?? null,
+      itemId: dto.itemId ?? null,
+      quantity: dto.quantity ?? null,
       amount: dto.amount,
       amountPaid: 0,
       paymentMode,
@@ -59,6 +64,21 @@ export class BillingService {
 
     // Recognise revenue against a receivable (Dr Receivable, Cr Revenue).
     await this.posting.onBillCreated(saved);
+
+    // If this line dispensed a stock item, deplete it and book COGS at cost.
+    // Best-effort: a bad item link or empty stock must never fail the bill.
+    if (dto.itemId && dto.quantity && dto.quantity > 0) {
+      try {
+        await this.stock.issueStock(facilityId, dto.itemId, dto.quantity, {
+          sourceType: 'bill_dispense',
+          sourceId: saved.id,
+          costCenter: dto.serviceType,
+          note: dto.serviceDescription ?? 'Dispensed',
+        });
+      } catch (e) {
+        console.error(`Stock issue for bill ${saved.id} failed: ${(e as Error).message}`);
+      }
+    }
 
     // Insurance-only bills advance visit immediately
     if (paymentMode === PaymentMode.INSURANCE) {

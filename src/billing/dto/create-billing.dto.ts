@@ -23,6 +23,17 @@ export class CreateBillingDto {
   @Min(0)
   amount: number;
 
+  @ApiPropertyOptional({ description: 'Stock item dispensed — depletes stock and books COGS' })
+  @IsOptional()
+  @IsUUID()
+  itemId?: string;
+
+  @ApiPropertyOptional({ description: 'Quantity dispensed of the linked item', example: 2 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  quantity?: number;
+
   @ApiPropertyOptional({
     enum: PaymentMode,
     default: PaymentMode.CASH,
