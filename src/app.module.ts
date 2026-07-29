@@ -41,6 +41,10 @@ import { PlatformModule } from './platform/platform.module';
 import { FacilityCreationCode } from './platform/entities/facility-creation-code.entity';
 import { SupportRequest } from './platform/entities/support-request.entity';
 import { SelfRegistration } from './self-registration/entities/self-registration.entity';
+import { AccountingModule } from './accounting/accounting.module';
+import { LedgerAccount } from './accounting/entities/ledger-account.entity';
+import { JournalEntry } from './accounting/entities/journal-entry.entity';
+import { JournalLine } from './accounting/entities/journal-line.entity';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -59,7 +63,7 @@ import { SelfRegistration } from './self-registration/entities/self-registration
           username: configService.get('DB_USERNAME'),
           password: configService.get('DB_PASSWORD'),
           database: configService.get('DB_DATABASE'),
-          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit, Billing, InsuranceScheme, PatientDocument, ServiceCatalogItem, SelfRegistration, FacilityCreationCode, SupportRequest],
+          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit, Billing, InsuranceScheme, PatientDocument, ServiceCatalogItem, SelfRegistration, FacilityCreationCode, SupportRequest, LedgerAccount, JournalEntry, JournalLine],
           autoLoadEntities: true,
           synchronize: !isProduction,
           logging: !isProduction,
@@ -91,6 +95,7 @@ import { SelfRegistration } from './self-registration/entities/self-registration
     AppointmentsModule,
     SelfRegistrationModule,
     PlatformModule,
+    AccountingModule,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],
