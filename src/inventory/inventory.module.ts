@@ -9,9 +9,13 @@ import { StockMovement } from './entities/stock-movement.entity';
 import { GoodsReceipt } from './entities/goods-receipt.entity';
 import { GoodsReceiptLine } from './entities/goods-receipt-line.entity';
 import { SupplierPayment } from './entities/supplier-payment.entity';
+import { PurchaseOrder } from './entities/purchase-order.entity';
+import { PurchaseOrderLine } from './entities/purchase-order-line.entity';
+import { Facility } from '../facilities/entities/facility.entity';
 
 import { StockService } from './stock.service';
 import { ProcurementService } from './procurement.service';
+import { PurchaseOrderService } from './purchase-order.service';
 import { InventoryController, ProcurementController } from './inventory.controller';
 import { AccountingModule } from '../accounting/accounting.module';
 
@@ -30,6 +34,9 @@ import { AccountingModule } from '../accounting/accounting.module';
       GoodsReceipt,
       GoodsReceiptLine,
       SupplierPayment,
+      PurchaseOrder,
+      PurchaseOrderLine,
+      Facility,
     ]),
     AccountingModule,
     JwtModule.registerAsync({
@@ -42,7 +49,7 @@ import { AccountingModule } from '../accounting/accounting.module';
     }),
   ],
   controllers: [InventoryController, ProcurementController],
-  providers: [StockService, ProcurementService],
-  exports: [StockService, ProcurementService],
+  providers: [StockService, ProcurementService, PurchaseOrderService],
+  exports: [StockService, ProcurementService, PurchaseOrderService],
 })
 export class InventoryModule {}

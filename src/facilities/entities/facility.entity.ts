@@ -101,6 +101,14 @@ export class Facility {
   @Column({ name: 'subscription_due_date', type: 'timestamptz', nullable: true })
   subscriptionDueDate: Date | null;
 
+  /**
+   * When true, the accountant may approve LPOs (purchase orders) on their own;
+   * otherwise an accountant-raised LPO waits for the owner/admin to approve.
+   * The owner sets this to delegate purchasing authority.
+   */
+  @Column({ name: 'accountant_can_approve_lpo', type: 'boolean', default: false })
+  accountantCanApproveLpo: boolean;
+
   @CreateDateColumn({ name: 'created_at' })  // ✅ fixed
   createdAt: Date;
 

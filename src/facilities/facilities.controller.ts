@@ -144,6 +144,23 @@ export class FacilitiesController {
     });
   }
 
+  // Delegate LPO approval to the accountant (or take it back). Owner/admin only.
+  @Patch(':id/lpo-approval')
+  @ApiOperation({ summary: 'Allow the accountant to approve LPOs without owner sign-off' })
+  async setLpoApproval(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { accountantCanApproveLpo: boolean },
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    this.assertCanViewFacility(id, user);
+    const facility = await this.facilitiesService.update(id, {
+      accountantCanApproveLpo: !!body?.accountantCanApproveLpo,
+    } as any);
+    return plainToInstance(FacilityResponseDto, facility, {
+      excludeExtraneousValues: true,
+    });
+  }
+
   /**
    * Owners and facility admins may read their OWN facility; super_admin may read
    * any. Previously this was `@Roles('super_admin','facility_admin')`, which both

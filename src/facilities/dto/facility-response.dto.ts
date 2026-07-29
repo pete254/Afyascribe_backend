@@ -60,6 +60,11 @@ export class FacilityResponseDto {
   @ApiProperty()
   clinicMode: string;
 
+  /** When true, the accountant can approve LPOs without owner sign-off. */
+  @Expose()
+  @ApiProperty()
+  accountantCanApproveLpo: boolean;
+
   @Expose()
   @ApiProperty()
   createdAt: Date;

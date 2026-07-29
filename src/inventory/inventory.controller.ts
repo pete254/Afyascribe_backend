@@ -16,6 +16,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.decorator';
 import { StockService } from './stock.service';
 import { ProcurementService } from './procurement.service';
+import { PurchaseOrderService } from './purchase-order.service';
 import {
   CreateItemDto,
   UpdateItemDto,
@@ -25,6 +26,7 @@ import {
   CreateGoodsReceiptDto,
   CreateSupplierPaymentDto,
 } from './dto/inventory.dto';
+import { CreatePurchaseOrderDto, DecisionDto } from './dto/purchase-order.dto';
 
 function facilityOf(user: CurrentUserType): string {
   if (!user.facilityId) throw new BadRequestException('Your account is not linked to a facility');
@@ -82,7 +84,50 @@ export class InventoryController {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('facility_admin', 'super_admin', 'procurement_officer', 'accountant')
 export class ProcurementController {
-  constructor(private readonly procurement: ProcurementService) {}
+  constructor(
+    private readonly procurement: ProcurementService,
+    private readonly purchaseOrders: PurchaseOrderService,
+  ) {}
+
+  // ── Purchase orders (LPOs) ──────────────────────────────────────────────────
+
+  @Get('purchase-orders')
+  listPurchaseOrders(@CurrentUser() user: CurrentUserType, @Query('status') status?: string) {
+    return this.purchaseOrders.list(facilityOf(user), status);
+  }
+
+  @Post('purchase-orders')
+  createPurchaseOrder(@CurrentUser() user: CurrentUserType, @Body() dto: CreatePurchaseOrderDto) {
+    return this.purchaseOrders.create(facilityOf(user), dto, user);
+  }
+
+  @Get('purchase-orders/:id')
+  getPurchaseOrder(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
+    return this.purchaseOrders.get(facilityOf(user), id);
+  }
+
+  @Patch('purchase-orders/:id/approve')
+  approvePurchaseOrder(
+    @CurrentUser() user: CurrentUserType,
+    @Param('id') id: string,
+    @Body() dto: DecisionDto,
+  ) {
+    return this.purchaseOrders.approve(facilityOf(user), id, user, dto ?? {});
+  }
+
+  @Patch('purchase-orders/:id/reject')
+  rejectPurchaseOrder(
+    @CurrentUser() user: CurrentUserType,
+    @Param('id') id: string,
+    @Body() dto: DecisionDto,
+  ) {
+    return this.purchaseOrders.reject(facilityOf(user), id, user, dto ?? {});
+  }
+
+  @Patch('purchase-orders/:id/cancel')
+  cancelPurchaseOrder(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
+    return this.purchaseOrders.cancel(facilityOf(user), id, user);
+  }
 
   @Get('suppliers')
   listSuppliers(@CurrentUser() user: CurrentUserType) {
