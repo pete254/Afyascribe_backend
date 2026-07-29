@@ -103,6 +103,25 @@ export class LedgerService {
     return acc;
   }
 
+  /** True once a facility has a chart — auto-posting is skipped until then. */
+  async hasChart(facilityId: string): Promise<boolean> {
+    const n = await this.accounts.count({ where: { facilityId } });
+    return n > 0;
+  }
+
+  /** Guard so a retried operation doesn't post its journal twice. */
+  async alreadyPosted(
+    facilityId: string,
+    source: string,
+    sourceType: string,
+    sourceId: string,
+  ): Promise<boolean> {
+    const n = await this.journals.count({
+      where: { facilityId, source, sourceType, sourceId, status: 'posted' },
+    });
+    return n > 0;
+  }
+
   async createAccount(facilityId: string, dto: CreateAccountDto): Promise<LedgerAccount> {
     const code = dto.code.trim();
     const dup = await this.accounts.findOne({ where: { facilityId, code } });

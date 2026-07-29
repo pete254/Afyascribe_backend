@@ -16,6 +16,7 @@ import {
 import { CreateBillingDto } from './dto/create-billing.dto';
 import { CollectPaymentDto } from './dto/mark-paid.dto';
 import { PatientVisit, VisitStatus } from '../patient-visits/entities/patient-visit.entity';
+import { HmisPostingService } from '../accounting/hmis-posting.service';
 
 @Injectable()
 export class BillingService {
@@ -24,6 +25,8 @@ export class BillingService {
     private readonly billingRepo: Repository<Billing>,
     @InjectRepository(PatientVisit)
     private readonly visitsRepo: Repository<PatientVisit>,
+    // Posts the matching journal entries; best-effort, never blocks billing.
+    private readonly posting: HmisPostingService,
   ) {}
 
   // ── CREATE BILL ──────────────────────────────────────────────────────────
@@ -53,6 +56,9 @@ export class BillingService {
     });
 
     const saved = await this.billingRepo.save(bill);
+
+    // Recognise revenue against a receivable (Dr Receivable, Cr Revenue).
+    await this.posting.onBillCreated(saved);
 
     // Insurance-only bills advance visit immediately
     if (paymentMode === PaymentMode.INSURANCE) {
@@ -171,6 +177,13 @@ export class BillingService {
     }
 
     const savedBill = await this.billingRepo.save(bill);
+
+    // Clear the receivable into cash/bank/mobile (Dr Cash, Cr Receivable).
+    await this.posting.onPaymentCollected(savedBill, {
+      method: dto.paymentMethod,
+      amount: dto.amountReceived,
+    });
+
     let visit: PatientVisit | null = null;
 
     if (isFullyPaid) {
@@ -221,6 +234,9 @@ export class BillingService {
     bill.collectedById = collectedById;
     bill.waiverReason = waiverReason ?? null;
     const saved = await this.billingRepo.save(bill);
+
+    // Write off the outstanding balance (Dr Bad Debts, Cr Receivable).
+    await this.posting.onBillWaived(saved);
 
     await this._tryAdvanceVisit(bill.visitId, facilityId);
     return saved;
