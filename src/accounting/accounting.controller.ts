@@ -30,7 +30,7 @@ import {
 @ApiBearerAuth('JWT-auth')
 @Controller('accounting')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('facility_admin', 'super_admin')
+@Roles('facility_admin', 'super_admin', 'accountant')
 export class AccountingController {
   constructor(private readonly ledger: LedgerService) {}
 

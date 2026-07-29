@@ -45,6 +45,13 @@ import { AccountingModule } from './accounting/accounting.module';
 import { LedgerAccount } from './accounting/entities/ledger-account.entity';
 import { JournalEntry } from './accounting/entities/journal-entry.entity';
 import { JournalLine } from './accounting/entities/journal-line.entity';
+import { InventoryModule } from './inventory/inventory.module';
+import { InventoryItem } from './inventory/entities/inventory-item.entity';
+import { Supplier } from './inventory/entities/supplier.entity';
+import { StockMovement } from './inventory/entities/stock-movement.entity';
+import { GoodsReceipt } from './inventory/entities/goods-receipt.entity';
+import { GoodsReceiptLine } from './inventory/entities/goods-receipt-line.entity';
+import { SupplierPayment } from './inventory/entities/supplier-payment.entity';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -63,7 +70,7 @@ import { JournalLine } from './accounting/entities/journal-line.entity';
           username: configService.get('DB_USERNAME'),
           password: configService.get('DB_PASSWORD'),
           database: configService.get('DB_DATABASE'),
-          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit, Billing, InsuranceScheme, PatientDocument, ServiceCatalogItem, SelfRegistration, FacilityCreationCode, SupportRequest, LedgerAccount, JournalEntry, JournalLine],
+          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit, Billing, InsuranceScheme, PatientDocument, ServiceCatalogItem, SelfRegistration, FacilityCreationCode, SupportRequest, LedgerAccount, JournalEntry, JournalLine, InventoryItem, Supplier, StockMovement, GoodsReceipt, GoodsReceiptLine, SupplierPayment],
           autoLoadEntities: true,
           synchronize: !isProduction,
           logging: !isProduction,
@@ -96,6 +103,7 @@ import { JournalLine } from './accounting/entities/journal-line.entity';
     SelfRegistrationModule,
     PlatformModule,
     AccountingModule,
+    InventoryModule,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],

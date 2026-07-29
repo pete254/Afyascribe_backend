@@ -171,6 +171,147 @@ export class HmisPostingService {
     });
   }
 
+  // ── Inventory & procurement ─────────────────────────────────────────────────
+
+  /**
+   * Goods received → raise inventory and the payable.
+   *   Dr Inventory (per line)   Cr Accounts Payable (supplier)
+   * Returns the journal id, or null if skipped (no chart) / failed.
+   */
+  async onGoodsReceived(input: {
+    facilityId: string;
+    grnId: string;
+    grnNo: string;
+    date: string;
+    supplierPayableCode: string;
+    supplierName: string;
+    total: number;
+    lines: { inventoryAccountCode: string; value: number; description?: string }[];
+  }): Promise<string | null> {
+    if (!(input.total > 0)) return null;
+    return this.tryPost({
+      facilityId: input.facilityId,
+      date: input.date,
+      source: 'procurement',
+      sourceType: 'goods_receipt',
+      sourceId: input.grnId,
+      memo: `GRN ${input.grnNo} — ${input.supplierName}`,
+      lines: [
+        ...input.lines.map((l) => ({
+          accountCode: l.inventoryAccountCode,
+          debit: l.value,
+          description: l.description,
+        })),
+        { accountCode: input.supplierPayableCode, credit: input.total, description: input.supplierName },
+      ],
+    });
+  }
+
+  /**
+   * Supplier paid → settle the payable from a bank/cash account.
+   *   Dr Accounts Payable   Cr Bank/Cash
+   */
+  async onSupplierPayment(input: {
+    facilityId: string;
+    paymentId: string;
+    paymentNo: string;
+    date: string;
+    payableCode: string;
+    bankAccountCode: string;
+    amount: number;
+    supplierName: string;
+  }): Promise<string | null> {
+    if (!(input.amount > 0)) return null;
+    return this.tryPost({
+      facilityId: input.facilityId,
+      date: input.date,
+      source: 'procurement',
+      sourceType: 'supplier_payment',
+      sourceId: input.paymentId,
+      memo: `Payment ${input.paymentNo} — ${input.supplierName}`,
+      lines: [
+        { accountCode: input.payableCode, debit: input.amount, description: input.supplierName },
+        { accountCode: input.bankAccountCode, credit: input.amount },
+      ],
+    });
+  }
+
+  /**
+   * Stock consumed/dispensed → expense it at cost.
+   *   Dr COGS   Cr Inventory
+   */
+  async onStockIssue(input: {
+    facilityId: string;
+    date: string;
+    cogsAccountCode: string;
+    inventoryAccountCode: string;
+    value: number;
+    description?: string;
+    costCenter?: string;
+    sourceType?: string;
+    sourceId?: string;
+  }): Promise<string | null> {
+    if (!(input.value > 0)) return null;
+    return this.tryPost({
+      facilityId: input.facilityId,
+      date: input.date,
+      source: 'inventory',
+      sourceType: input.sourceType ?? 'stock_issue',
+      sourceId: input.sourceId,
+      memo: input.description ?? 'Stock issue',
+      lines: [
+        { accountCode: input.cogsAccountCode, debit: input.value, description: input.description, costCenter: input.costCenter },
+        { accountCode: input.inventoryAccountCode, credit: input.value, costCenter: input.costCenter },
+      ],
+    });
+  }
+
+  /**
+   * Stock adjustment → write value up or down.
+   *   Loss (out): Dr Adjustment/COGS  Cr Inventory
+   *   Gain (in):  Dr Inventory        Cr Adjustment/COGS
+   */
+  async onStockAdjustment(input: {
+    facilityId: string;
+    date: string;
+    inventoryAccountCode: string;
+    adjustmentAccountCode: string;
+    value: number;
+    direction: 'in' | 'out';
+    description?: string;
+    sourceType?: string;
+    sourceId?: string;
+  }): Promise<string | null> {
+    if (!(input.value > 0)) return null;
+    const inv = { accountCode: input.inventoryAccountCode, description: input.description };
+    const adj = { accountCode: input.adjustmentAccountCode, description: input.description };
+    const lines =
+      input.direction === 'in'
+        ? [{ ...inv, debit: input.value }, { ...adj, credit: input.value }]
+        : [{ ...adj, debit: input.value }, { ...inv, credit: input.value }];
+    return this.tryPost({
+      facilityId: input.facilityId,
+      date: input.date,
+      source: 'inventory',
+      sourceType: input.sourceType ?? 'stock_adjustment',
+      sourceId: input.sourceId,
+      memo: input.description ?? 'Stock adjustment',
+      lines,
+    });
+  }
+
+  /** Post if a chart exists; return the journal id or null (never throws). */
+  private async tryPost(input: Parameters<LedgerService['post']>[0]): Promise<string | null> {
+    try {
+      if (!(await this.ledger.hasChart(input.facilityId))) return null;
+      const je = await this.ledger.post(input);
+      return je.id;
+    } catch (e) {
+      this.logger.error(`Auto-post (${input.sourceType}) failed: ${(e as Error).message}`);
+      return null;
+    }
+  }
+
   /**
    * Run a posting, skipping if there's no chart or it's already posted, and
    * swallowing errors so the caller's transaction is never affected.

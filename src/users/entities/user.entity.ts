@@ -19,7 +19,22 @@ export enum UserRole {
   DOCTOR          = 'doctor',
   NURSE           = 'nurse',
   RECEPTIONIST    = 'receptionist',
+  // ── Back-office roles ─────────────────────────────────────────────────────
+  ACCOUNTANT          = 'accountant',           // Ledger, banking, financial statements
+  CASHIER             = 'cashier',              // Sales / invoice payments desk
+  PROCUREMENT_OFFICER = 'procurement_officer',  // Purchases, bills, suppliers
+  STOREKEEPER         = 'storekeeper',          // Stock, items, receiving, adjustments
+  HR_MANAGER          = 'hr_manager',           // Payroll and employees
 }
+
+/** Back-office (non-clinical) roles. */
+export const BACK_OFFICE_ROLES: UserRole[] = [
+  UserRole.ACCOUNTANT,
+  UserRole.CASHIER,
+  UserRole.PROCUREMENT_OFFICER,
+  UserRole.STOREKEEPER,
+  UserRole.HR_MANAGER,
+];
 
 @Entity('users')
 export class User {
