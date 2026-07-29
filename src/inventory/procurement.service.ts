@@ -6,6 +6,8 @@ import { InventoryItem } from './entities/inventory-item.entity';
 import { GoodsReceipt } from './entities/goods-receipt.entity';
 import { GoodsReceiptLine } from './entities/goods-receipt-line.entity';
 import { SupplierPayment } from './entities/supplier-payment.entity';
+import { PurchaseOrder } from './entities/purchase-order.entity';
+import { SupplierInvoiceService } from './supplier-invoice.service';
 import {
   CreateSupplierDto,
   UpdateSupplierDto,
@@ -29,8 +31,11 @@ export class ProcurementService {
     private readonly grns: Repository<GoodsReceipt>,
     @InjectRepository(SupplierPayment)
     private readonly payments: Repository<SupplierPayment>,
+    @InjectRepository(PurchaseOrder)
+    private readonly purchaseOrders: Repository<PurchaseOrder>,
     private readonly stock: StockService,
     private readonly posting: HmisPostingService,
+    private readonly supplierInvoices: SupplierInvoiceService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -96,6 +101,7 @@ export class ProcurementService {
           facilityId,
           grnNo,
           supplierId: supplier.id,
+          purchaseOrderId: dto.purchaseOrderId ?? null,
           date,
           reference: dto.reference ?? null,
           notes: dto.notes ?? null,
@@ -163,6 +169,14 @@ export class ProcurementService {
     });
     if (journalId) await this.grns.update({ id: grn.id }, { journalEntryId: journalId });
 
+    // Mark the originating LPO as received.
+    if (dto.purchaseOrderId) {
+      await this.purchaseOrders.update(
+        { id: dto.purchaseOrderId, facilityId },
+        { status: 'received', goodsReceiptId: grn.id },
+      );
+    }
+
     return this.grns.findOne({ where: { id: grn.id }, relations: ['lines'] }) as Promise<GoodsReceipt>;
   }
 
@@ -195,6 +209,7 @@ export class ProcurementService {
           facilityId,
           paymentNo,
           supplierId: supplier.id,
+          supplierInvoiceId: dto.supplierInvoiceId ?? null,
           date,
           amount: dto.amount.toFixed(2),
           method: dto.method ?? 'bank',
@@ -221,6 +236,11 @@ export class ProcurementService {
       supplierName: supplier.name,
     });
     if (journalId) await this.payments.update({ id: payment.id }, { journalEntryId: journalId });
+
+    // Track how much of the linked invoice this settles.
+    if (dto.supplierInvoiceId) {
+      await this.supplierInvoices.applyPayment(facilityId, dto.supplierInvoiceId, dto.amount);
+    }
 
     return this.payments.findOne({ where: { id: payment.id } }) as Promise<SupplierPayment>;
   }

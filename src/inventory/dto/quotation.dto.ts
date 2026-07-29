@@ -12,8 +12,8 @@ import {
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-export class PurchaseOrderLineDto {
-  @ApiPropertyOptional({ description: 'Stock item, if this line is a tracked item' })
+export class QuotationLineDto {
+  @ApiPropertyOptional()
   @IsUUID()
   @IsOptional()
   itemId?: string;
@@ -33,20 +33,20 @@ export class PurchaseOrderLineDto {
   unitPrice: number;
 }
 
-export class CreatePurchaseOrderDto {
+export class CreateQuotationDto {
   @ApiProperty()
   @IsUUID()
   supplierId: string;
 
-  @ApiPropertyOptional({ description: 'Requisition this LPO fulfils' })
+  @ApiPropertyOptional({ description: 'Requisition being quoted for' })
   @IsUUID()
   @IsOptional()
   purchaseRequisitionId?: string;
 
-  @ApiPropertyOptional({ description: 'Selected quotation this LPO is raised from' })
-  @IsUUID()
+  @ApiPropertyOptional()
+  @IsString()
   @IsOptional()
-  quotationId?: string;
+  supplierRef?: string;
 
   @ApiPropertyOptional()
   @IsDateString()
@@ -56,9 +56,9 @@ export class CreatePurchaseOrderDto {
   @ApiPropertyOptional()
   @IsDateString()
   @IsOptional()
-  expectedDate?: string;
+  validUntil?: string;
 
-  @ApiPropertyOptional({ description: 'VAT %, e.g. 16', example: 16 })
+  @ApiPropertyOptional({ example: 16 })
   @IsNumber()
   @Min(0)
   @IsOptional()
@@ -67,29 +67,12 @@ export class CreatePurchaseOrderDto {
   @ApiPropertyOptional()
   @IsString()
   @IsOptional()
-  deliveryAddress?: string;
-
-  @ApiPropertyOptional()
-  @IsString()
-  @IsOptional()
-  terms?: string;
-
-  @ApiPropertyOptional()
-  @IsString()
-  @IsOptional()
   notes?: string;
 
-  @ApiProperty({ type: [PurchaseOrderLineDto] })
+  @ApiProperty({ type: [QuotationLineDto] })
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
-  @Type(() => PurchaseOrderLineDto)
-  lines: PurchaseOrderLineDto[];
-}
-
-export class DecisionDto {
-  @ApiPropertyOptional()
-  @IsString()
-  @IsOptional()
-  note?: string;
+  @Type(() => QuotationLineDto)
+  lines: QuotationLineDto[];
 }

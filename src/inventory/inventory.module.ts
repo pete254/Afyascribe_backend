@@ -13,12 +13,17 @@ import { PurchaseOrder } from './entities/purchase-order.entity';
 import { PurchaseOrderLine } from './entities/purchase-order-line.entity';
 import { PurchaseRequisition } from './entities/purchase-requisition.entity';
 import { PurchaseRequisitionLine } from './entities/purchase-requisition-line.entity';
+import { Quotation } from './entities/quotation.entity';
+import { QuotationLine } from './entities/quotation-line.entity';
+import { SupplierInvoice } from './entities/supplier-invoice.entity';
 import { Facility } from '../facilities/entities/facility.entity';
 
 import { StockService } from './stock.service';
 import { ProcurementService } from './procurement.service';
 import { PurchaseOrderService } from './purchase-order.service';
 import { PurchaseRequisitionService } from './purchase-requisition.service';
+import { QuotationService } from './quotation.service';
+import { SupplierInvoiceService } from './supplier-invoice.service';
 import { InventoryController, ProcurementController } from './inventory.controller';
 import { AccountingModule } from '../accounting/accounting.module';
 
@@ -41,6 +46,9 @@ import { AccountingModule } from '../accounting/accounting.module';
       PurchaseOrderLine,
       PurchaseRequisition,
       PurchaseRequisitionLine,
+      Quotation,
+      QuotationLine,
+      SupplierInvoice,
       Facility,
     ]),
     AccountingModule,
@@ -54,7 +62,21 @@ import { AccountingModule } from '../accounting/accounting.module';
     }),
   ],
   controllers: [InventoryController, ProcurementController],
-  providers: [StockService, ProcurementService, PurchaseOrderService, PurchaseRequisitionService],
-  exports: [StockService, ProcurementService, PurchaseOrderService, PurchaseRequisitionService],
+  providers: [
+    StockService,
+    ProcurementService,
+    PurchaseOrderService,
+    PurchaseRequisitionService,
+    QuotationService,
+    SupplierInvoiceService,
+  ],
+  exports: [
+    StockService,
+    ProcurementService,
+    PurchaseOrderService,
+    PurchaseRequisitionService,
+    QuotationService,
+    SupplierInvoiceService,
+  ],
 })
 export class InventoryModule {}

@@ -25,6 +25,10 @@ export class SupplierPayment {
   @Column({ name: 'supplier_id', type: 'uuid' })
   supplierId: string;
 
+  /** The invoice this payment settles, if any. */
+  @Column({ name: 'supplier_invoice_id', type: 'uuid', nullable: true })
+  supplierInvoiceId: string | null;
+
   @Column({ type: 'date' })
   date: string;
 

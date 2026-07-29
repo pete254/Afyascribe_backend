@@ -90,6 +90,10 @@ export class PurchaseOrder {
   @Column({ name: 'purchase_requisition_id', type: 'uuid', nullable: true })
   purchaseRequisitionId: string | null;
 
+  /** The selected quotation this LPO was raised from, if any. */
+  @Column({ name: 'quotation_id', type: 'uuid', nullable: true })
+  quotationId: string | null;
+
   /** Set once goods have been received against this LPO. */
   @Column({ name: 'goods_receipt_id', type: 'uuid', nullable: true })
   goodsReceiptId: string | null;

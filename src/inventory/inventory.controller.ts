@@ -18,6 +18,8 @@ import { StockService } from './stock.service';
 import { ProcurementService } from './procurement.service';
 import { PurchaseOrderService } from './purchase-order.service';
 import { PurchaseRequisitionService } from './purchase-requisition.service';
+import { QuotationService } from './quotation.service';
+import { SupplierInvoiceService } from './supplier-invoice.service';
 import {
   CreateItemDto,
   UpdateItemDto,
@@ -29,6 +31,8 @@ import {
 } from './dto/inventory.dto';
 import { CreatePurchaseOrderDto, DecisionDto } from './dto/purchase-order.dto';
 import { CreateRequisitionDto } from './dto/purchase-requisition.dto';
+import { CreateQuotationDto } from './dto/quotation.dto';
+import { CreateSupplierInvoiceDto } from './dto/supplier-invoice.dto';
 
 function facilityOf(user: CurrentUserType): string {
   if (!user.facilityId) throw new BadRequestException('Your account is not linked to a facility');
@@ -90,7 +94,58 @@ export class ProcurementController {
     private readonly procurement: ProcurementService,
     private readonly purchaseOrders: PurchaseOrderService,
     private readonly requisitions: PurchaseRequisitionService,
+    private readonly quotations: QuotationService,
+    private readonly invoices: SupplierInvoiceService,
   ) {}
+
+  // ── Supplier invoices ───────────────────────────────────────────────────────
+
+  @Get('invoices')
+  listInvoices(@CurrentUser() user: CurrentUserType) {
+    return this.invoices.list(facilityOf(user));
+  }
+
+  @Post('invoices')
+  createInvoice(@CurrentUser() user: CurrentUserType, @Body() dto: CreateSupplierInvoiceDto) {
+    return this.invoices.create(facilityOf(user), dto, user.id);
+  }
+
+  @Get('invoices/:id')
+  getInvoice(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
+    return this.invoices.get(facilityOf(user), id);
+  }
+
+  @Get('invoices/:id/match')
+  matchInvoice(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
+    return this.invoices.matchInfo(facilityOf(user), id);
+  }
+
+  // ── Quotations ──────────────────────────────────────────────────────────────
+
+  @Get('quotations')
+  listQuotations(@CurrentUser() user: CurrentUserType, @Query('requisitionId') requisitionId?: string) {
+    return this.quotations.list(facilityOf(user), { requisitionId });
+  }
+
+  @Post('quotations')
+  createQuotation(@CurrentUser() user: CurrentUserType, @Body() dto: CreateQuotationDto) {
+    return this.quotations.create(facilityOf(user), dto, user.id);
+  }
+
+  @Get('quotations/:id')
+  getQuotation(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
+    return this.quotations.get(facilityOf(user), id);
+  }
+
+  @Patch('quotations/:id/select')
+  selectQuotation(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
+    return this.quotations.select(facilityOf(user), id);
+  }
+
+  @Patch('quotations/:id/reject')
+  rejectQuotation(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
+    return this.quotations.reject(facilityOf(user), id);
+  }
 
   // ── Purchase requisitions (PRs) ─────────────────────────────────────────────
 

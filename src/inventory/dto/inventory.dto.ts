@@ -128,6 +128,11 @@ export class GoodsReceiptLineDto {
 export class CreateGoodsReceiptDto {
   @ApiProperty() @IsUUID() supplierId: string;
 
+  @ApiPropertyOptional({ description: 'LPO being received against' })
+  @IsUUID()
+  @IsOptional()
+  purchaseOrderId?: string;
+
   @ApiPropertyOptional() @IsDateString() @IsOptional() date?: string;
 
   @ApiPropertyOptional({ description: 'Supplier invoice / delivery note number' })
@@ -148,6 +153,11 @@ export class CreateGoodsReceiptDto {
 export class CreateSupplierPaymentDto {
   @ApiProperty() @IsUUID() supplierId: string;
   @ApiProperty() @IsNumber() @Min(0) amount: number;
+
+  @ApiPropertyOptional({ description: 'Invoice this payment settles' })
+  @IsUUID()
+  @IsOptional()
+  supplierInvoiceId?: string;
 
   @ApiPropertyOptional({ example: 'bank' }) @IsString() @IsOptional() method?: string;
 

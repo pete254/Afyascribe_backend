@@ -56,6 +56,9 @@ import { PurchaseOrder } from './inventory/entities/purchase-order.entity';
 import { PurchaseOrderLine } from './inventory/entities/purchase-order-line.entity';
 import { PurchaseRequisition } from './inventory/entities/purchase-requisition.entity';
 import { PurchaseRequisitionLine } from './inventory/entities/purchase-requisition-line.entity';
+import { Quotation } from './inventory/entities/quotation.entity';
+import { QuotationLine } from './inventory/entities/quotation-line.entity';
+import { SupplierInvoice } from './inventory/entities/supplier-invoice.entity';
 import { PayrollModule } from './payroll/payroll.module';
 import { Employee } from './payroll/entities/employee.entity';
 import { PayrollRun } from './payroll/entities/payroll-run.entity';
@@ -78,7 +81,7 @@ import { Payslip } from './payroll/entities/payslip.entity';
           username: configService.get('DB_USERNAME'),
           password: configService.get('DB_PASSWORD'),
           database: configService.get('DB_DATABASE'),
-          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit, Billing, InsuranceScheme, PatientDocument, ServiceCatalogItem, SelfRegistration, FacilityCreationCode, SupportRequest, LedgerAccount, JournalEntry, JournalLine, InventoryItem, Supplier, StockMovement, GoodsReceipt, GoodsReceiptLine, SupplierPayment, PurchaseOrder, PurchaseOrderLine, PurchaseRequisition, PurchaseRequisitionLine, Employee, PayrollRun, Payslip],
+          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit, Billing, InsuranceScheme, PatientDocument, ServiceCatalogItem, SelfRegistration, FacilityCreationCode, SupportRequest, LedgerAccount, JournalEntry, JournalLine, InventoryItem, Supplier, StockMovement, GoodsReceipt, GoodsReceiptLine, SupplierPayment, PurchaseOrder, PurchaseOrderLine, PurchaseRequisition, PurchaseRequisitionLine, Quotation, QuotationLine, SupplierInvoice, Employee, PayrollRun, Payslip],
           autoLoadEntities: true,
           synchronize: !isProduction,
           logging: !isProduction,

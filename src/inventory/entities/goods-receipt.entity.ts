@@ -28,6 +28,10 @@ export class GoodsReceipt {
   @Column({ name: 'supplier_id', type: 'uuid' })
   supplierId: string;
 
+  /** The LPO this receipt fulfils, if received against one. */
+  @Column({ name: 'purchase_order_id', type: 'uuid', nullable: true })
+  purchaseOrderId: string | null;
+
   @Column({ type: 'date' })
   date: string;
 

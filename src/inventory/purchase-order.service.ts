@@ -75,6 +75,7 @@ export class PurchaseOrderService {
       terms: dto.terms ?? null,
       notes: dto.notes ?? null,
       purchaseRequisitionId: dto.purchaseRequisitionId ?? null,
+      quotationId: dto.quotationId ?? null,
       createdById: user.id,
       createdByName: this.fullName(user),
       approvedById: authorised ? user.id : null,
