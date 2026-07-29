@@ -300,6 +300,83 @@ export class HmisPostingService {
     });
   }
 
+  // ── Payroll ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Payroll accrued → recognise the wage cost and every payable.
+   *   Dr Salaries Expense (gross + employer contributions)
+   *   Cr PAYE / NSSF / SHIF / Housing payables, staff recoveries, Salaries Payable
+   */
+  async onPayrollAccrued(i: {
+    facilityId: string;
+    runId: string;
+    runNo: string;
+    date: string;
+    gross: number;
+    paye: number;
+    nssfTotal: number;
+    shif: number;
+    housingTotal: number;
+    otherDeductions: number;
+    net: number;
+    employerCost: number;
+  }): Promise<string | null> {
+    if (!(i.gross > 0)) return null;
+    const memo = `Payroll ${i.runNo}`;
+    const credits: { accountCode: string; credit: number; description?: string }[] = [
+      { accountCode: '21006', credit: i.paye, description: 'PAYE' },
+      { accountCode: '21007', credit: i.nssfTotal, description: 'NSSF' },
+      { accountCode: '21008', credit: i.shif, description: 'SHIF' },
+      { accountCode: '21009', credit: i.housingTotal, description: 'Housing Levy' },
+      { accountCode: '12007', credit: i.otherDeductions, description: 'Staff recoveries' },
+      { accountCode: '21005', credit: i.net, description: 'Net salaries payable' },
+    ].filter((l) => l.credit > 0);
+
+    return this.tryPost({
+      facilityId: i.facilityId,
+      date: i.date,
+      source: 'payroll',
+      sourceType: 'payroll_accrual',
+      sourceId: i.runId,
+      memo,
+      lines: [
+        { accountCode: '61001', debit: this.round(i.gross + i.employerCost), description: 'Salaries & wages' },
+        ...credits,
+      ],
+    });
+  }
+
+  /**
+   * Net pay disbursed → clear the salaries payable from the bank.
+   *   Dr Salaries Payable   Cr Bank
+   */
+  async onPayrollPaid(i: {
+    facilityId: string;
+    runId: string;
+    runNo: string;
+    date: string;
+    net: number;
+    bankAccountCode: string;
+  }): Promise<string | null> {
+    if (!(i.net > 0)) return null;
+    return this.tryPost({
+      facilityId: i.facilityId,
+      date: i.date,
+      source: 'payroll',
+      sourceType: 'payroll_payment',
+      sourceId: i.runId,
+      memo: `Payroll ${i.runNo} — net pay`,
+      lines: [
+        { accountCode: '21005', debit: i.net, description: 'Net salaries' },
+        { accountCode: i.bankAccountCode, credit: i.net },
+      ],
+    });
+  }
+
+  private round(v: number): number {
+    return Math.round((v + Number.EPSILON) * 100) / 100;
+  }
+
   /** Post if a chart exists; return the journal id or null (never throws). */
   private async tryPost(input: Parameters<LedgerService['post']>[0]): Promise<string | null> {
     try {

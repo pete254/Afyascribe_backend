@@ -52,6 +52,10 @@ import { StockMovement } from './inventory/entities/stock-movement.entity';
 import { GoodsReceipt } from './inventory/entities/goods-receipt.entity';
 import { GoodsReceiptLine } from './inventory/entities/goods-receipt-line.entity';
 import { SupplierPayment } from './inventory/entities/supplier-payment.entity';
+import { PayrollModule } from './payroll/payroll.module';
+import { Employee } from './payroll/entities/employee.entity';
+import { PayrollRun } from './payroll/entities/payroll-run.entity';
+import { Payslip } from './payroll/entities/payslip.entity';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -70,7 +74,7 @@ import { SupplierPayment } from './inventory/entities/supplier-payment.entity';
           username: configService.get('DB_USERNAME'),
           password: configService.get('DB_PASSWORD'),
           database: configService.get('DB_DATABASE'),
-          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit, Billing, InsuranceScheme, PatientDocument, ServiceCatalogItem, SelfRegistration, FacilityCreationCode, SupportRequest, LedgerAccount, JournalEntry, JournalLine, InventoryItem, Supplier, StockMovement, GoodsReceipt, GoodsReceiptLine, SupplierPayment],
+          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit, Billing, InsuranceScheme, PatientDocument, ServiceCatalogItem, SelfRegistration, FacilityCreationCode, SupportRequest, LedgerAccount, JournalEntry, JournalLine, InventoryItem, Supplier, StockMovement, GoodsReceipt, GoodsReceiptLine, SupplierPayment, Employee, PayrollRun, Payslip],
           autoLoadEntities: true,
           synchronize: !isProduction,
           logging: !isProduction,
@@ -104,6 +108,7 @@ import { SupplierPayment } from './inventory/entities/supplier-payment.entity';
     PlatformModule,
     AccountingModule,
     InventoryModule,
+    PayrollModule,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],
