@@ -8,6 +8,7 @@ import { JournalEntry } from './entities/journal-entry.entity';
 import { JournalLine } from './entities/journal-line.entity';
 import { LedgerService } from './ledger.service';
 import { HmisPostingService } from './hmis-posting.service';
+import { FinancialReportsService } from './financial-reports.service';
 import { AccountingController } from './accounting.controller';
 
 /**
@@ -29,7 +30,7 @@ import { AccountingController } from './accounting.controller';
     }),
   ],
   controllers: [AccountingController],
-  providers: [LedgerService, HmisPostingService],
-  exports: [LedgerService, HmisPostingService],
+  providers: [LedgerService, HmisPostingService, FinancialReportsService],
+  exports: [LedgerService, HmisPostingService, FinancialReportsService],
 })
 export class AccountingModule {}

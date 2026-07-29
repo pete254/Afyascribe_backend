@@ -15,11 +15,20 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.decorator';
 import { LedgerService } from './ledger.service';
+import { FinancialReportsService } from './financial-reports.service';
 import {
   PostJournalDto,
   CreateAccountDto,
   UpdateAccountDto,
 } from './dto/accounting.dto';
+
+/** Default a missing date range to the current month. */
+function monthRange(from?: string, to?: string): { from: string; to: string } {
+  const now = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const todayStr = now.toISOString().slice(0, 10);
+  return { from: from || first, to: to || todayStr };
+}
 
 /**
  * The back-office ledger surface. Restricted to facility admins/owners and the
@@ -32,7 +41,10 @@ import {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('facility_admin', 'super_admin', 'accountant')
 export class AccountingController {
-  constructor(private readonly ledger: LedgerService) {}
+  constructor(
+    private readonly ledger: LedgerService,
+    private readonly reports: FinancialReportsService,
+  ) {}
 
   private facility(user: CurrentUserType): string {
     if (!user.facilityId) throw new BadRequestException('Your account is not linked to a facility');
@@ -124,5 +136,46 @@ export class AccountingController {
   @ApiOperation({ summary: 'Trial balance as of a date' })
   trialBalance(@CurrentUser() user: CurrentUserType, @Query('asOf') asOf?: string) {
     return this.ledger.getTrialBalance(this.facility(user), asOf);
+  }
+
+  // ── Financial statements ────────────────────────────────────────────────────
+
+  @Get('reports/income-statement')
+  @ApiOperation({ summary: 'Income statement (P&L) for a period' })
+  incomeStatement(
+    @CurrentUser() user: CurrentUserType,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const r = monthRange(from, to);
+    return this.reports.incomeStatement(this.facility(user), r.from, r.to);
+  }
+
+  @Get('reports/balance-sheet')
+  @ApiOperation({ summary: 'Balance sheet as of a date' })
+  balanceSheet(@CurrentUser() user: CurrentUserType, @Query('asOf') asOf?: string) {
+    return this.reports.balanceSheet(this.facility(user), asOf || new Date().toISOString().slice(0, 10));
+  }
+
+  @Get('reports/cash-flow')
+  @ApiOperation({ summary: 'Cash & bank movement for a period' })
+  cashFlow(
+    @CurrentUser() user: CurrentUserType,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const r = monthRange(from, to);
+    return this.reports.cashFlow(this.facility(user), r.from, r.to);
+  }
+
+  @Get('reports/departmental-pnl')
+  @ApiOperation({ summary: 'Profit & loss by department / cost centre' })
+  departmentalPnl(
+    @CurrentUser() user: CurrentUserType,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const r = monthRange(from, to);
+    return this.reports.departmentalPnl(this.facility(user), r.from, r.to);
   }
 }
