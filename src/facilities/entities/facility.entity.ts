@@ -109,6 +109,11 @@ export class Facility {
   @Column({ name: 'accountant_can_approve_lpo', type: 'boolean', default: false })
   accountantCanApproveLpo: boolean;
 
+  // When true, this facility's staff sign in with password only — the daily
+  // login OTP is skipped for them (owner opt-out).
+  @Column({ name: 'login_otp_disabled', type: 'boolean', default: false })
+  loginOtpDisabled: boolean;
+
   @CreateDateColumn({ name: 'created_at' })  // ✅ fixed
   createdAt: Date;
 

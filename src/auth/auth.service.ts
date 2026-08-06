@@ -17,12 +17,17 @@ import { FacilityStatus, FacilityType } from '../facilities/entities/facility.en
 import { UseInviteCodeDto } from '../facilities/dto/use-invite-code.dto';
 import { CreateClinicDto } from './dto/create-clinic.dto';
 import { FacilityCodesService } from '../platform/facility-codes.service';
+import {
+  LOGIN_OTP_ENABLED,
+  PlatformSettingsService,
+} from '../platform/platform-settings.service';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class AuthService {
   private readonly MAX_ATTEMPTS = 5;
   private readonly CODE_EXPIRY_MINUTES = 10;
+  private readonly LOGIN_CODE_MAX_ATTEMPTS = 5;
 
   constructor(
     private usersService: UsersService,
@@ -31,6 +36,7 @@ export class AuthService {
     private inviteCodesService: InviteCodesService,
     private facilitiesService: FacilitiesService,
     private facilityCodesService: FacilityCodesService,
+    private platformSettings: PlatformSettingsService,
   ) {}
 
   async validateUser(email: string, password: string): Promise<any> {
@@ -44,7 +50,11 @@ export class AuthService {
 
   // ── LOGIN ──────────────────────────────────────────────────────────────────
 
-  async login(email: string, password: string) {
+  /**
+   * Validate credentials and account/facility state, returning the full user
+   * (with facility) ready to be turned into a token. Throws on any failure.
+   */
+  private async assertLoginable(email: string, password: string) {
     const user = await this.usersService.findByEmailWithFacility(email);
 
     if (!user) throw new UnauthorizedException('Invalid credentials');
@@ -69,6 +79,11 @@ export class AuthService {
       );
     }
 
+    return user;
+  }
+
+  /** Turn a validated user into the signed JWT + user response. */
+  private buildAuthResponse(user: any) {
     // isOwner: true if the user was the one who created the clinic
     const isOwner = (user as any).isOwner === true;
     const clinicMode = (user.facility as any)?.clinicMode ?? null;
@@ -104,6 +119,131 @@ export class AuthService {
         facilityLogoUrl,
       },
     };
+  }
+
+  // ── DAILY SIGN-IN CODE (2FA) ────────────────────────────────────────────────
+
+  /**
+   * Whether this user must complete the daily OTP step. super_admin is exempt —
+   * so the global kill switch stays reachable during an email outage — and the
+   * step is skipped when disabled platform-wide or opted out by the facility.
+   */
+  private async isOtpRequired(user: any): Promise<boolean> {
+    if (user.role === UserRole.SUPER_ADMIN) return false;
+    const globalOn = await this.platformSettings.getBool(LOGIN_OTP_ENABLED, true);
+    if (!globalOn) return false;
+    if ((user.facility as any)?.loginOtpDisabled === true) return false;
+    return true;
+  }
+
+  /** Last instant of today in East Africa Time (UTC+3, no DST) — the code's expiry. */
+  private endOfDayEAT(): Date {
+    const EAT_MIN = 3 * 60;
+    const eatNow = new Date(Date.now() + EAT_MIN * 60000);
+    const y = eatNow.getUTCFullYear();
+    const m = eatNow.getUTCMonth();
+    const d = eatNow.getUTCDate();
+    return new Date(Date.UTC(y, m, d, 23, 59, 59, 999) - EAT_MIN * 60000);
+  }
+
+  /**
+   * Ensure the user has a valid code for today. Reuses an unexpired one so the
+   * same code serves every sign-in that day; only generates (and flags a send)
+   * when there isn't one. Returns the code and whether it was newly created.
+   */
+  private async issueLoginCode(user: any): Promise<{ code: string; isNew: boolean }> {
+    if (
+      user.loginCode &&
+      user.loginCodeExpiresAt &&
+      new Date(user.loginCodeExpiresAt) > new Date()
+    ) {
+      return { code: user.loginCode, isNew: false };
+    }
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    await this.usersService.setLoginCode(user.id, code, this.endOfDayEAT());
+    user.loginCode = code; // keep the in-memory copy consistent for this request
+    return { code, isNew: true };
+  }
+
+  private async sendLoginCode(user: any, code: string): Promise<void> {
+    console.log(`🔑 [DEV] Login code for ${user.email}: ${code}`);
+    try {
+      await this.emailService.sendLoginCodeEmail(
+        user.email,
+        code,
+        `${user.firstName} ${user.lastName}`,
+        user.facility?.logoUrl ?? null,
+      );
+    } catch (e) {
+      console.error('Login code email failed:', e);
+      throw new BadRequestException('Could not send your sign-in code. Please try again.');
+    }
+  }
+
+  async login(email: string, password: string) {
+    const user = await this.assertLoginable(email, password);
+
+    if (await this.isOtpRequired(user)) {
+      const { code, isNew } = await this.issueLoginCode(user);
+      // Only email on the first sign-in of the day; later ones point the user to
+      // the code already in their inbox (with a resend button in the app).
+      if (isNew) await this.sendLoginCode(user, code);
+      return {
+        otpRequired: true,
+        email: user.email,
+        message: isNew
+          ? "We've emailed you a 6-digit sign-in code. It's valid until midnight."
+          : 'Enter the sign-in code we emailed you earlier today, or tap resend.',
+      };
+    }
+
+    return this.buildAuthResponse(user);
+  }
+
+  /** Resend today's code (or make one if none) after a correct password. */
+  async resendLoginCode(email: string, password: string): Promise<{ message: string }> {
+    const user = await this.assertLoginable(email, password);
+    if (!(await this.isOtpRequired(user))) {
+      return { message: 'No sign-in code is required for this account.' };
+    }
+    const { code } = await this.issueLoginCode(user);
+    await this.sendLoginCode(user, code);
+    return { message: 'Code re-sent. Please check your email.' };
+  }
+
+  /** Complete a sign-in with the daily code (password re-checked as the 1st factor). */
+  async loginWithCode(email: string, password: string, code: string) {
+    const user = await this.assertLoginable(email, password);
+
+    // If OTP isn't in play for this account, the password alone is enough.
+    if (!(await this.isOtpRequired(user))) return this.buildAuthResponse(user);
+
+    if (!user.loginCode || !user.loginCodeExpiresAt) {
+      throw new UnauthorizedException('No active sign-in code. Please request a new one.');
+    }
+    if (new Date() > new Date(user.loginCodeExpiresAt)) {
+      throw new UnauthorizedException('Your sign-in code has expired. Please request a new one.');
+    }
+    if (user.loginCodeAttempts >= this.LOGIN_CODE_MAX_ATTEMPTS) {
+      await this.usersService.clearLoginCode(user.id);
+      throw new UnauthorizedException('Too many attempts. Please request a new code.');
+    }
+    if (user.loginCode !== code) {
+      const attempts = await this.usersService.incrementLoginCodeAttempts(user.id);
+      throw new UnauthorizedException(
+        `Invalid code. ${this.LOGIN_CODE_MAX_ATTEMPTS - attempts} attempt(s) remaining.`,
+      );
+    }
+
+    // Correct — keep the code (valid all day) but clear the failed-attempt count.
+    if (user.loginCodeAttempts > 0) {
+      await this.usersService.setLoginCode(
+        user.id,
+        user.loginCode,
+        new Date(user.loginCodeExpiresAt),
+      );
+    }
+    return this.buildAuthResponse(user);
   }
 
   // ── REGISTER WITH INVITE CODE (staff onboarding) ───────────────────────────

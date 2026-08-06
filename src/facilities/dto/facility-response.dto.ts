@@ -65,6 +65,11 @@ export class FacilityResponseDto {
   @ApiProperty()
   accountantCanApproveLpo: boolean;
 
+  /** When true, staff sign in with password only (daily login OTP skipped). */
+  @Expose()
+  @ApiProperty()
+  loginOtpDisabled: boolean;
+
   @Expose()
   @ApiProperty()
   createdAt: Date;

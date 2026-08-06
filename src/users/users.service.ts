@@ -107,6 +107,32 @@ export class UsersService {
     });
   }
 
+  // ── DAILY SIGN-IN CODE (2FA) ────────────────────────────────────────────────
+
+  async setLoginCode(userId: string, code: string, expiresAt: Date): Promise<void> {
+    await this.usersRepository.update(userId, {
+      loginCode: code,
+      loginCodeExpiresAt: expiresAt,
+      loginCodeAttempts: 0,
+    });
+  }
+
+  async incrementLoginCodeAttempts(userId: string): Promise<number> {
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    user.loginCodeAttempts += 1;
+    await this.usersRepository.save(user);
+    return user.loginCodeAttempts;
+  }
+
+  async clearLoginCode(userId: string): Promise<void> {
+    await this.usersRepository.update(userId, {
+      loginCode: null,
+      loginCodeExpiresAt: null,
+      loginCodeAttempts: 0,
+    });
+  }
+
   async updatePassword(userId: string, hashedPassword: string): Promise<void> {
     await this.usersRepository.update(userId, { password: hashedPassword });
   }

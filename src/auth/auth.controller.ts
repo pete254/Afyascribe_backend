@@ -4,6 +4,7 @@ import { Controller, Post, Body, HttpCode, HttpStatus, Get, Param } from '@nestj
 import { AuthService } from './auth.service';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { LoginDto } from './dto/login.dto';
+import { LoginWithCodeDto } from './dto/login-with-code.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RequestResetCodeDto } from './dto/request-reset-code.dto';
 import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
@@ -20,9 +21,28 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Login with email and password' })
+  @ApiOperation({
+    summary: 'Login with email and password',
+    description:
+      'On success returns a token, unless the daily OTP is required — then it ' +
+      'emails a 6-digit code and returns { otpRequired: true }. Complete with /auth/login-with-code.',
+  })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto.email, loginDto.password);
+  }
+
+  @Post('login-with-code')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Finish sign-in with the daily 6-digit code (2nd factor)' })
+  async loginWithCode(@Body() dto: LoginWithCodeDto) {
+    return this.authService.loginWithCode(dto.email, dto.password, dto.code);
+  }
+
+  @Post('resend-login-code')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Re-send today’s sign-in code (requires correct password)' })
+  async resendLoginCode(@Body() dto: LoginDto) {
+    return this.authService.resendLoginCode(dto.email, dto.password);
   }
 
   // ── REGISTER WITH INVITE CODE (primary staff sign-up flow) ────────────────

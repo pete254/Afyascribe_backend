@@ -55,6 +55,38 @@ export class EmailService {
   }
 
   /**
+   * Send the daily 6-digit sign-in code (2FA).
+   */
+  async sendLoginCodeEmail(
+    to: string,
+    loginCode: string,
+    userName: string,
+    logoUrl?: string | null,
+  ): Promise<void> {
+    try {
+      const htmlContent = this.getLoginCodeTemplate(userName, loginCode, logoUrl);
+
+      this.logger.log(`📧 Sending login code email to: ${to}`);
+
+      const { data, error } = await this.resend.emails.send({
+        from: this.fromEmail,
+        to: [to],
+        subject: '🔐 Your Afyascribe sign-in code',
+        html: htmlContent,
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      this.logger.log(`✅ Login code email sent successfully. ID: ${data?.id}`);
+    } catch (error) {
+      this.logger.error(`❌ Failed to send login code email to ${to}:`, error);
+      throw new Error('Failed to send login code email');
+    }
+  }
+
+  /**
    * Send welcome email (optional - for new user registration)
    */
   async sendWelcomeEmail(
@@ -223,6 +255,105 @@ export class EmailService {
 
           <p><strong>Didn't request this?</strong><br>
           If you didn't request a password reset, you can safely ignore this email. Your password will remain unchanged.</p>
+
+          <div class="footer">
+            <p>This is an automated email from Afyascribe</p>
+            <p>Please do not reply to this email</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * Email template for the daily 6-digit sign-in code
+   */
+  private getLoginCodeTemplate(userName: string, loginCode: string, logoUrl?: string | null): string {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+          }
+          .container {
+            background-color: #ffffff;
+            border-radius: 8px;
+            padding: 40px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+          }
+          .header { text-align: center; margin-bottom: 30px; }
+          .logo img { height: 60px; object-fit: contain; margin-bottom: 8px; }
+          h1 { color: #1e293b; font-size: 24px; margin-bottom: 10px; }
+          .code-container {
+            background-color: #ecfeff;
+            border: 2px dashed #02a0a0;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+            margin: 30px 0;
+          }
+          .code {
+            font-size: 36px;
+            font-weight: bold;
+            color: #0d2023;
+            letter-spacing: 8px;
+            font-family: 'Courier New', monospace;
+          }
+          .info {
+            background-color: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+          }
+          .info p { margin: 5px 0; color: #92400e; }
+          .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+            color: #64748b;
+            font-size: 14px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <div class="logo">
+              ${logoUrl
+                ? `<img src="${logoUrl}" alt="Logo" style="height:60px;object-fit:contain;margin-bottom:8px;">`
+                : `<div style="font-size:48px;margin-bottom:8px;">🏥</div>`
+              }
+            </div>
+            <h1>Your sign-in code</h1>
+          </div>
+
+          <p>Hi ${userName},</p>
+
+          <p>Use this code to finish signing in to Afyascribe:</p>
+
+          <div class="code-container">
+            <div class="code">${loginCode}</div>
+          </div>
+
+          <div class="info">
+            <p><strong>⏰ This code is valid until midnight today</strong></p>
+            <p><strong>🔒 The same code works for every sign-in today</strong></p>
+          </div>
+
+          <p><strong>Didn't try to sign in?</strong><br>
+          If this wasn't you, someone may have your password — change it, and let your administrator know.</p>
 
           <div class="footer">
             <p>This is an automated email from Afyascribe</p>

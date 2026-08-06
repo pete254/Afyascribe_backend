@@ -106,6 +106,18 @@ export class User {
   @Column({ type: 'int', default: 0 })
   resetCodeAttempts: number;
 
+  // ── Daily sign-in code (2FA) ────────────────────────────────────────────────
+  // A 6-digit code emailed after a correct password; valid until midnight, so
+  // one code serves every sign-in that day.
+  @Column({ nullable: true, type: 'varchar', length: 6 })
+  loginCode: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  loginCodeExpiresAt: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  loginCodeAttempts: number;
+
   // ── Timestamps ─────────────────────────────────────────────────────────────
   @CreateDateColumn()
   createdAt: Date;

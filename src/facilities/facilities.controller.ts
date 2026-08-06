@@ -161,6 +161,23 @@ export class FacilitiesController {
     });
   }
 
+  // Opt this facility out of the daily login OTP (or back in). Owner/admin only.
+  @Patch(':id/login-otp')
+  @ApiOperation({ summary: 'Turn the daily sign-in OTP on or off for this facility' })
+  async setLoginOtp(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { loginOtpDisabled: boolean },
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    this.assertCanViewFacility(id, user);
+    const facility = await this.facilitiesService.update(id, {
+      loginOtpDisabled: !!body?.loginOtpDisabled,
+    } as any);
+    return plainToInstance(FacilityResponseDto, facility, {
+      excludeExtraneousValues: true,
+    });
+  }
+
   /**
    * Owners and facility admins may read their OWN facility; super_admin may read
    * any. Previously this was `@Roles('super_admin','facility_admin')`, which both
