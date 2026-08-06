@@ -70,6 +70,11 @@ export class FacilityResponseDto {
   @ApiProperty()
   loginOtpDisabled: boolean;
 
+  /** When true, patients with an unpaid bill may still be seen by the doctor. */
+  @Expose()
+  @ApiProperty()
+  allowDoctorWithPendingBill: boolean;
+
   @Expose()
   @ApiProperty()
   createdAt: Date;

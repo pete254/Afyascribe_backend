@@ -178,6 +178,23 @@ export class FacilitiesController {
     });
   }
 
+  // Allow (or stop) doctors seeing patients who still owe a bill. Owner/admin only.
+  @Patch(':id/pending-bill-policy')
+  @ApiOperation({ summary: 'Allow the doctor to see patients with an unpaid bill' })
+  async setPendingBillPolicy(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { allowDoctorWithPendingBill: boolean },
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    this.assertCanViewFacility(id, user);
+    const facility = await this.facilitiesService.update(id, {
+      allowDoctorWithPendingBill: !!body?.allowDoctorWithPendingBill,
+    } as any);
+    return plainToInstance(FacilityResponseDto, facility, {
+      excludeExtraneousValues: true,
+    });
+  }
+
   /**
    * Owners and facility admins may read their OWN facility; super_admin may read
    * any. Previously this was `@Roles('super_admin','facility_admin')`, which both

@@ -114,6 +114,11 @@ export class Facility {
   @Column({ name: 'login_otp_disabled', type: 'boolean', default: false })
   loginOtpDisabled: boolean;
 
+  // When true, a patient with an unpaid bill may still be seen by the doctor
+  // (consultation on credit). Default false — the bill must be cleared first.
+  @Column({ name: 'allow_doctor_with_pending_bill', type: 'boolean', default: false })
+  allowDoctorWithPendingBill: boolean;
+
   @CreateDateColumn({ name: 'created_at' })  // ✅ fixed
   createdAt: Date;
 

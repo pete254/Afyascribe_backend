@@ -9,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PatientVisit, VisitStatus } from './entities/patient-visit.entity';
 import { Billing, BillingStatus } from '../billing/entities/billing.entity';
+import { Facility } from '../facilities/entities/facility.entity';
 import { CheckInDto } from './dto/check-in.dto';
 import { TriageDto } from './dto/triage.dto';
 import { ReassignDto } from './dto/reassign.dto';
@@ -29,7 +30,18 @@ export class PatientVisitsService {
     private readonly visitsRepository: Repository<PatientVisit>,
     @InjectRepository(Billing)
     private readonly billingRepository: Repository<Billing>,
+    @InjectRepository(Facility)
+    private readonly facilitiesRepository: Repository<Facility>,
   ) {}
+
+  /**
+   * Whether this facility lets a patient with an unpaid bill be seen by the
+   * doctor. Default false — the bill must be cleared first.
+   */
+  private async allowsDoctorWithPendingBill(facilityId: string): Promise<boolean> {
+    const facility = await this.facilitiesRepository.findOne({ where: { id: facilityId } });
+    return facility?.allowDoctorWithPendingBill === true;
+  }
 
   // ── CHECK IN ───────────────────────────────────────────────────────────────
   async checkIn(
@@ -144,10 +156,12 @@ export class PatientVisitsService {
     visit.triagedById = triagedById;
     visit.triagedAt = new Date();
 
-    // Only advance to WAITING_FOR_DOCTOR if billing has been cleared.
-    // If still CHECKED_IN (unpaid cash bill), keep it — billing service
-    // will advance it when payment is collected.
-    if (visit.status !== VisitStatus.CHECKED_IN) {
+    // Only advance to WAITING_FOR_DOCTOR if billing has been cleared. If still
+    // CHECKED_IN (unpaid cash bill), keep it — billing service will advance it
+    // when payment is collected. Unless the facility allows consultations on
+    // credit, in which case an unpaid patient still joins the doctor's queue.
+    const allowPending = await this.allowsDoctorWithPendingBill(facilityId);
+    if (allowPending || visit.status !== VisitStatus.CHECKED_IN) {
       visit.status = VisitStatus.WAITING_FOR_DOCTOR;
     }
 
@@ -178,16 +192,19 @@ export class PatientVisitsService {
       throw new ForbiddenException('This patient is not assigned to you');
     }
 
-    // Hard payment gate: a patient with any outstanding (unpaid) bill cannot be
-    // seen. Normally an unpaid visit never reaches WAITING_FOR_DOCTOR, but this
-    // also catches a bill added after the visit already advanced.
-    const outstanding = await this.billingRepository.count({
-      where: { visitId, status: BillingStatus.UNPAID },
-    });
-    if (outstanding > 0) {
-      throw new BadRequestException(
-        'Clear the patient’s outstanding bill before starting the consultation.',
-      );
+    // Payment gate: unless the facility allows consultations on credit, a
+    // patient with any outstanding (unpaid) bill cannot be seen. This also
+    // catches a bill added after the visit already advanced.
+    const allowPending = await this.allowsDoctorWithPendingBill(facilityId);
+    if (!allowPending) {
+      const outstanding = await this.billingRepository.count({
+        where: { visitId, status: BillingStatus.UNPAID },
+      });
+      if (outstanding > 0) {
+        throw new BadRequestException(
+          'Clear the patient’s outstanding bill before starting the consultation.',
+        );
+      }
     }
 
     if (visit.status === VisitStatus.WAITING_FOR_DOCTOR) {
