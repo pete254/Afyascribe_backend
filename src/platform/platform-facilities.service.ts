@@ -40,6 +40,7 @@ export class PlatformFacilitiesService {
           type: f.type,
           status: f.status,
           clinicMode: f.clinicMode,
+          loginOtpDisabled: f.loginOtpDisabled === true,
           email: f.email ?? owner?.email ?? null,
           subscriptionDueDate: due,
           overdue: !!due && due.getTime() < Date.now() && f.status === FacilityStatus.ACTIVE,
