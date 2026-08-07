@@ -178,6 +178,24 @@ export class FacilitiesController {
     });
   }
 
+  // Set the default markup % that pre-fills new stock items. Owner/admin only.
+  @Patch(':id/default-markup')
+  @ApiOperation({ summary: 'Set the facility default markup % for new stock items' })
+  async setDefaultMarkup(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { defaultMarkupPct: number },
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    this.assertCanViewFacility(id, user);
+    const pct = Math.max(0, Number(body?.defaultMarkupPct) || 0);
+    const facility = await this.facilitiesService.update(id, {
+      defaultMarkupPct: String(pct),
+    } as any);
+    return plainToInstance(FacilityResponseDto, facility, {
+      excludeExtraneousValues: true,
+    });
+  }
+
   // Allow (or stop) doctors seeing patients who still owe a bill. Owner/admin only.
   @Patch(':id/pending-bill-policy')
   @ApiOperation({ summary: 'Allow the doctor to see patients with an unpaid bill' })

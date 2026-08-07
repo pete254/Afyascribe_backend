@@ -39,6 +39,14 @@ export class InventoryItem {
   @Column({ name: 'sale_price', type: 'numeric', precision: 14, scale: 2, default: 0 })
   salePrice: string;
 
+  /** Reference cost — kept in step with the moving-average cost on each receipt. */
+  @Column({ name: 'cost_price', type: 'numeric', precision: 14, scale: 2, default: 0 })
+  costPrice: string;
+
+  /** When set, sale price is derived as cost × (1 + markupPct/100). Null = manual. */
+  @Column({ name: 'markup_pct', type: 'numeric', precision: 6, scale: 2, nullable: true })
+  markupPct: string | null;
+
   @Column({ name: 'reorder_level', type: 'numeric', precision: 14, scale: 3, default: 0 })
   reorderLevel: string;
 

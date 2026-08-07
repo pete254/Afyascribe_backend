@@ -75,6 +75,11 @@ export class FacilityResponseDto {
   @ApiProperty()
   allowDoctorWithPendingBill: boolean;
 
+  /** Default markup % that pre-fills new stock items (0 = none). */
+  @Expose()
+  @ApiProperty()
+  defaultMarkupPct: string;
+
   @Expose()
   @ApiProperty()
   createdAt: Date;

@@ -39,6 +39,18 @@ export class CreateItemDto {
   @IsOptional()
   salePrice?: number;
 
+  @ApiPropertyOptional({ example: 30, description: 'Buying/cost price' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  costPrice?: number;
+
+  @ApiPropertyOptional({ example: 40, description: 'Markup %; when set, sale price auto-derives from cost' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  markupPct?: number;
+
   @ApiPropertyOptional()
   @IsNumber()
   @Min(0)
@@ -72,6 +84,8 @@ export class UpdateItemDto {
   @ApiPropertyOptional() @IsString() @IsOptional() category?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() unit?: string;
   @ApiPropertyOptional() @IsNumber() @Min(0) @IsOptional() salePrice?: number;
+  @ApiPropertyOptional() @IsNumber() @Min(0) @IsOptional() costPrice?: number;
+  @ApiPropertyOptional() @IsNumber() @Min(0) @IsOptional() markupPct?: number;
   @ApiPropertyOptional() @IsNumber() @Min(0) @IsOptional() reorderLevel?: number;
   @ApiPropertyOptional() @IsBoolean() @IsOptional() isActive?: boolean;
   @ApiPropertyOptional() @IsString() @IsOptional() inventoryAccountCode?: string;

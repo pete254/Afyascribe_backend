@@ -119,6 +119,11 @@ export class Facility {
   @Column({ name: 'allow_doctor_with_pending_bill', type: 'boolean', default: false })
   allowDoctorWithPendingBill: boolean;
 
+  // Default markup % that pre-fills new stock items, so a facility can price its
+  // whole pharmacy off cost with one number. 0 = no default.
+  @Column({ name: 'default_markup_pct', type: 'numeric', precision: 6, scale: 2, default: 0 })
+  defaultMarkupPct: string;
+
   @CreateDateColumn({ name: 'created_at' })  // ✅ fixed
   createdAt: Date;
 

@@ -77,6 +77,15 @@ export class InventoryController {
     return this.stock.getItemLedger(facilityOf(user), id);
   }
 
+  @Get('reports/performance')
+  performance(
+    @CurrentUser() user: CurrentUserType,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.stock.performanceReport(facilityOf(user), { from, to });
+  }
+
   @Post('items/:id/adjust')
   adjust(@CurrentUser() user: CurrentUserType, @Param('id') id: string, @Body() dto: AdjustStockDto) {
     return this.stock.adjustStock(facilityOf(user), id, dto);

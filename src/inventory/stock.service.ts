@@ -11,6 +11,9 @@ const r3 = (v: number) => Math.round((v + Number.EPSILON) * 1000) / 1000;
 const r4 = (v: number) => Math.round((v + Number.EPSILON) * 10000) / 10000;
 const today = () => new Date().toISOString().slice(0, 10);
 
+/** Sale price derived from a cost and a markup %: cost × (1 + markup/100). */
+const priceFromMarkup = (cost: number, markupPct: number) => r2(cost * (1 + markupPct / 100));
+
 export interface MovementParams {
   type: StockMovementType;
   quantity: number; // signed: + in, − out
@@ -37,13 +40,26 @@ export class StockService {
   // ── Items ───────────────────────────────────────────────────────────────────
 
   createItem(facilityId: string, dto: CreateItemDto): Promise<InventoryItem> {
+    const costPrice = dto.costPrice ?? 0;
+    const markupPct = dto.markupPct ?? null;
+    // Explicit sale price wins; otherwise derive it from cost + markup when both
+    // are usable, so a drug can be priced by markup alone.
+    const salePrice =
+      dto.salePrice != null
+        ? dto.salePrice
+        : markupPct != null && costPrice > 0
+          ? priceFromMarkup(costPrice, markupPct)
+          : 0;
+
     const item = this.items.create({
       facilityId,
       name: dto.name.trim(),
       sku: dto.sku ?? null,
       category: dto.category ?? 'drug',
       unit: dto.unit ?? 'unit',
-      salePrice: String(dto.salePrice ?? 0),
+      salePrice: String(salePrice),
+      costPrice: String(costPrice),
+      markupPct: markupPct != null ? String(markupPct) : null,
       reorderLevel: String(dto.reorderLevel ?? 0),
       trackStock: dto.trackStock ?? true,
       inventoryAccountCode: dto.inventoryAccountCode ?? '13001',
@@ -75,13 +91,25 @@ export class StockService {
       ...(dto.sku !== undefined ? { sku: dto.sku } : {}),
       ...(dto.category !== undefined ? { category: dto.category } : {}),
       ...(dto.unit !== undefined ? { unit: dto.unit } : {}),
-      ...(dto.salePrice !== undefined ? { salePrice: String(dto.salePrice) } : {}),
+      ...(dto.costPrice !== undefined ? { costPrice: String(dto.costPrice) } : {}),
+      ...(dto.markupPct !== undefined ? { markupPct: dto.markupPct === null ? null : String(dto.markupPct) } : {}),
       ...(dto.reorderLevel !== undefined ? { reorderLevel: String(dto.reorderLevel) } : {}),
       ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       ...(dto.inventoryAccountCode !== undefined ? { inventoryAccountCode: dto.inventoryAccountCode } : {}),
       ...(dto.cogsAccountCode !== undefined ? { cogsAccountCode: dto.cogsAccountCode } : {}),
       ...(dto.revenueAccountCode !== undefined ? { revenueAccountCode: dto.revenueAccountCode } : {}),
     });
+    // Explicit sale price wins; otherwise, if cost or markup changed and a markup
+    // is in force, re-derive the sale price.
+    if (dto.salePrice !== undefined) {
+      item.salePrice = String(dto.salePrice);
+    } else if (
+      (dto.costPrice !== undefined || dto.markupPct !== undefined) &&
+      item.markupPct != null &&
+      Number(item.costPrice) > 0
+    ) {
+      item.salePrice = priceFromMarkup(Number(item.costPrice), Number(item.markupPct)).toFixed(2);
+    }
     return this.items.save(item);
   }
 
@@ -91,6 +119,98 @@ export class StockService {
       where: { facilityId, itemId: id },
       order: { createdAt: 'ASC' },
     });
+  }
+
+  // ── Drug performance (stock-movement analytics) ───────────────────────────────
+
+  /**
+   * Per-item performance over a period, derived from the stock ledger: units
+   * received vs issued, cost of what went out, estimated retail and margin at
+   * the current sale price, and how briskly the item turns. Items with no
+   * movement in the window surface as dead stock (rank 'dead').
+   */
+  async performanceReport(
+    facilityId: string,
+    range: { from?: string; to?: string } = {},
+  ) {
+    const items = await this.items.find({ where: { facilityId } });
+
+    const qb = this.movements
+      .createQueryBuilder('m')
+      .where('m.facilityId = :facilityId', { facilityId });
+    if (range.from) qb.andWhere('m.date >= :from', { from: range.from });
+    if (range.to) qb.andWhere('m.date <= :to', { to: range.to });
+    const movements = await qb.getMany();
+
+    type Agg = { qtyIn: number; qtyOut: number; costOut: number; count: number; last: string | null };
+    const agg = new Map<string, Agg>();
+    for (const m of movements) {
+      const q = Number(m.quantity);
+      const v = Number(m.value);
+      const a = agg.get(m.itemId) ?? { qtyIn: 0, qtyOut: 0, costOut: 0, count: 0, last: null };
+      if (q >= 0) {
+        a.qtyIn += q;
+      } else {
+        a.qtyOut += -q;
+        a.costOut += -v; // value is negative on the way out
+      }
+      a.count += 1;
+      if (!a.last || m.date > a.last) a.last = m.date;
+      agg.set(m.itemId, a);
+    }
+
+    const rows = items.map((it) => {
+      const a = agg.get(it.id) ?? { qtyIn: 0, qtyOut: 0, costOut: 0, count: 0, last: null };
+      const salePrice = Number(it.salePrice);
+      const stockValue = Number(it.stockValue);
+      const estRetail = r2(a.qtyOut * salePrice);
+      const margin = r2(estRetail - r2(a.costOut));
+      // Turnover ≈ cost of goods issued in the period ÷ current stock value.
+      const turnover = stockValue > 0 ? r2(r2(a.costOut) / stockValue) : 0;
+      return {
+        id: it.id,
+        name: it.name,
+        sku: it.sku,
+        category: it.category,
+        unit: it.unit,
+        salePrice,
+        costPrice: Number(it.costPrice),
+        stockQty: Number(it.stockQty),
+        stockValue,
+        reorderLevel: Number(it.reorderLevel),
+        lowStock: Number(it.stockQty) <= Number(it.reorderLevel),
+        qtyIn: r3(a.qtyIn),
+        qtyOut: r3(a.qtyOut),
+        costOut: r2(a.costOut),
+        estRetail,
+        margin,
+        turnover,
+        movements: a.count,
+        lastMovement: a.last,
+      };
+    });
+
+    // Rank by units issued; classify the top third as fast, then slow, and
+    // anything that never moved as dead stock.
+    const moved = rows.filter((r) => r.qtyOut > 0).sort((x, y) => y.qtyOut - x.qtyOut);
+    const fastCut = Math.ceil(moved.length / 3);
+    const rankById = new Map<string, 'fast' | 'slow'>();
+    moved.forEach((r, i) => rankById.set(r.id, i < fastCut ? 'fast' : 'slow'));
+    const ranked = rows
+      .map((r) => ({ ...r, rank: (rankById.get(r.id) ?? 'dead') as 'fast' | 'slow' | 'dead' }))
+      .sort((x, y) => y.qtyOut - x.qtyOut || y.estRetail - x.estRetail);
+
+    const totals = {
+      items: rows.length,
+      itemsMoved: moved.length,
+      deadStock: rows.length - moved.length,
+      costOut: r2(rows.reduce((s, r) => s + r.costOut, 0)),
+      estRetail: r2(rows.reduce((s, r) => s + r.estRetail, 0)),
+      margin: r2(rows.reduce((s, r) => s + r.margin, 0)),
+      stockValue: r2(rows.reduce((s, r) => s + r.stockValue, 0)),
+    };
+
+    return { from: range.from ?? null, to: range.to ?? null, rows: ranked, totals };
   }
 
   // ── Stock ledger (moving average) ─────────────────────────────────────────────
@@ -127,6 +247,18 @@ export class StockService {
 
     item.stockQty = q1.toFixed(3);
     item.stockValue = v1.toFixed(2);
+
+    // On any inbound movement, keep the reference cost in step with the new
+    // moving-average cost, and — when the item is markup-priced — re-derive its
+    // sale price so a change in buying cost flows straight through to the shelf.
+    if (params.quantity >= 0 && q1 > 0) {
+      const avgCost = r2(v1 / q1);
+      item.costPrice = avgCost.toFixed(2);
+      if (item.markupPct != null) {
+        item.salePrice = priceFromMarkup(avgCost, Number(item.markupPct)).toFixed(2);
+      }
+    }
+
     await mgr.getRepository(InventoryItem).save(item);
 
     const movement = mgr.getRepository(StockMovement).create({
