@@ -15,6 +15,8 @@ import {
 } from './dto/lab.dto';
 import { CurrentUserType } from '../common/decorators/current-user.decorator';
 import { LAB_TEST_SEED } from './data/lab-test-seed';
+import { BillingService } from '../billing/billing.service';
+import { ServiceType } from '../billing/entities/billing.entity';
 
 /** Stage ordering, so the order's status can be the least-advanced active item. */
 const STAGE: Record<LabStatus, number> = {
@@ -33,6 +35,7 @@ export class LabService {
     @InjectRepository(LabOrder) private readonly orders: Repository<LabOrder>,
     @InjectRepository(LabOrderItem) private readonly items: Repository<LabOrderItem>,
     @InjectRepository(LabResultValue) private readonly values: Repository<LabResultValue>,
+    private readonly billing: BillingService,
   ) {}
 
   private fullName(u: CurrentUserType): string {
@@ -170,7 +173,32 @@ export class LabService {
           return item;
         }),
     });
-    return this.orders.save(order);
+
+    const saved = await this.orders.save(order);
+    // Raise a bill per priced test when ordered against a visit — this posts the
+    // revenue and gives the cashier a charge to collect. Best-effort: a billing
+    // hiccup must never lose the lab order itself.
+    if (saved.visitId) {
+      for (const item of saved.items) {
+        if (Number(item.price) <= 0) continue;
+        try {
+          const bill = await this.billing.create(
+            {
+              visitId: saved.visitId,
+              serviceType: ServiceType.LAB,
+              serviceDescription: `Lab: ${item.testName}`,
+              amount: Number(item.price),
+            },
+            facilityId,
+          );
+          item.billingId = bill.id;
+          await this.items.save(item);
+        } catch (e) {
+          console.error(`Lab bill for "${item.testName}" failed: ${(e as Error).message}`);
+        }
+      }
+    }
+    return this.getOrder(facilityId, saved.id);
   }
 
   listOrders(
@@ -343,6 +371,16 @@ export class LabService {
   async cancelItem(facilityId: string, orderId: string, itemId: string) {
     const { item } = await this.loadItem(facilityId, orderId, itemId);
     if (item.status === 'verified') throw new BadRequestException('Cannot cancel a posted test');
+    // Drop the charge if it hasn't been paid yet (best-effort — a paid bill is
+    // left in place for the till to reconcile / refund).
+    if (item.billingId) {
+      try {
+        await this.billing.deleteBill(item.billingId, facilityId);
+        item.billingId = null;
+      } catch {
+        /* paid or already gone — leave it */
+      }
+    }
     item.status = 'cancelled';
     await this.items.save(item);
     await this.syncOrderStatus(orderId);

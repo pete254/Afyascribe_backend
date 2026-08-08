@@ -42,6 +42,10 @@ export class LabOrderItem {
   @Column({ type: 'numeric', precision: 14, scale: 2, default: 0 })
   price: string;
 
+  /** The bill this test raised, when ordered against a visit. */
+  @Column({ name: 'billing_id', type: 'uuid', nullable: true })
+  billingId: string | null;
+
   @Column({ type: 'varchar', length: 20, default: 'ordered' })
   status: LabStatus;
 
