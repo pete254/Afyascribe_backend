@@ -129,6 +129,19 @@ export class ProcurementService {
           userId,
         });
 
+        // Track this lot for FEFO / expiry.
+        await this.stock.createBatch(mgr, {
+          facilityId,
+          itemId: item.id,
+          batchNo: line.batchNo ?? null,
+          expiryDate: line.expiryDate ?? null,
+          quantity: line.quantity,
+          unitCost: line.unitCost,
+          date,
+          sourceType: 'goods_receipt',
+          sourceId: header.id,
+        });
+
         await mgr.getRepository(GoodsReceiptLine).save(
           mgr.getRepository(GoodsReceiptLine).create({
             goodsReceiptId: header.id,
@@ -136,6 +149,8 @@ export class ProcurementService {
             quantity: line.quantity.toFixed(3),
             unitCost: line.unitCost.toFixed(4),
             lineValue: lineValue.toFixed(2),
+            batchNo: line.batchNo ?? null,
+            expiryDate: line.expiryDate ?? null,
           }),
         );
 

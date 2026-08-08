@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { StockMovement, StockMovementType } from './entities/stock-movement.entity';
+import { StockBatch } from './entities/stock-batch.entity';
 import { CreateItemDto, UpdateItemDto, AdjustStockDto } from './dto/inventory.dto';
 import { HmisPostingService } from '../accounting/hmis-posting.service';
 
@@ -33,6 +34,8 @@ export class StockService {
     private readonly items: Repository<InventoryItem>,
     @InjectRepository(StockMovement)
     private readonly movements: Repository<StockMovement>,
+    @InjectRepository(StockBatch)
+    private readonly batches: Repository<StockBatch>,
     private readonly dataSource: DataSource,
     private readonly posting: HmisPostingService,
   ) {}
@@ -281,6 +284,68 @@ export class StockService {
     return { movement: saved, value, unitCost };
   }
 
+  // ── Batches (FEFO) ────────────────────────────────────────────────────────────
+
+  /** Record a received lot with its expiry, so stock can be consumed FEFO. */
+  async createBatch(
+    mgr: EntityManager,
+    params: {
+      facilityId: string;
+      itemId: string;
+      batchNo?: string | null;
+      expiryDate?: string | null;
+      quantity: number;
+      unitCost?: number;
+      date?: string;
+      sourceType?: string;
+      sourceId?: string;
+    },
+  ): Promise<void> {
+    if (!(params.quantity > 0)) return;
+    const qty = r3(params.quantity).toFixed(3);
+    const batch = mgr.getRepository(StockBatch).create({
+      facilityId: params.facilityId,
+      itemId: params.itemId,
+      batchNo: params.batchNo ?? null,
+      expiryDate: params.expiryDate ?? null,
+      qtyReceived: qty,
+      qtyRemaining: qty,
+      unitCost: r4(params.unitCost ?? 0).toFixed(4),
+      receivedAt: params.date ?? today(),
+      sourceType: params.sourceType ?? null,
+      sourceId: params.sourceId ?? null,
+    });
+    await mgr.getRepository(StockBatch).save(batch);
+  }
+
+  /**
+   * Draw `quantity` down from the earliest-expiring non-expired batches (FEFO).
+   * Expired lots are skipped so they aren't dispensed. Any shortfall (legacy
+   * stock received before batches existed) is left untracked — the item's master
+   * quantity has already been reduced, so we never fail the caller.
+   */
+  async consumeFefo(mgr: EntityManager, facilityId: string, itemId: string, quantity: number): Promise<void> {
+    let remaining = r3(Math.abs(quantity));
+    if (remaining <= 0) return;
+    const rows = await mgr
+      .getRepository(StockBatch)
+      .createQueryBuilder('b')
+      .where('b.facilityId = :facilityId', { facilityId })
+      .andWhere('b.itemId = :itemId', { itemId })
+      .andWhere('b.qtyRemaining > 0')
+      .andWhere('(b.expiryDate IS NULL OR b.expiryDate >= :today)', { today: today() })
+      .orderBy('b.expiryDate', 'ASC', 'NULLS LAST')
+      .addOrderBy('b.receivedAt', 'ASC')
+      .getMany();
+    for (const b of rows) {
+      if (remaining <= 0) break;
+      const take = Math.min(remaining, Number(b.qtyRemaining));
+      b.qtyRemaining = r3(Number(b.qtyRemaining) - take).toFixed(3);
+      remaining = r3(remaining - take);
+      await mgr.getRepository(StockBatch).save(b);
+    }
+  }
+
   /**
    * Issue (consume/dispense) stock at cost. Posts Dr COGS, Cr Inventory. Used by
    * pharmacy/lab dispensing and any other consumption. Returns the cost value.
@@ -314,6 +379,7 @@ export class StockService {
         note: opts.note,
         userId: opts.userId,
       });
+      await this.consumeFefo(mgr, facilityId, itemId, quantity);
       return { item: it, value: Math.abs(res.value) };
     });
 
@@ -348,6 +414,21 @@ export class StockService {
         sourceType: 'stock_adjustment',
         note: dto.reason,
       });
+      if (inbound) {
+        await this.createBatch(mgr, {
+          facilityId,
+          itemId,
+          batchNo: dto.batchNo,
+          expiryDate: dto.expiryDate,
+          quantity: dto.quantity,
+          unitCost: dto.unitCost,
+          date: dto.date,
+          sourceType: 'stock_adjustment',
+          sourceId: it.id,
+        });
+      } else {
+        await this.consumeFefo(mgr, facilityId, itemId, dto.quantity);
+      }
       return { item: it, value: Math.abs(res.value) };
     });
 
@@ -364,5 +445,72 @@ export class StockService {
     });
 
     return item;
+  }
+
+  // ── Expiry ────────────────────────────────────────────────────────────────────
+
+  /** Batches still holding stock for an item, earliest expiry first. */
+  async listItemBatches(facilityId: string, itemId: string): Promise<StockBatch[]> {
+    return this.batches.find({
+      where: { facilityId, itemId },
+      order: { expiryDate: 'ASC' },
+    });
+  }
+
+  /**
+   * Batches whose remaining stock has expired or is expiring within `withinDays`,
+   * with the item name and the value still tied up in each — for the expiry
+   * report and dashboard alerts.
+   */
+  async expiryReport(facilityId: string, withinDays = 90) {
+    const rows = await this.batches
+      .createQueryBuilder('b')
+      .where('b.facilityId = :facilityId', { facilityId })
+      .andWhere('b.qtyRemaining > 0')
+      .andWhere('b.expiryDate IS NOT NULL')
+      .orderBy('b.expiryDate', 'ASC')
+      .getMany();
+
+    const items = await this.items.find({ where: { facilityId } });
+    const itemById = new Map(items.map((i) => [i.id, i]));
+
+    const t = today();
+    const soon = new Date(Date.now() + withinDays * 86400000).toISOString().slice(0, 10);
+    const dayMs = 86400000;
+
+    const toRow = (b: StockBatch) => {
+      const it = itemById.get(b.itemId);
+      const qty = Number(b.qtyRemaining);
+      const daysLeft = Math.round((new Date(b.expiryDate!).getTime() - new Date(t).getTime()) / dayMs);
+      return {
+        id: b.id,
+        itemId: b.itemId,
+        itemName: it?.name ?? '—',
+        unit: it?.unit ?? '',
+        batchNo: b.batchNo,
+        expiryDate: b.expiryDate,
+        qtyRemaining: qty,
+        value: r2(qty * Number(b.unitCost)),
+        daysLeft,
+      };
+    };
+
+    const expired = rows.filter((b) => (b.expiryDate as string) < t).map(toRow);
+    const expiringSoon = rows
+      .filter((b) => (b.expiryDate as string) >= t && (b.expiryDate as string) <= soon)
+      .map(toRow);
+
+    const sum = (arr: { value: number }[]) => r2(arr.reduce((s, r) => s + r.value, 0));
+    return {
+      withinDays,
+      expired,
+      expiringSoon,
+      summary: {
+        expiredCount: expired.length,
+        expiredValue: sum(expired),
+        soonCount: expiringSoon.length,
+        soonValue: sum(expiringSoon),
+      },
+    };
   }
 }

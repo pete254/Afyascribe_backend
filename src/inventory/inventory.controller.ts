@@ -86,6 +86,16 @@ export class InventoryController {
     return this.stock.performanceReport(facilityOf(user), { from, to });
   }
 
+  @Get('expiry')
+  expiry(@CurrentUser() user: CurrentUserType, @Query('withinDays') withinDays?: string) {
+    return this.stock.expiryReport(facilityOf(user), withinDays ? Number(withinDays) : 90);
+  }
+
+  @Get('items/:id/batches')
+  itemBatches(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
+    return this.stock.listItemBatches(facilityOf(user), id);
+  }
+
   @Post('items/:id/adjust')
   adjust(@CurrentUser() user: CurrentUserType, @Param('id') id: string, @Body() dto: AdjustStockDto) {
     return this.stock.adjustStock(facilityOf(user), id, dto);

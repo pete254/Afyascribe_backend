@@ -109,6 +109,16 @@ export class AdjustStockDto {
   @IsOptional()
   reason?: string;
 
+  @ApiPropertyOptional({ description: 'Batch / lot number (positive adjustments)' })
+  @IsString()
+  @IsOptional()
+  batchNo?: string;
+
+  @ApiPropertyOptional({ description: 'Expiry date for the added stock (YYYY-MM-DD)' })
+  @IsDateString()
+  @IsOptional()
+  expiryDate?: string;
+
   @ApiPropertyOptional()
   @IsDateString()
   @IsOptional()
@@ -137,6 +147,10 @@ export class GoodsReceiptLineDto {
   @ApiProperty() @IsUUID() itemId: string;
   @ApiProperty() @IsNumber() @Min(0) quantity: number;
   @ApiProperty() @IsNumber() @Min(0) unitCost: number;
+  @ApiPropertyOptional({ description: 'Batch / lot number' })
+  @IsString() @IsOptional() batchNo?: string;
+  @ApiPropertyOptional({ description: 'Expiry date (YYYY-MM-DD)' })
+  @IsDateString() @IsOptional() expiryDate?: string;
 }
 
 export class CreateGoodsReceiptDto {

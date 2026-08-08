@@ -30,4 +30,10 @@ export class GoodsReceiptLine {
 
   @Column({ name: 'line_value', type: 'numeric', precision: 14, scale: 2 })
   lineValue: string;
+
+  @Column({ name: 'batch_no', type: 'varchar', length: 60, nullable: true })
+  batchNo: string | null;
+
+  @Column({ name: 'expiry_date', type: 'date', nullable: true })
+  expiryDate: string | null;
 }

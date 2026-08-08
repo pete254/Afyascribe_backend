@@ -6,6 +6,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { Supplier } from './entities/supplier.entity';
 import { StockMovement } from './entities/stock-movement.entity';
+import { StockBatch } from './entities/stock-batch.entity';
 import { GoodsReceipt } from './entities/goods-receipt.entity';
 import { GoodsReceiptLine } from './entities/goods-receipt-line.entity';
 import { SupplierPayment } from './entities/supplier-payment.entity';
@@ -39,6 +40,7 @@ import { AccountingModule } from '../accounting/accounting.module';
       InventoryItem,
       Supplier,
       StockMovement,
+      StockBatch,
       GoodsReceipt,
       GoodsReceiptLine,
       SupplierPayment,
