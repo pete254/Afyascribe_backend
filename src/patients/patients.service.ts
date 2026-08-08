@@ -72,26 +72,33 @@ export class PatientsService {
    * Search patients — scoped to facilityId.
    */
   async searchPatients(query: string, facilityId: string): Promise<Patient[]> {
-    if (!query || query.trim().length < 2) return [];
+    const trimmed = (query ?? '').trim();
+    if (trimmed.length < 2) return [];
 
-    const searchTerm = `%${query.trim()}%`;
+    // Split into words; every word must match at least one identifying field, so
+    // names can be typed in any order (surname first is fine) and a name can be
+    // combined with a phone or patient number. A single word matches on its own.
+    const tokens = trimmed.split(/\s+/).filter(Boolean).slice(0, 6);
+    const fields = [
+      'patient.firstName',
+      'patient.middleName',
+      'patient.lastName',
+      'patient.patientId',
+      'patient.idNumber',
+      'patient.phoneNumber',
+    ];
 
-    return this.patientRepository
+    const qb = this.patientRepository
       .createQueryBuilder('patient')
-      .where('patient.facilityId = :facilityId', { facilityId })
-      .andWhere(
-        `(
-          patient.firstName ILIKE :searchTerm OR
-          patient.middleName ILIKE :searchTerm OR
-          patient.lastName ILIKE :searchTerm OR
-          patient.patientId ILIKE :searchTerm OR
-          patient.idNumber ILIKE :searchTerm OR
-          patient.phoneNumber ILIKE :searchTerm OR
-          CONCAT(patient.firstName, ' ', patient.lastName) ILIKE :searchTerm OR
-          CONCAT(patient.firstName, ' ', patient.middleName, ' ', patient.lastName) ILIKE :searchTerm
-        )`,
-        { searchTerm },
-      )
+      .where('patient.facilityId = :facilityId', { facilityId });
+
+    tokens.forEach((token, i) => {
+      const param = `t${i}`;
+      const ors = fields.map((f) => `${f} ILIKE :${param}`).join(' OR ');
+      qb.andWhere(`(${ors})`, { [param]: `%${token}%` });
+    });
+
+    return qb
       .orderBy('patient.lastName', 'ASC')
       .addOrderBy('patient.firstName', 'ASC')
       .limit(20)
