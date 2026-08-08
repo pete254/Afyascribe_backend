@@ -71,6 +71,15 @@ export class PatientsService {
   /**
    * Search patients — scoped to facilityId.
    */
+  /**
+   * Reduce a phone number to its national significant digits so different
+   * formats compare equal: +254712345678 / 254712345678 / 0712345678 all
+   * become 712345678.
+   */
+  private normalizeKePhone(raw: string): string {
+    return (raw ?? '').replace(/\D/g, '').replace(/^(254|0)/, '');
+  }
+
   async searchPatients(query: string, facilityId: string): Promise<Patient[]> {
     const trimmed = (query ?? '').trim();
     if (trimmed.length < 2) return [];
@@ -87,6 +96,9 @@ export class PatientsService {
       'patient.idNumber',
       'patient.phoneNumber',
     ];
+    // The stored phone reduced to national significant digits, so a query in any
+    // format matches a number stored in any format.
+    const normalizedPhoneExpr = `regexp_replace(regexp_replace(patient.phoneNumber, '\\D', '', 'g'), '^(254|0)', '')`;
 
     const qb = this.patientRepository
       .createQueryBuilder('patient')
@@ -94,8 +106,18 @@ export class PatientsService {
 
     tokens.forEach((token, i) => {
       const param = `t${i}`;
-      const ors = fields.map((f) => `${f} ILIKE :${param}`).join(' OR ');
-      qb.andWhere(`(${ors})`, { [param]: `%${token}%` });
+      const params: Record<string, string> = { [param]: `%${token}%` };
+      const ors = fields.map((f) => `${f} ILIKE :${param}`);
+
+      // If the word looks like a phone, also match on the normalized number.
+      const normPhone = this.normalizeKePhone(token);
+      if (normPhone.length >= 3) {
+        const pparam = `ph${i}`;
+        ors.push(`${normalizedPhoneExpr} ILIKE :${pparam}`);
+        params[pparam] = `%${normPhone}%`;
+      }
+
+      qb.andWhere(`(${ors.join(' OR ')})`, params);
     });
 
     return qb
@@ -205,11 +227,17 @@ export class PatientsService {
    */
   async searchByPhone(phone: string, facilityId: string): Promise<Patient[]> {
     if (!phone || phone.trim().length < 3) return [];
-    const searchTerm = `%${phone.trim()}%`;
+    // Match on the normalized number so any format of the query finds a number
+    // stored in any format; fall back to raw contains for non-standard entries.
+    const normalizedPhoneExpr = `regexp_replace(regexp_replace(patient.phoneNumber, '\\D', '', 'g'), '^(254|0)', '')`;
+    const norm = this.normalizeKePhone(phone);
     return this.patientRepository
       .createQueryBuilder('patient')
       .where('patient.facilityId = :facilityId', { facilityId })
-      .andWhere('patient.phoneNumber ILIKE :searchTerm', { searchTerm })
+      .andWhere(`(patient.phoneNumber ILIKE :raw OR ${normalizedPhoneExpr} ILIKE :norm)`, {
+        raw: `%${phone.trim()}%`,
+        norm: `%${norm || phone.trim()}%`,
+      })
       .orderBy('patient.lastName', 'ASC')
       .addOrderBy('patient.firstName', 'ASC')
       .limit(20)
