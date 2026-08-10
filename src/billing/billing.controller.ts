@@ -30,7 +30,7 @@ export class BillingController {
   constructor(private readonly billingService: BillingService) {}
 
   @Post()
-  @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
+  @Roles('receptionist', 'cashier', 'facility_admin', 'super_admin', 'doctor', 'nurse')
   @ApiOperation({ summary: 'Create a bill for a visit' })
   create(@Body() dto: CreateBillingDto, @CurrentUser() user: any) {
     return this.billingService.create(dto, user.facilityId);
@@ -44,7 +44,7 @@ export class BillingController {
   }
 
   @Get('visit/:visitId')
-  @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
+  @Roles('receptionist', 'cashier', 'facility_admin', 'super_admin', 'doctor', 'nurse')
   @ApiOperation({ summary: 'Get all bills for a specific visit' })
   findByVisit(
     @Param('visitId', ParseUUIDPipe) visitId: string,
@@ -54,14 +54,14 @@ export class BillingController {
   }
 
   @Get('unpaid-today')
-  @Roles('receptionist', 'facility_admin', 'super_admin')
+  @Roles('receptionist', 'cashier', 'facility_admin', 'super_admin')
   @ApiOperation({ summary: "Get today's unpaid bills for the facility" })
   findUnpaidToday(@CurrentUser() user: any) {
     return this.billingService.findUnpaidToday(user.facilityId);
   }
 
   @Get('visit/:visitId/summary')
-  @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
+  @Roles('receptionist', 'cashier', 'facility_admin', 'super_admin', 'doctor', 'nurse')
   @ApiOperation({ summary: 'Get billing summary (totals) for a visit' })
   getSummary(
     @Param('visitId', ParseUUIDPipe) visitId: string,
@@ -71,7 +71,7 @@ export class BillingController {
   }
 
   @Patch(':id')
-  @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
+  @Roles('receptionist', 'cashier', 'facility_admin', 'super_admin', 'doctor', 'nurse')
   @ApiOperation({ summary: 'Update an unpaid bill (amount or description)' })
   update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -83,7 +83,7 @@ export class BillingController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
+  @Roles('receptionist', 'cashier', 'facility_admin', 'super_admin', 'doctor', 'nurse')
   @ApiOperation({ summary: 'Delete an unpaid bill' })
   remove(
     @Param('id', ParseUUIDPipe) id: string,
@@ -94,7 +94,7 @@ export class BillingController {
 
   // ── PARTIAL / FULL PAYMENT ─────────────────────────────────────────────────
   @Patch(':id/collect')
-  @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
+  @Roles('receptionist', 'cashier', 'facility_admin', 'super_admin', 'doctor', 'nurse')
   @ApiOperation({ summary: 'Collect partial or full payment — supports multiple payment methods' })
   collectPayment(
     @Param('id', ParseUUIDPipe) id: string,
@@ -110,7 +110,7 @@ export class BillingController {
 
   // ── LEGACY ─────────────────────────────────────────────────────────────────
   @Patch(':id/pay')
-  @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
+  @Roles('receptionist', 'cashier', 'facility_admin', 'super_admin', 'doctor', 'nurse')
   @ApiOperation({ summary: 'Mark bill as paid (legacy — use /collect for partial payments)' })
   markPaid(
     @Param('id', ParseUUIDPipe) id: string,
