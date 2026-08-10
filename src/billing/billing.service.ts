@@ -144,6 +144,25 @@ export class BillingService {
       .getMany();
   }
 
+  /**
+   * Unpaid bills raised before today — money that was never collected on earlier
+   * days. Oldest first, so the front desk can chase the longest-standing ones.
+   */
+  async findOutstandingOlder(facilityId: string): Promise<Billing[]> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return this.billingRepo
+      .createQueryBuilder('bill')
+      .leftJoinAndSelect('bill.patient', 'patient')
+      .leftJoinAndSelect('bill.visit', 'visit')
+      .where('bill.facility_id = :facilityId', { facilityId })
+      .andWhere('bill.status = :status', { status: BillingStatus.UNPAID })
+      .andWhere('bill.created_at < :today', { today })
+      .orderBy('bill.created_at', 'ASC')
+      .getMany();
+  }
+
   // ── COLLECT PARTIAL or FULL PAYMENT ──────────────────────────────────────
   async collectPayment(
     billId: string,

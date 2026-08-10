@@ -60,6 +60,13 @@ export class BillingController {
     return this.billingService.findUnpaidToday(user.facilityId);
   }
 
+  @Get('outstanding')
+  @Roles('receptionist', 'cashier', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Unpaid bills raised before today (uncollected from earlier days)' })
+  findOutstanding(@CurrentUser() user: any) {
+    return this.billingService.findOutstandingOlder(user.facilityId);
+  }
+
   @Get('visit/:visitId/summary')
   @Roles('receptionist', 'cashier', 'facility_admin', 'super_admin', 'doctor', 'nurse')
   @ApiOperation({ summary: 'Get billing summary (totals) for a visit' })
