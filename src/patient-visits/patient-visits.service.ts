@@ -160,8 +160,15 @@ export class PatientVisitsService {
     // CHECKED_IN (unpaid cash bill), keep it — billing service will advance it
     // when payment is collected. Unless the facility allows consultations on
     // credit, in which case an unpaid patient still joins the doctor's queue.
+    //
+    // Never move a patient backward: a doctor recording/correcting vitals while
+    // the patient is already WITH_DOCTOR must not bounce them out of the
+    // consultation, so we leave that status untouched.
     const allowPending = await this.allowsDoctorWithPendingBill(facilityId);
-    if (allowPending || visit.status !== VisitStatus.CHECKED_IN) {
+    if (
+      visit.status !== VisitStatus.WITH_DOCTOR &&
+      (allowPending || visit.status !== VisitStatus.CHECKED_IN)
+    ) {
       visit.status = VisitStatus.WAITING_FOR_DOCTOR;
     }
 
