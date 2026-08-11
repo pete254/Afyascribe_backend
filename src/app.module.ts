@@ -64,6 +64,7 @@ import { Employee } from './payroll/entities/employee.entity';
 import { PayrollRun } from './payroll/entities/payroll-run.entity';
 import { Payslip } from './payroll/entities/payslip.entity';
 import { LabModule } from './lab/lab.module';
+import { PrescriptionsModule } from './prescriptions/prescriptions.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -118,6 +119,7 @@ import { LabModule } from './lab/lab.module';
     InventoryModule,
     PayrollModule,
     LabModule,
+    PrescriptionsModule,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],

@@ -20,6 +20,7 @@ export enum UserRole {
   NURSE           = 'nurse',
   RECEPTIONIST    = 'receptionist',
   LAB_TECHNICIAN  = 'lab_technician',           // Runs the lab: collect, test, post results
+  PHARMACIST      = 'pharmacist',               // Pharmacy queue: price, bill and dispense drugs
   // ── Back-office roles ─────────────────────────────────────────────────────
   ACCOUNTANT          = 'accountant',           // Ledger, banking, financial statements
   CASHIER             = 'cashier',              // Sales / invoice payments desk
