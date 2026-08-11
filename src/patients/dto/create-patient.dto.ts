@@ -93,6 +93,16 @@ export class CreatePatientDto {
   @IsString()
   patientType?: string;
 
+  @ApiProperty({ required: false, example: 'insurance', description: 'cash | insurance | copay' })
+  @IsOptional()
+  @IsString()
+  payerType?: string;
+
+  @ApiProperty({ required: false, description: 'Insurer company e.g. AAR, Jubilee, SHA' })
+  @IsOptional()
+  @IsString()
+  insurerName?: string;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
@@ -102,6 +112,11 @@ export class CreatePatientDto {
   @IsOptional()
   @IsString()
   membershipNo?: string;
+
+  @ApiProperty({ required: false, description: 'Cover valid until (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsString()
+  insuranceValidUntil?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()

@@ -110,7 +110,17 @@ export class UpdatePatientDto {
   @IsString()
   patientType?: string;
 
-  @ApiPropertyOptional({ description: 'Medical plan / insurance' })
+  @ApiPropertyOptional({ description: 'cash | insurance | copay' })
+  @IsOptional()
+  @IsString()
+  payerType?: string;
+
+  @ApiPropertyOptional({ description: 'Insurer company e.g. AAR, Jubilee, SHA' })
+  @IsOptional()
+  @IsString()
+  insurerName?: string;
+
+  @ApiPropertyOptional({ description: 'Medical plan / scheme' })
   @IsOptional()
   @IsString()
   medicalPlan?: string;
@@ -119,6 +129,11 @@ export class UpdatePatientDto {
   @IsOptional()
   @IsString()
   membershipNo?: string;
+
+  @ApiPropertyOptional({ description: 'Cover valid until (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsString()
+  insuranceValidUntil?: string;
 
   // ── Next of Kin ───────────────────────────────────────────────────────────
 

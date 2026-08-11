@@ -94,11 +94,24 @@ export class Patient {
   @Column({ nullable: true })
   patientType: string;
 
+  /** How the patient pays: cash | insurance | copay. */
+  @Column({ name: 'payer_type', type: 'varchar', length: 20, nullable: true })
+  payerType: string | null;
+
+  /** The insurance company / payer (e.g. AAR, Jubilee, SHA). */
+  @Column({ name: 'insurer_name', type: 'varchar', length: 200, nullable: true })
+  insurerName: string | null;
+
+  /** The scheme / plan under the insurer (free text). Legacy field. */
   @Column({ nullable: true })
   medicalPlan: string;
 
   @Column({ nullable: true })
   membershipNo: string;
+
+  /** Cover validity date, captured at onboarding. */
+  @Column({ name: 'insurance_valid_until', type: 'date', nullable: true })
+  insuranceValidUntil: string | null;
 
   // ── Next of Kin ───────────────────────────────────────────────────────────
   @Column({ type: 'jsonb', nullable: true })

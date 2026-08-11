@@ -117,6 +117,26 @@ export class Billing {
   @Column({ name: 'insurance_scheme_name', type: 'varchar', length: 200, nullable: true })
   insuranceSchemeName: string | null;
 
+  // ── Insurance claim tracking ────────────────────────────────────────────────
+  // Insurance/copay bills are the claim lines. The insurer company and member
+  // number identify the claim; claimStatus tracks it through its lifecycle.
+  @Column({ name: 'insurer_name', type: 'varchar', length: 200, nullable: true })
+  insurerName: string | null;
+
+  @Column({ name: 'member_number', type: 'varchar', length: 100, nullable: true })
+  memberNumber: string | null;
+
+  /** pending | submitted | paid | part_paid | rejected — set only on claim bills. */
+  @Column({ name: 'claim_status', type: 'varchar', length: 20, nullable: true })
+  claimStatus: string | null;
+
+  /** The insurer's approval / claim reference. */
+  @Column({ name: 'claim_ref', type: 'varchar', length: 100, nullable: true })
+  claimRef: string | null;
+
+  @Column({ name: 'claim_submitted_at', type: 'timestamp with time zone', nullable: true })
+  claimSubmittedAt: Date | null;
+
   @Column({
     name: 'status',
     type: 'enum',

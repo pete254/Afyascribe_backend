@@ -24,8 +24,15 @@ export class InsuranceSchemesController {
     return this.service.create(dto, user.facilityId);
   }
 
+  @Post('seed')
+  @Roles('facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Seed the main Kenyan insurers for the facility (idempotent)' })
+  seed(@CurrentUser() user: any) {
+    return this.service.seedForFacility(user.facilityId);
+  }
+
   @Get()
-  @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse')
+  @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse', 'cashier', 'accountant')
   @ApiOperation({ summary: 'Get all insurance schemes for the facility' })
   @ApiQuery({ name: 'all', required: false, description: 'Pass true to include inactive schemes' })
   findAll(@CurrentUser() user: any, @Query('all') all?: string) {

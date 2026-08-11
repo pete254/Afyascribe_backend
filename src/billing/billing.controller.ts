@@ -8,6 +8,7 @@ import {
   Delete,
   Param,
   Body,
+  Query,
   UseGuards,
   ParseUUIDPipe,
   HttpCode,
@@ -65,6 +66,52 @@ export class BillingController {
   @ApiOperation({ summary: 'Unpaid bills raised before today (uncollected from earlier days)' })
   findOutstanding(@CurrentUser() user: any) {
     return this.billingService.findOutstandingOlder(user.facilityId);
+  }
+
+  // ── Insurance claims ────────────────────────────────────────────────────────
+
+  @Get('claims')
+  @Roles('receptionist', 'cashier', 'accountant', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Insurance claims for the facility (filterable)' })
+  findClaims(
+    @CurrentUser() user: any,
+    @Query('status') status?: string,
+    @Query('insurer') insurer?: string,
+    @Query('scheme') scheme?: string,
+    @Query('patientId') patientId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.billingService.findClaims(user.facilityId, {
+      status,
+      insurer,
+      scheme,
+      patientId,
+      from,
+      to,
+    });
+  }
+
+  @Get('claims/summary')
+  @Roles('receptionist', 'cashier', 'accountant', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Per-insurer claim performance (billed, paid, outstanding, avg days)' })
+  claimsSummary(
+    @CurrentUser() user: any,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.billingService.claimsSummary(user.facilityId, { from, to });
+  }
+
+  @Patch(':id/claim')
+  @Roles('receptionist', 'cashier', 'accountant', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Update a claim status / reference (submit, reject, reopen)' })
+  updateClaim(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { claimStatus?: string; claimRef?: string },
+    @CurrentUser() user: any,
+  ) {
+    return this.billingService.updateClaim(id, body, user.facilityId);
   }
 
   @Get('visit/:visitId/summary')

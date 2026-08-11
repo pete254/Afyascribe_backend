@@ -41,6 +41,9 @@ export class BillingService {
 
     const paymentMode = dto.paymentMode ?? PaymentMode.CASH;
 
+    // Insurance and split bills are claim lines — start them as pending claims.
+    const isClaim = paymentMode === PaymentMode.INSURANCE || paymentMode === PaymentMode.SPLIT;
+
     const bill = this.billingRepo.create({
       visitId: dto.visitId,
       patientId: visit.patientId,
@@ -53,6 +56,9 @@ export class BillingService {
       amountPaid: 0,
       paymentMode,
       insuranceSchemeName: dto.insuranceSchemeName ?? null,
+      insurerName: dto.insurerName ?? null,
+      memberNumber: dto.memberNumber ?? null,
+      claimStatus: isClaim ? 'pending' : null,
       paymentHistory: [],
       status:
         paymentMode === PaymentMode.INSURANCE
@@ -213,6 +219,11 @@ export class BillingService {
       bill.paidAt = new Date();
       bill.paymentMethod = dto.paymentMethod as PaymentMethod;
       bill.mpesaReference = dto.mpesaReference ?? null;
+    }
+
+    // Advance the claim lifecycle for insurance/copay bills as money comes in.
+    if (bill.claimStatus && bill.claimStatus !== 'rejected') {
+      bill.claimStatus = isFullyPaid ? 'paid' : 'part_paid';
     }
 
     const savedBill = await this.billingRepo.save(bill);
@@ -384,5 +395,162 @@ export class BillingService {
       .andWhere('bill.paid_at <= :to', { to: toEndOfDay })
       .orderBy('bill.paid_at', 'DESC')
       .getMany();
+  }
+
+  // ── INSURANCE CLAIMS ───────────────────────────────────────────────────────
+  // Insurance/copay bills are the claim lines. These read and drive the claims
+  // register; marking a claim paid goes through collectPayment (method
+  // insurance_claim), so the ledger stays correct.
+
+  /**
+   * Claims for the facility, filterable by insurer, scheme, patient, claim
+   * status and date. `status='due'` means anything still owing (pending,
+   * submitted or part-paid — not fully paid or rejected).
+   */
+  async findClaims(
+    facilityId: string,
+    filter: {
+      status?: string;
+      insurer?: string;
+      scheme?: string;
+      patientId?: string;
+      from?: string;
+      to?: string;
+    } = {},
+  ): Promise<Billing[]> {
+    const qb = this.billingRepo
+      .createQueryBuilder('bill')
+      .leftJoinAndSelect('bill.patient', 'patient')
+      .leftJoinAndSelect('bill.visit', 'visit')
+      .where('bill.facility_id = :facilityId', { facilityId })
+      .andWhere('bill.payment_mode IN (:...modes)', { modes: ['insurance', 'split'] });
+
+    if (filter.status === 'due') {
+      qb.andWhere('bill.claim_status IN (:...due)', { due: ['pending', 'submitted', 'part_paid'] });
+    } else if (filter.status) {
+      qb.andWhere('bill.claim_status = :cs', { cs: filter.status });
+    }
+    if (filter.insurer) qb.andWhere('bill.insurer_name = :insurer', { insurer: filter.insurer });
+    if (filter.scheme) qb.andWhere('bill.insurance_scheme_name = :scheme', { scheme: filter.scheme });
+    if (filter.patientId) qb.andWhere('bill.patient_id = :pid', { pid: filter.patientId });
+    if (filter.from) qb.andWhere('bill.created_at >= :from', { from: new Date(filter.from) });
+    if (filter.to) {
+      const end = new Date(filter.to);
+      end.setHours(23, 59, 59, 999);
+      qb.andWhere('bill.created_at <= :to', { to: end });
+    }
+
+    return qb.orderBy('bill.created_at', 'DESC').getMany();
+  }
+
+  /**
+   * Per-insurer performance: what was billed, collected and is still outstanding,
+   * claim counts, and the average days an insurer takes to pay a claim.
+   */
+  async claimsSummary(
+    facilityId: string,
+    filter: { from?: string; to?: string } = {},
+  ): Promise<{
+    rows: {
+      insurer: string;
+      billed: number;
+      paid: number;
+      outstanding: number;
+      claims: number;
+      paidClaims: number;
+      rejectedClaims: number;
+      dueClaims: number;
+      avgDaysToPay: number | null;
+    }[];
+    totals: { billed: number; paid: number; outstanding: number; claims: number };
+  }> {
+    const bills = await this.findClaims(facilityId, { from: filter.from, to: filter.to });
+
+    const map = new Map<
+      string,
+      {
+        billed: number; paid: number; claims: number; paidClaims: number;
+        rejectedClaims: number; dueClaims: number; payDays: number[];
+      }
+    >();
+
+    for (const b of bills) {
+      const key = b.insurerName || b.insuranceSchemeName || 'Unspecified';
+      const g = map.get(key) ?? {
+        billed: 0, paid: 0, claims: 0, paidClaims: 0, rejectedClaims: 0, dueClaims: 0, payDays: [],
+      };
+      const amount = Number(b.amount);
+      const paid = Number(b.amountPaid || 0);
+      g.billed += amount;
+      g.paid += paid;
+      g.claims += 1;
+      if (b.claimStatus === 'paid') {
+        g.paidClaims += 1;
+        if (b.paidAt) {
+          const days = (new Date(b.paidAt).getTime() - new Date(b.createdAt).getTime()) / 86400000;
+          if (days >= 0) g.payDays.push(days);
+        }
+      } else if (b.claimStatus === 'rejected') {
+        g.rejectedClaims += 1;
+      } else {
+        g.dueClaims += 1;
+      }
+      map.set(key, g);
+    }
+
+    const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+    const rows = [...map.entries()]
+      .map(([insurer, g]) => ({
+        insurer,
+        billed: r2(g.billed),
+        paid: r2(g.paid),
+        // Rejected claims aren't a receivable — exclude them from outstanding.
+        outstanding: r2(g.billed - g.paid),
+        claims: g.claims,
+        paidClaims: g.paidClaims,
+        rejectedClaims: g.rejectedClaims,
+        dueClaims: g.dueClaims,
+        avgDaysToPay: g.payDays.length
+          ? Math.round(g.payDays.reduce((s, d) => s + d, 0) / g.payDays.length)
+          : null,
+      }))
+      .sort((a, b) => b.outstanding - a.outstanding);
+
+    const totals = rows.reduce(
+      (t, r) => ({
+        billed: r2(t.billed + r.billed),
+        paid: r2(t.paid + r.paid),
+        outstanding: r2(t.outstanding + r.outstanding),
+        claims: t.claims + r.claims,
+      }),
+      { billed: 0, paid: 0, outstanding: 0, claims: 0 },
+    );
+
+    return { rows, totals };
+  }
+
+  /** Update a claim's status/reference (submit to insurer, reject, reopen). */
+  async updateClaim(
+    billId: string,
+    data: { claimStatus?: string; claimRef?: string },
+    facilityId: string,
+  ): Promise<Billing> {
+    const bill = await this.billingRepo.findOne({ where: { id: billId, facilityId } });
+    if (!bill) throw new NotFoundException(`Bill ${billId} not found`);
+    if (bill.paymentMode !== PaymentMode.INSURANCE && bill.paymentMode !== PaymentMode.SPLIT) {
+      throw new BadRequestException('This bill is not an insurance claim');
+    }
+    if (data.claimStatus) {
+      const allowed = ['pending', 'submitted', 'part_paid', 'paid', 'rejected'];
+      if (!allowed.includes(data.claimStatus)) {
+        throw new BadRequestException('Invalid claim status');
+      }
+      bill.claimStatus = data.claimStatus;
+      if (data.claimStatus === 'submitted' && !bill.claimSubmittedAt) {
+        bill.claimSubmittedAt = new Date();
+      }
+    }
+    if (data.claimRef !== undefined) bill.claimRef = data.claimRef || null;
+    return this.billingRepo.save(bill);
   }
 }

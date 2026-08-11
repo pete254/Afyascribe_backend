@@ -43,8 +43,18 @@ export class CreateBillingDto {
   @IsEnum(PaymentMode)
   paymentMode?: PaymentMode;
 
-  @ApiPropertyOptional({ description: 'Insurance scheme name e.g. NHIF, AAR' })
+  @ApiPropertyOptional({ description: 'Insurance scheme / plan name e.g. AAR Gold' })
   @IsOptional()
   @IsString()
   insuranceSchemeName?: string;
+
+  @ApiPropertyOptional({ description: 'Insurer company e.g. AAR, Jubilee, SHA' })
+  @IsOptional()
+  @IsString()
+  insurerName?: string;
+
+  @ApiPropertyOptional({ description: 'Member / policy number for the claim' })
+  @IsOptional()
+  @IsString()
+  memberNumber?: string;
 }

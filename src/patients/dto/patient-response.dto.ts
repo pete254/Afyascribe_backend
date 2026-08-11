@@ -71,13 +71,25 @@ export class PatientResponseDto {
   @Expose()
   patientType?: string;
 
-  @ApiProperty({ description: 'Medical plan', required: false })
+  @ApiProperty({ description: 'cash | insurance | copay', required: false })
+  @Expose()
+  payerType?: string;
+
+  @ApiProperty({ description: 'Insurer company', required: false })
+  @Expose()
+  insurerName?: string;
+
+  @ApiProperty({ description: 'Medical plan / scheme', required: false })
   @Expose()
   medicalPlan?: string;
 
   @ApiProperty({ description: 'Medical plan membership number', required: false })
   @Expose()
   membershipNo?: string;
+
+  @ApiProperty({ description: 'Cover valid until', required: false })
+  @Expose()
+  insuranceValidUntil?: string;
 
   @ApiProperty({ description: 'Date of birth' })
   @Expose()
