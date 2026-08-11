@@ -348,7 +348,14 @@ export class StockService {
 
   /**
    * Issue (consume/dispense) stock at cost. Posts Dr COGS, Cr Inventory. Used by
-   * pharmacy/lab dispensing and any other consumption. Returns the cost value.
+   * pharmacy/lab dispensing and any other consumption.
+   *
+   * The item row is locked FOR UPDATE inside the transaction, so concurrent
+   * issues of the same item serialize and can never overdraw (no lost updates —
+   * the second issue waits, then reads the already-reduced quantity). With
+   * `capToStock`, the issue is clamped to what's actually on hand and the amount
+   * issued is returned, so a caller can leave any shortfall unfilled rather than
+   * driving stock negative.
    */
   async issueStock(
     facilityId: string,
@@ -362,16 +369,30 @@ export class StockService {
       note?: string;
       costCenter?: string;
       userId?: string;
+      /** Clamp the issue to on-hand stock instead of going negative. */
+      capToStock?: boolean;
     } = {},
-  ): Promise<{ item: InventoryItem; value: number }> {
+  ): Promise<{ item: InventoryItem; value: number; issued: number }> {
     if (!(quantity > 0)) throw new BadRequestException('Issue quantity must be greater than 0');
 
-    const { item, value } = await this.dataSource.transaction(async (mgr) => {
-      const it = await mgr.getRepository(InventoryItem).findOne({ where: { id: itemId, facilityId } });
+    const { item, value, issued } = await this.dataSource.transaction(async (mgr) => {
+      const it = await mgr.getRepository(InventoryItem).findOne({
+        where: { id: itemId, facilityId },
+        lock: { mode: 'pessimistic_write' },
+      });
       if (!it) throw new NotFoundException('Item not found');
+
+      // Under the row lock, decide how much we can actually issue.
+      let qty = Math.abs(quantity);
+      if (opts.capToStock) {
+        const available = Math.max(0, Number(it.stockQty));
+        qty = Math.min(qty, available);
+      }
+      if (!(qty > 0)) return { item: it, value: 0, issued: 0 };
+
       const res = await this.recordMovement(mgr, it, {
         type: 'issue',
-        quantity: -Math.abs(quantity),
+        quantity: -qty,
         date: opts.date,
         reference: opts.reference,
         sourceType: opts.sourceType ?? 'stock_issue',
@@ -379,9 +400,12 @@ export class StockService {
         note: opts.note,
         userId: opts.userId,
       });
-      await this.consumeFefo(mgr, facilityId, itemId, quantity);
-      return { item: it, value: Math.abs(res.value) };
+      await this.consumeFefo(mgr, facilityId, itemId, qty);
+      return { item: it, value: Math.abs(res.value), issued: qty };
     });
+
+    // Nothing left to issue after capping — no movement, no journal.
+    if (issued <= 0) return { item, value: 0, issued: 0 };
 
     await this.posting.onStockIssue({
       facilityId,
@@ -395,7 +419,7 @@ export class StockService {
       sourceId: opts.sourceId,
     });
 
-    return { item, value };
+    return { item, value, issued };
   }
 
   /** Manual stock adjustment (write-up/down or count correction). */

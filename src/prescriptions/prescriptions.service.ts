@@ -187,31 +187,31 @@ export class PrescriptionsService {
 
     let dispensedAny = false;
     for (const line of toDispense) {
-      // Never dispense more than is on the shelf — cap to on-hand stock so a
-      // shortfall is left for the patient to source externally, and stock can
-      // never go negative.
-      let available = 0;
+      // issueStock locks the item row and caps to on-hand stock atomically, so
+      // even two pharmacists dispensing the same item at once can't overdraw:
+      // the first takes what it can, the second only gets what's left. Any
+      // shortfall stays unfilled for the patient to source externally.
       try {
-        const item = await this.stock.getItem(facilityId, line.itemId!);
-        available = Number(item.stockQty);
-      } catch {
-        available = 0;
-      }
-      const take = Math.min(Number(line.dispenseQty), available);
-      if (!(take > 0)) continue; // out of stock — printed, not dispensed
-      try {
-        await this.stock.issueStock(facilityId, line.itemId!, take, {
-          sourceType: 'prescription_dispense',
-          sourceId: rx.id,
-          costCenter: 'pharmacy',
-          note: `Dispensed: ${line.medication}`,
-          userId: user.id,
-        });
-        // Record what was actually handed over.
-        line.dispenseQty = String(take);
-        line.dispensed = true;
-        await this.lines.save(line);
-        dispensedAny = true;
+        const { issued } = await this.stock.issueStock(
+          facilityId,
+          line.itemId!,
+          Number(line.dispenseQty),
+          {
+            capToStock: true,
+            sourceType: 'prescription_dispense',
+            sourceId: rx.id,
+            costCenter: 'pharmacy',
+            note: `Dispensed: ${line.medication}`,
+            userId: user.id,
+          },
+        );
+        if (issued > 0) {
+          // Record what was actually handed over.
+          line.dispenseQty = String(issued);
+          line.dispensed = true;
+          await this.lines.save(line);
+          dispensedAny = true;
+        }
       } catch (e) {
         console.error(`Dispense of "${line.medication}" failed: ${(e as Error).message}`);
         throw new BadRequestException(
@@ -221,7 +221,7 @@ export class PrescriptionsService {
     }
 
     if (!dispensedAny) {
-      throw new BadRequestException('None of the linked items had stock to dispense');
+      throw new BadRequestException('None of the linked items had stock left to dispense');
     }
 
     rx.status = 'dispensed';
