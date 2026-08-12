@@ -126,13 +126,23 @@ export class TranscriptionController {
     if (!this.GROQ_API_KEY) throw new Error('GROQ_API_KEY not configured in environment');
 
     const system =
-      'You are a proofreading assistant for clinical notes. Correct spelling, ' +
-      'grammar and punctuation only. Do NOT change clinical meaning, dosages, ' +
-      'numbers, or medical/drug terminology, and do not add or remove content. ' +
-      'Preserve line breaks. Respond with STRICT JSON only, no prose, of the form: ' +
-      '{"corrected": "<full corrected text>", "issues": [{"original": "<exact ' +
-      'substring from the input>", "suggestion": "<replacement>", "reason": "<short>"}]}. ' +
-      'If there are no changes, return the text unchanged with an empty issues array.';
+      'You are a proofreading assistant for medical notes that were dictated and ' +
+      'transcribed by speech-to-text, so expect mis-heard words that are spelled ' +
+      'correctly but wrong in context (homophones, garbled drug or medical terms, ' +
+      'e.g. "hypotension" heard as "hypertension"). Do two things:\n' +
+      '1. Fix clear spelling, grammar and punctuation mistakes.\n' +
+      '2. Flag words or phrases that do not make sense in the clinical context or ' +
+      'look like transcription errors, and suggest the most probable intended term.\n' +
+      'Safety rules: NEVER change numbers, dosages, units or measurements. NEVER ' +
+      'invent clinical findings or add/remove content. When unsure, flag it as a ' +
+      'suggestion rather than silently changing it. Preserve line breaks.\n' +
+      'Respond with STRICT JSON only, no prose: {"corrected": "<the text with ONLY ' +
+      'the confident spelling/grammar/punctuation fixes applied — do NOT bake in ' +
+      'context/meaning guesses here>", "issues": [{"original": "<exact substring ' +
+      'from the input>", "suggestion": "<replacement>", "reason": "<short>", "type": ' +
+      '"spelling" | "grammar" | "context"}]}. Context/transcription guesses go in ' +
+      'issues (type "context") only, never in corrected. If nothing is wrong, ' +
+      'return the text unchanged with an empty issues array.';
 
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -166,11 +176,15 @@ export class TranscriptionController {
         ? parsed.issues
             .filter((i: any) => i && i.original && i.suggestion && i.original !== i.suggestion)
             .slice(0, 50)
-            .map((i: any) => ({
-              original: String(i.original),
-              suggestion: String(i.suggestion),
-              reason: String(i.reason ?? 'Correction'),
-            }))
+            .map((i: any) => {
+              const type = ['spelling', 'grammar', 'context'].includes(i.type) ? i.type : 'spelling';
+              return {
+                original: String(i.original),
+                suggestion: String(i.suggestion),
+                reason: String(i.reason ?? 'Correction'),
+                type,
+              };
+            })
         : [];
       return { corrected: typeof parsed.corrected === 'string' ? parsed.corrected : text, issues };
     } catch (e) {
