@@ -40,10 +40,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // Return object set as req.user throughout the app.
     // isOwner and clinicMode come from the JWT so they survive re-login
     // even if the DB columns aren't queried every request.
+    // Roles come fresh from the DB so a role change takes effect on the next
+    // request without forcing the user to log in again.
+    const dbRoles = (user as any).roles;
+    const roles = Array.isArray(dbRoles) && dbRoles.length ? dbRoles : [payload.role];
+
     return {
       id: payload.sub,
       email: payload.email,
       role: payload.role,
+      roles,
       firstName: (user as any).firstName,
       lastName: (user as any).lastName,
       facilityId: payload.facilityId,

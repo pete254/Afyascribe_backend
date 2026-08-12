@@ -32,6 +32,7 @@ export class UsersService {
       firstName: createUserDto.firstName,
       lastName: createUserDto.lastName,
       role: createUserDto.role,
+      roles: [createUserDto.role],
       facilityId: createUserDto.facilityId ?? null,
       // isOwner is stored if the column exists (migration has been run)
       ...(createUserDto.isOwner !== undefined ? { isOwner: createUserDto.isOwner } : {}),
@@ -178,7 +179,17 @@ export class UsersService {
    * moving someone to a narrower role revokes the wider access.
    */
   async setRole(userId: string, role: UserRole): Promise<void> {
-    await this.usersRepository.update(userId, { role });
+    await this.usersRepository.update(userId, { role, roles: [role] });
+  }
+
+  /**
+   * Assign the full set of roles a user holds. The first is stored as the
+   * primary `role` (used for display and dashboards); access is granted if any
+   * assigned role allows it.
+   */
+  async setRoles(userId: string, roles: UserRole[]): Promise<void> {
+    const unique = [...new Set(roles)];
+    await this.usersRepository.update(userId, { role: unique[0], roles: unique });
   }
 
   async reactivateAccount(userId: string): Promise<void> {

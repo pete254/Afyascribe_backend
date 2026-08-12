@@ -55,12 +55,22 @@ export class User {
   @Column()
   lastName: string;
 
+  // Primary role — kept for display and as the default. The full set a user
+  // holds is `roles` below; `role` is always roles[0].
   @Column({
     type: 'enum',
     enum: UserRole,
     default: UserRole.DOCTOR,
   })
   role: UserRole;
+
+  /**
+   * All roles this user holds. A person can wear several hats (e.g. receptionist
+   * + cashier). Access is granted if ANY of these roles allows it. Null/empty is
+   * treated as [role] for backward compatibility.
+   */
+  @Column({ name: 'roles', type: 'jsonb', nullable: true })
+  roles: string[] | null;
 
   // ── Facility Link ──────────────────────────────────────────────────────────
   @Column({ nullable: true, type: 'uuid' })

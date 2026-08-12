@@ -216,14 +216,35 @@ export class FacilityUsersController {
   })
   async setStaffRole(
     @Param('userId', ParseUUIDPipe) userId: string,
-    @Body() body: { role: UserRole },
+    @Body() body: { role?: UserRole; roles?: UserRole[] },
     @CurrentUser() admin: CurrentUserType,
   ) {
     assertCanManageStaff(admin);
 
-    const allowed = [UserRole.FACILITY_ADMIN, UserRole.DOCTOR, UserRole.NURSE, UserRole.RECEPTIONIST];
-    if (!body?.role || !allowed.includes(body.role)) {
-      throw new BadRequestException(`Role must be one of: ${allowed.join(', ')}`);
+    // A person can hold several roles. Accept either `roles` (preferred) or a
+    // single `role` for backward compatibility. Storekeeper is retired — its
+    // stock duties are covered by the pharmacist.
+    const allowed = [
+      UserRole.FACILITY_ADMIN,
+      UserRole.DOCTOR,
+      UserRole.NURSE,
+      UserRole.RECEPTIONIST,
+      UserRole.LAB_TECHNICIAN,
+      UserRole.PHARMACIST,
+      UserRole.CASHIER,
+      UserRole.ACCOUNTANT,
+      UserRole.PROCUREMENT_OFFICER,
+      UserRole.HR_MANAGER,
+    ];
+    const requested = [...new Set(body?.roles ?? (body?.role ? [body.role] : []))];
+    if (requested.length === 0) {
+      throw new BadRequestException('At least one role is required');
+    }
+    const invalid = requested.filter((r) => !allowed.includes(r));
+    if (invalid.length) {
+      throw new BadRequestException(
+        `Invalid role(s): ${invalid.join(', ')}. Allowed: ${allowed.join(', ')}`,
+      );
     }
 
     const target = await this.usersService.findById(userId);
@@ -238,7 +259,7 @@ export class FacilityUsersController {
       throw new ForbiddenException("The clinic owner's role cannot be changed");
     }
 
-    await this.usersService.setRole(userId, body.role);
-    return { message: 'Role updated successfully', role: body.role };
+    await this.usersService.setRoles(userId, requested);
+    return { message: 'Roles updated successfully', roles: requested, role: requested[0] };
   }
 }

@@ -5,6 +5,8 @@ export interface CurrentUserType {
   id: string;
   email: string;
   role: string;
+  /** Every role the user holds (roles[0] === role). */
+  roles?: string[];
   firstName: string;
   lastName: string;
   facilityId: string | null;

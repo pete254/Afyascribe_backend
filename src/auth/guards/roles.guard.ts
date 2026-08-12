@@ -19,7 +19,10 @@ export class RolesGuard implements CanActivate {
     const { user } = context.switchToHttp().getRequest();
     if (!user) return false;
 
-    if (requiredRoles.includes(user.role)) return true;
+    // A user can hold several roles; access is granted if ANY of them is allowed.
+    const userRoles: string[] =
+      Array.isArray(user.roles) && user.roles.length ? user.roles : user.role ? [user.role] : [];
+    if (userRoles.some((r) => requiredRoles.includes(r))) return true;
 
     // The facility owner implicitly holds every facility-level role until they
     // hire dedicated staff, so treat an owner as a facility_admin. This never
