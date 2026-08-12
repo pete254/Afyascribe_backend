@@ -72,6 +72,15 @@ export class User {
   @Column({ name: 'roles', type: 'jsonb', nullable: true })
   roles: string[] | null;
 
+  /**
+   * Per-user permission overrides on top of the roles. A map of capability key →
+   * allow(true)/deny(false). An entry wins over what the roles would grant, so an
+   * owner can, say, deny one cashier the ability to collect payment, or grant a
+   * specific extra function. Absent keys fall back to the role default.
+   */
+  @Column({ name: 'permission_overrides', type: 'jsonb', nullable: true })
+  permissionOverrides: Record<string, boolean> | null;
+
   // ── Facility Link ──────────────────────────────────────────────────────────
   @Column({ nullable: true, type: 'uuid' })
   facilityId: string | null;

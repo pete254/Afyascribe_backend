@@ -19,13 +19,15 @@ import { BillingService } from './billing.service';
 import { CreateBillingDto } from './dto/create-billing.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { CapabilityGuard } from '../auth/guards/capability.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RequireCapability } from '../auth/decorators/require-capability.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { CollectPaymentDto, WaiveBillingDto } from './dto/mark-paid.dto';
 
 @ApiTags('billing')
 @ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, CapabilityGuard)
 @Controller('billing')
 export class BillingController {
   constructor(private readonly billingService: BillingService) {}
@@ -149,6 +151,7 @@ export class BillingController {
   // ── PARTIAL / FULL PAYMENT ─────────────────────────────────────────────────
   @Patch(':id/collect')
   @Roles('receptionist', 'cashier', 'facility_admin', 'super_admin', 'doctor', 'nurse')
+  @RequireCapability('collect_payment')
   @ApiOperation({ summary: 'Collect partial or full payment — supports multiple payment methods' })
   collectPayment(
     @Param('id', ParseUUIDPipe) id: string,
@@ -165,6 +168,7 @@ export class BillingController {
   // ── LEGACY ─────────────────────────────────────────────────────────────────
   @Patch(':id/pay')
   @Roles('receptionist', 'cashier', 'facility_admin', 'super_admin', 'doctor', 'nurse')
+  @RequireCapability('collect_payment')
   @ApiOperation({ summary: 'Mark bill as paid (legacy — use /collect for partial payments)' })
   markPaid(
     @Param('id', ParseUUIDPipe) id: string,
@@ -176,6 +180,7 @@ export class BillingController {
 
   @Patch(':id/waive')
   @Roles('facility_admin', 'super_admin')
+  @RequireCapability('waive_bill')
   @ApiOperation({ summary: 'Waive a bill (admin only)' })
   waive(
     @Param('id', ParseUUIDPipe) id: string,

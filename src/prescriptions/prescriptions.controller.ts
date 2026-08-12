@@ -12,7 +12,9 @@ import {
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { CapabilityGuard } from '../auth/guards/capability.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RequireCapability } from '../auth/decorators/require-capability.decorator';
 import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.decorator';
 import { PrescriptionsService } from './prescriptions.service';
 import {
@@ -35,7 +37,7 @@ function facilityOf(user: CurrentUserType): string {
 @ApiTags('prescriptions')
 @ApiBearerAuth('JWT-auth')
 @Controller('prescriptions')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, CapabilityGuard)
 @Roles('doctor', 'nurse', 'pharmacist', 'storekeeper', 'cashier', 'facility_admin', 'super_admin')
 export class PrescriptionsController {
   constructor(private readonly service: PrescriptionsService) {}
@@ -86,6 +88,7 @@ export class PrescriptionsController {
   }
 
   @Post(':id/dispense')
+  @RequireCapability('dispense_drugs')
   dispense(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
     return this.service.dispense(facilityOf(user), user, id);
   }

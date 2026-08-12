@@ -18,12 +18,14 @@ import { ReassignDto } from './dto/reassign.dto';
 import { QueryVisitsDto } from './dto/query-visits.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { CapabilityGuard } from '../auth/guards/capability.guard';
+import { RequireCapability } from '../auth/decorators/require-capability.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('patient-visits')
 @ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, CapabilityGuard)
 @Controller('patient-visits')
 export class PatientVisitsController {
   constructor(private readonly visitsService: PatientVisitsService) {}
@@ -83,6 +85,7 @@ export class PatientVisitsController {
   // ── SUBMIT TRIAGE (nurse or doctor) ───────────────────────────────────────
   @Patch(':id/triage')
   @Roles('nurse', 'doctor', 'facility_admin', 'super_admin')
+  @RequireCapability('triage')
   @ApiOperation({ summary: 'Submit triage vitals for a visit' })
   async submitTriage(
     @Param('id', ParseUUIDPipe) id: string,
@@ -117,6 +120,7 @@ export class PatientVisitsController {
   // ── COMPLETE VISIT ─────────────────────────────────────────────────────────
   @Patch(':id/complete')
   @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @RequireCapability('complete_visit')
   @ApiOperation({ summary: 'Mark visit as completed' })
   async complete(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
     return this.visitsService.complete(id, user.facilityId);
@@ -125,6 +129,7 @@ export class PatientVisitsController {
   // ── CANCEL VISIT ───────────────────────────────────────────────────────────
   @Patch(':id/cancel')
   @Roles('receptionist', 'facility_admin', 'super_admin')
+  @RequireCapability('cancel_visit')
   @ApiOperation({ summary: 'Cancel a visit (no-show / left)' })
   async cancel(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
     return this.visitsService.cancel(id, user.facilityId);

@@ -192,6 +192,20 @@ export class UsersService {
     await this.usersRepository.update(userId, { role: unique[0], roles: unique });
   }
 
+  /**
+   * Set a user's per-capability overrides (allow/deny on top of their roles).
+   * Only entries that differ from the role default need be stored, but any map
+   * is accepted; passing null/empty clears all overrides.
+   */
+  async setPermissionOverrides(
+    userId: string,
+    overrides: Record<string, boolean> | null,
+  ): Promise<void> {
+    const clean =
+      overrides && Object.keys(overrides).length ? overrides : null;
+    await this.usersRepository.update(userId, { permissionOverrides: clean });
+  }
+
   async reactivateAccount(userId: string): Promise<void> {
     await this.usersRepository.update(userId, {
       isDeactivated: false,

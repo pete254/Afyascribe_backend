@@ -262,4 +262,40 @@ export class FacilityUsersController {
     await this.usersService.setRoles(userId, requested);
     return { message: 'Roles updated successfully', roles: requested, role: requested[0] };
   }
+
+  // ── SET a staff member's per-capability permission overrides ────────────────
+
+  @Patch(':userId/permissions')
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({
+    summary: "Set a staff member's per-capability permission overrides",
+    description:
+      'A map of capability key → allow(true)/deny(false), applied on top of the ' +
+      "user's roles. Owner-only. The owner's own permissions cannot be changed.",
+  })
+  async setStaffPermissions(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: { overrides: Record<string, boolean> | null },
+    @CurrentUser() admin: CurrentUserType,
+  ) {
+    assertCanManageStaff(admin);
+
+    const target = await this.usersService.findById(userId);
+    if (target.facilityId !== admin.facilityId && admin.role !== 'super_admin') {
+      throw new ForbiddenException('You can only manage users in your own facility');
+    }
+    if ((target as any).isOwner === true) {
+      throw new ForbiddenException("The clinic owner's permissions cannot be changed");
+    }
+
+    // Keep only real booleans.
+    const raw = body?.overrides ?? {};
+    const overrides: Record<string, boolean> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v === 'boolean') overrides[k] = v;
+    }
+
+    await this.usersService.setPermissionOverrides(userId, overrides);
+    return { message: 'Permissions updated successfully', overrides };
+  }
 }

@@ -44,12 +44,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // request without forcing the user to log in again.
     const dbRoles = (user as any).roles;
     const roles = Array.isArray(dbRoles) && dbRoles.length ? dbRoles : [payload.role];
+    // Per-user permission overrides come fresh from the DB too, so a change
+    // takes effect on the next request.
+    const permissionOverrides = (user as any).permissionOverrides ?? null;
 
     return {
       id: payload.sub,
       email: payload.email,
       role: payload.role,
       roles,
+      permissionOverrides,
       firstName: (user as any).firstName,
       lastName: (user as any).lastName,
       facilityId: payload.facilityId,

@@ -24,6 +24,8 @@ import {
 
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { CapabilityGuard } from '../auth/guards/capability.guard';
+import { RequireCapability } from '../auth/decorators/require-capability.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.decorator';
 import { SoapNotesService } from './soap-notes.service';
@@ -34,7 +36,7 @@ import { QuerySoapNotesDto } from './dto/query-soap-notes.dto';
 
 @ApiTags('soap-notes')
 @ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, CapabilityGuard)
 @Controller('soap-notes')
 export class SoapNotesController {
   constructor(private readonly soapNotesService: SoapNotesService) {}
@@ -43,6 +45,7 @@ export class SoapNotesController {
 
   @Post()
   @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @RequireCapability('write_notes')
   @ApiOperation({ summary: 'Create a new SOAP note' })
   @ApiResponse({ status: 201, description: 'SOAP note created successfully' })
   create(
@@ -58,6 +61,7 @@ export class SoapNotesController {
 
   @Post('draft')
   @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @RequireCapability('write_notes')
   @ApiOperation({ summary: 'Create a new SOAP note draft' })
   saveDraft(
     @Body() dto: CreateSoapNoteDto,
@@ -68,6 +72,7 @@ export class SoapNotesController {
 
   @Post('draft/:id')
   @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @RequireCapability('write_notes')
   @ApiOperation({ summary: 'Update an existing SOAP note draft' })
   updateDraft(
     @Param('id', ParseUUIDPipe) id: string,
@@ -90,6 +95,7 @@ export class SoapNotesController {
 
   @Post('draft/:id/finalise')
   @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @RequireCapability('write_notes')
   @ApiOperation({ summary: 'Finalise a draft — saves it as a completed SOAP note' })
   finaliseDraft(
     @Param('id', ParseUUIDPipe) id: string,
@@ -104,6 +110,7 @@ export class SoapNotesController {
   @Delete('draft/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @RequireCapability('write_notes')
   @ApiOperation({ summary: 'Delete a draft' })
   deleteDraft(
     @Param('id', ParseUUIDPipe) id: string,
@@ -166,6 +173,7 @@ export class SoapNotesController {
 
   @Post(':id/send-email')
   @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @RequireCapability('write_notes')
   @ApiOperation({ summary: 'Email SOAP note to patient' })
   async emailSoapNote(
     @Param('id') id: string,
@@ -178,6 +186,7 @@ export class SoapNotesController {
 
   @Patch(':id')
   @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @RequireCapability('write_notes')
   @ApiOperation({ summary: 'Update a SOAP note' })
   update(
     @Param('id') id: string,
@@ -191,6 +200,7 @@ export class SoapNotesController {
 
   @Patch(':id/edit')
   @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @RequireCapability('write_notes')
   @ApiOperation({ summary: 'Edit a SOAP note with history tracking' })
   editNoteWithHistory(
     @Param('id') id: string,

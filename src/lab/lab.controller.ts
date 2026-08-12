@@ -13,6 +13,8 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { CapabilityGuard } from '../auth/guards/capability.guard';
+import { RequireCapability } from '../auth/decorators/require-capability.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.decorator';
 import { LabService } from './lab.service';
@@ -38,7 +40,7 @@ function facilityOf(user: CurrentUserType): string {
 @ApiTags('lab')
 @ApiBearerAuth('JWT-auth')
 @Controller('lab')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, CapabilityGuard)
 @Roles('doctor', 'nurse', 'lab_technician', 'facility_admin', 'super_admin')
 export class LabController {
   constructor(private readonly lab: LabService) {}
@@ -51,11 +53,13 @@ export class LabController {
   }
 
   @Post('tests')
+  @RequireCapability('manage_lab_catalog')
   createTest(@CurrentUser() user: CurrentUserType, @Body() dto: CreateLabTestDto) {
     return this.lab.createTest(facilityOf(user), dto);
   }
 
   @Patch('tests/:id')
+  @RequireCapability('manage_lab_catalog')
   updateTest(@CurrentUser() user: CurrentUserType, @Param('id') id: string, @Body() dto: UpdateLabTestDto) {
     return this.lab.updateTest(facilityOf(user), id, dto);
   }
@@ -69,6 +73,7 @@ export class LabController {
   // ── Orders + worklist ─────────────────────────────────────────────────────────
 
   @Post('orders')
+  @RequireCapability('order_lab')
   createOrder(@CurrentUser() user: CurrentUserType, @Body() dto: CreateLabOrderDto) {
     return this.lab.createOrder(facilityOf(user), user, dto);
   }
@@ -102,6 +107,7 @@ export class LabController {
   // ── Workflow transitions ───────────────────────────────────────────────────────
 
   @Patch('orders/:id/items/:itemId/collect')
+  @RequireCapability('run_lab')
   @ApiOperation({ summary: 'Sample collection / phlebotomy' })
   collect(
     @CurrentUser() user: CurrentUserType,
@@ -113,12 +119,14 @@ export class LabController {
   }
 
   @Patch('orders/:id/items/:itemId/start')
+  @RequireCapability('run_lab')
   @ApiOperation({ summary: 'Begin testing the collected sample' })
   start(@CurrentUser() user: CurrentUserType, @Param('id') id: string, @Param('itemId') itemId: string) {
     return this.lab.startTest(facilityOf(user), id, itemId);
   }
 
   @Put('orders/:id/items/:itemId/result')
+  @RequireCapability('run_lab')
   @ApiOperation({ summary: 'Enter results (post=true also posts them to the record)' })
   result(
     @CurrentUser() user: CurrentUserType,
@@ -130,6 +138,7 @@ export class LabController {
   }
 
   @Patch('orders/:id/items/:itemId/verify')
+  @RequireCapability('run_lab')
   @ApiOperation({ summary: 'Post results to the system (final)' })
   verify(@CurrentUser() user: CurrentUserType, @Param('id') id: string, @Param('itemId') itemId: string) {
     return this.lab.verify(facilityOf(user), id, itemId, user);

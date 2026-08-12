@@ -7,6 +7,8 @@ export interface CurrentUserType {
   role: string;
   /** Every role the user holds (roles[0] === role). */
   roles?: string[];
+  /** Per-user capability allow/deny overrides on top of the roles. */
+  permissionOverrides?: Record<string, boolean> | null;
   firstName: string;
   lastName: string;
   facilityId: string | null;
