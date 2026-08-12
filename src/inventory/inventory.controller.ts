@@ -253,6 +253,16 @@ export class ProcurementController {
     return this.procurement.updateSupplier(facilityOf(user), id, dto);
   }
 
+  @Get('suppliers/:id/statement')
+  supplierStatement(
+    @CurrentUser() user: CurrentUserType,
+    @Param('id') id: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.procurement.supplierStatement(facilityOf(user), id, { from, to });
+  }
+
   @Get('goods-receipts')
   listGrns(@CurrentUser() user: CurrentUserType) {
     return this.procurement.listGoodsReceipts(facilityOf(user));

@@ -58,6 +58,84 @@ export class ProcurementService {
     return this.suppliers.find({ where: { facilityId }, order: { name: 'ASC' } });
   }
 
+  /**
+   * A supplier account statement: every goods receipt (what they sold us —
+   * increases what we owe) and every payment (reduces it), in date order, with a
+   * running balance. `from` sets an opening balance from everything before it.
+   */
+  async supplierStatement(
+    facilityId: string,
+    id: string,
+    range: { from?: string; to?: string } = {},
+  ) {
+    const supplier = await this.getSupplier(facilityId, id);
+
+    const grns = await this.grns.find({ where: { facilityId, supplierId: id } });
+    const pays = await this.payments.find({ where: { facilityId, supplierId: id } });
+
+    type Row = {
+      date: string;
+      type: 'goods' | 'payment';
+      ref: string;
+      description: string;
+      received: number; // increases what we owe
+      paid: number; // reduces it
+    };
+
+    const rows: Row[] = [
+      ...grns.map((g) => ({
+        date: g.date,
+        type: 'goods' as const,
+        ref: g.grnNo,
+        description: g.reference ? `Goods received · ${g.reference}` : 'Goods received',
+        received: Number(g.totalValue),
+        paid: 0,
+      })),
+      ...pays.map((p) => ({
+        date: p.date,
+        type: 'payment' as const,
+        ref: p.paymentNo,
+        description: `Payment (${p.method})${p.reference ? ` · ${p.reference}` : ''}`,
+        received: 0,
+        paid: Number(p.amount),
+      })),
+    ].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.type === 'goods' ? -1 : 1));
+
+    const from = range.from || null;
+    const to = range.to || null;
+
+    // Opening balance = net of everything strictly before `from`.
+    let opening = 0;
+    for (const r of rows) {
+      if (from && r.date < from) opening = r2(opening + r.received - r.paid);
+    }
+
+    const inWindow = rows.filter((r) => (!from || r.date >= from) && (!to || r.date <= to));
+
+    let balance = opening;
+    const transactions = inWindow.map((r) => {
+      balance = r2(balance + r.received - r.paid);
+      return { ...r, balance };
+    });
+
+    const totalReceived = r2(inWindow.reduce((s, r) => s + r.received, 0));
+    const totalPaid = r2(inWindow.reduce((s, r) => s + r.paid, 0));
+
+    return {
+      supplier,
+      from,
+      to,
+      openingBalance: opening,
+      transactions,
+      totals: {
+        received: totalReceived,
+        paid: totalPaid,
+        // The live payable owed, from the supplier's running balance.
+        balance: Number(supplier.balance),
+      },
+    };
+  }
+
   async getSupplier(facilityId: string, id: string): Promise<Supplier> {
     const s = await this.suppliers.findOne({ where: { id, facilityId } });
     if (!s) throw new NotFoundException('Supplier not found');
