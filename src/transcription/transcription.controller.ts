@@ -120,16 +120,26 @@ export class TranscriptionController {
   // terms and drug names are preserved.
   @Post('proofread')
   @ApiOperation({ summary: 'Proofread clinical text for spelling & grammar (Groq LLM)' })
-  async proofread(@Body() body: { text: string }) {
+  async proofread(@Body() body: { text: string; section?: string }) {
     const text = (body?.text ?? '').trim();
     if (!text) return { corrected: '', issues: [] };
     if (!this.GROQ_API_KEY) throw new Error('GROQ_API_KEY not configured in environment');
+
+    // Which part of the SOAP note this is, so the model calibrates its
+    // expectations (a Management field is drugs/doses/instructions; Symptoms is
+    // patient-reported complaints; Diagnosis is disease names, etc.).
+    const section = (body?.section ?? '').trim().slice(0, 80);
+    const sectionLine = section
+      ? `This text is the "${section}" section of a clinical SOAP note; judge whether each word fits what that section usually contains. `
+      : '';
 
     const system =
       'You are a proofreading assistant for medical notes that were dictated and ' +
       'transcribed by speech-to-text, so expect mis-heard words that are spelled ' +
       'correctly but wrong in context (homophones, garbled drug or medical terms, ' +
-      'e.g. "hypotension" heard as "hypertension"). Do two things:\n' +
+      'e.g. "hypotension" heard as "hypertension"). ' +
+      sectionLine +
+      'Do two things:\n' +
       '1. Fix clear spelling, grammar and punctuation mistakes.\n' +
       '2. Flag words or phrases that do not make sense in the clinical context or ' +
       'look like transcription errors, and suggest the most probable intended term.\n' +
