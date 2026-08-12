@@ -2,7 +2,7 @@
 // Auto-completes the patient's active visit when a SOAP note is saved
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { LessThan, Repository } from 'typeorm';
 import { SoapNote } from './entities/soap-note.entity';
 import { CreateSoapNoteDto } from './dto/create-soap-note.dto';
 import { UpdateSoapNoteDto } from './dto/update-soap-note.dto';
@@ -343,10 +343,25 @@ export class SoapNotesService {
 
   // ── GET MY DRAFTS ──────────────────────────────────────────────────────────
   async getMyDrafts(userId: string, facilityId: string): Promise<SoapNote[]> {
+    await this.purgeStaleDrafts(facilityId);
     return this.soapNotesRepository.find({
       where: { createdById: userId, facilityId, status: SoapNoteStatus.DRAFT },
       relations: ['patient'],
       order: { updatedAt: 'DESC' },
+    });
+  }
+
+  /**
+   * Drafts left untouched for two weeks are discarded — an autosaved draft that
+   * was never finalised shouldn't linger forever. Runs opportunistically each
+   * time drafts are listed (idempotent, facility-scoped).
+   */
+  private async purgeStaleDrafts(facilityId: string): Promise<void> {
+    const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+    await this.soapNotesRepository.delete({
+      facilityId,
+      status: SoapNoteStatus.DRAFT,
+      updatedAt: LessThan(cutoff),
     });
   }
 

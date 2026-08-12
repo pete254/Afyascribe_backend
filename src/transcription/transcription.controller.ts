@@ -112,4 +112,71 @@ export class TranscriptionController {
       throw error;
     }
   }
+
+  // ── AI proofreading (spelling & grammar) ────────────────────────────────────
+  // Reuses the configured Groq key (OpenAI-compatible chat API) to proofread a
+  // clinical text field: returns the corrected text plus a list of individual
+  // suggestions the clinician can accept one by one, Grammarly-style. Medical
+  // terms and drug names are preserved.
+  @Post('proofread')
+  @ApiOperation({ summary: 'Proofread clinical text for spelling & grammar (Groq LLM)' })
+  async proofread(@Body() body: { text: string }) {
+    const text = (body?.text ?? '').trim();
+    if (!text) return { corrected: '', issues: [] };
+    if (!this.GROQ_API_KEY) throw new Error('GROQ_API_KEY not configured in environment');
+
+    const system =
+      'You are a proofreading assistant for clinical notes. Correct spelling, ' +
+      'grammar and punctuation only. Do NOT change clinical meaning, dosages, ' +
+      'numbers, or medical/drug terminology, and do not add or remove content. ' +
+      'Preserve line breaks. Respond with STRICT JSON only, no prose, of the form: ' +
+      '{"corrected": "<full corrected text>", "issues": [{"original": "<exact ' +
+      'substring from the input>", "suggestion": "<replacement>", "reason": "<short>"}]}. ' +
+      'If there are no changes, return the text unchanged with an empty issues array.';
+
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.GROQ_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        temperature: 0,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: text },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      this.logger.error(`❌ Groq proofread error: ${errorText}`);
+      throw new Error(`Proofread failed: ${response.status}`);
+    }
+
+    const data: any = await response.json();
+    const content: string = data?.choices?.[0]?.message?.content ?? '';
+    try {
+      const cleaned = content.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+      const parsed = JSON.parse(cleaned);
+      const issues = Array.isArray(parsed.issues)
+        ? parsed.issues
+            .filter((i: any) => i && i.original && i.suggestion && i.original !== i.suggestion)
+            .slice(0, 50)
+            .map((i: any) => ({
+              original: String(i.original),
+              suggestion: String(i.suggestion),
+              reason: String(i.reason ?? 'Correction'),
+            }))
+        : [];
+      return { corrected: typeof parsed.corrected === 'string' ? parsed.corrected : text, issues };
+    } catch (e) {
+      this.logger.error(`❌ Proofread parse error: ${(e as Error).message}`);
+      // Fall back to no-op rather than failing the request.
+      return { corrected: text, issues: [] };
+    }
+  }
 }
