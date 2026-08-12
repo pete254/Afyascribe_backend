@@ -216,7 +216,7 @@ export class FacilityUsersController {
   })
   async setStaffRole(
     @Param('userId', ParseUUIDPipe) userId: string,
-    @Body() body: { role?: UserRole; roles?: UserRole[] },
+    @Body() body: { role?: UserRole; roles?: UserRole[]; practitionerNo?: string },
     @CurrentUser() admin: CurrentUserType,
   ) {
     assertCanManageStaff(admin);
@@ -260,6 +260,10 @@ export class FacilityUsersController {
     }
 
     await this.usersService.setRoles(userId, requested);
+    // Let the admin set/replace the practitioner registration number.
+    if (body.practitionerNo !== undefined) {
+      await this.usersService.setPractitionerNo(userId, body.practitionerNo);
+    }
     return { message: 'Roles updated successfully', roles: requested, role: requested[0] };
   }
 

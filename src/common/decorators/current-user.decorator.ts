@@ -9,6 +9,8 @@ export interface CurrentUserType {
   roles?: string[];
   /** Per-user capability allow/deny overrides on top of the roles. */
   permissionOverrides?: Record<string, boolean> | null;
+  /** Practitioner registration number (doctors/pharmacists), for prescriptions. */
+  practitionerNo?: string | null;
   firstName: string;
   lastName: string;
   facilityId: string | null;

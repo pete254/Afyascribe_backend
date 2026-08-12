@@ -54,6 +54,10 @@ export class Prescription {
   @Column({ name: 'doctor_name', nullable: true })
   doctorName: string | null;
 
+  /** The prescriber's practitioner registration number, snapshotted. */
+  @Column({ name: 'doctor_no', type: 'varchar', length: 30, nullable: true })
+  doctorNo: string | null;
+
   @Column({ type: 'text', nullable: true })
   diagnosis: string | null;
 

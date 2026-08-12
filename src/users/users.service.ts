@@ -34,6 +34,10 @@ export class UsersService {
       role: createUserDto.role,
       roles: [createUserDto.role],
       facilityId: createUserDto.facilityId ?? null,
+      // Doctors and pharmacists get a practitioner number for prescriptions.
+      ...(this.isPractitionerRole(createUserDto.role)
+        ? { practitionerNo: await this.generatePractitionerNo() }
+        : {}),
       // isOwner is stored if the column exists (migration has been run)
       ...(createUserDto.isOwner !== undefined ? { isOwner: createUserDto.isOwner } : {}),
     });
@@ -74,7 +78,8 @@ export class UsersService {
       where: { facilityId },
       order: { lastName: 'ASC', firstName: 'ASC' },
       select: [
-        'id', 'email', 'firstName', 'lastName', 'role',
+        'id', 'email', 'firstName', 'lastName', 'role', 'roles',
+        'isOwner', 'permissionOverrides', 'practitionerNo',
         'isActive', 'isDeactivated', 'deactivatedAt',
         'deactivationReason', 'createdAt', 'updatedAt',
       ],
@@ -190,6 +195,48 @@ export class UsersService {
   async setRoles(userId: string, roles: UserRole[]): Promise<void> {
     const unique = [...new Set(roles)];
     await this.usersRepository.update(userId, { role: unique[0], roles: unique });
+    // Becoming a doctor/pharmacist earns a practitioner number if they lack one.
+    if (unique.some((r) => r === UserRole.DOCTOR || r === UserRole.PHARMACIST)) {
+      await this.ensurePractitionerNo(userId);
+    }
+  }
+
+  private isPractitionerRole(role?: string | null): boolean {
+    return role === UserRole.DOCTOR || role === UserRole.PHARMACIST;
+  }
+
+  /** Next practitioner number, e.g. "P#A0000" (global sequence). */
+  async generatePractitionerNo(): Promise<string> {
+    const rows = await this.usersRepository
+      .createQueryBuilder('u')
+      .select('u.practitionerNo', 'no')
+      .where('u.practitionerNo IS NOT NULL')
+      .getRawMany();
+    let max = -1;
+    for (const r of rows) {
+      const m = String(r.no ?? '').match(/(\d+)\s*$/);
+      if (m) max = Math.max(max, Number(m[1]));
+    }
+    return `P#A${String(max + 1).padStart(4, '0')}`;
+  }
+
+  /** Assign a practitioner number if the user is a practitioner and lacks one. */
+  async ensurePractitionerNo(userId: string): Promise<void> {
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+    if (!user || (user as any).practitionerNo) return;
+    const roles: string[] = Array.isArray((user as any).roles) && (user as any).roles.length
+      ? (user as any).roles
+      : [user.role];
+    if (!roles.some((r) => this.isPractitionerRole(r))) return;
+    const no = await this.generatePractitionerNo();
+    await this.usersRepository.update(userId, { practitionerNo: no });
+  }
+
+  /** Manually set (or clear) a user's practitioner registration number. */
+  async setPractitionerNo(userId: string, practitionerNo: string | null): Promise<void> {
+    await this.usersRepository.update(userId, {
+      practitionerNo: practitionerNo?.trim() || null,
+    });
   }
 
   /**

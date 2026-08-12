@@ -45,6 +45,7 @@ export class PrescriptionsService {
       visitId: dto.visitId ?? null,
       doctorId: user.id,
       doctorName: this.fullName(user),
+      doctorNo: user.practitionerNo ?? null,
       diagnosis: dto.diagnosis ?? null,
       notes: dto.notes ?? null,
       status: 'pending',

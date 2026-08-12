@@ -81,6 +81,14 @@ export class User {
   @Column({ name: 'permission_overrides', type: 'jsonb', nullable: true })
   permissionOverrides: Record<string, boolean> | null;
 
+  /**
+   * Practitioner registration number for prescribing/dispensing staff (doctors
+   * and pharmacists), e.g. "P#A0000". Printed on prescriptions in place of a
+   * signature. Auto-assigned when someone becomes a doctor or pharmacist.
+   */
+  @Column({ name: 'practitioner_no', type: 'varchar', length: 30, nullable: true })
+  practitionerNo: string | null;
+
   // ── Facility Link ──────────────────────────────────────────────────────────
   @Column({ nullable: true, type: 'uuid' })
   facilityId: string | null;
