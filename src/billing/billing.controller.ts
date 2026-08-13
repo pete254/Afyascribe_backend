@@ -70,6 +70,13 @@ export class BillingController {
     return this.billingService.findOutstandingOlder(user.facilityId);
   }
 
+  @Get('aging')
+  @Roles('cashier', 'accountant', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Accounts-receivable aging (30/60/90) by payer' })
+  aging(@CurrentUser() user: any, @Query('asOf') asOf?: string) {
+    return this.billingService.agingReport(user.facilityId, asOf);
+  }
+
   // ── Insurance claims ────────────────────────────────────────────────────────
 
   @Get('claims')

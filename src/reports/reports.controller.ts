@@ -54,6 +54,24 @@ export class ReportsController {
     return this.reportsService.getFinancialReport(user.facilityId, fromDate, toDate);
   }
 
+  // ── PAYER MIX ──────────────────────────────────────────────────────────────
+  @Get('payer-mix')
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({ summary: 'Revenue split by payer (self-pay vs each insurer) for a date range' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  getPayerMix(
+    @CurrentUser() user: any,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    assertCanViewReports(user);
+    const today = new Date();
+    const fromDate = from ? new Date(from) : new Date(new Date().setDate(1));
+    const toDate = to ? new Date(to) : today;
+    return this.reportsService.payerMix(user.facilityId, fromDate, toDate);
+  }
+
   // ── INSURANCE CLAIMS ───────────────────────────────────────────────────────
   @Get('insurance-claims')
   @Roles('facility_admin', 'super_admin', 'doctor')

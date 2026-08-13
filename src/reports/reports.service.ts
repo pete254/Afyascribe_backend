@@ -117,6 +117,72 @@ export class ReportsService {
     };
   }
 
+  /**
+   * Payer-mix analysis. Splits the period's billed revenue across payer
+   * categories — self-pay (cash) versus each insurer — with what was billed,
+   * collected, still outstanding, and each payer's share of the total. Hospital
+   * management uses this to see how dependent the facility is on each insurer.
+   */
+  async payerMix(facilityId: string, from: Date, to: Date) {
+    const toEnd = new Date(to);
+    toEnd.setHours(23, 59, 59, 999);
+    const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+
+    const bills = await this.billingRepo
+      .createQueryBuilder('b')
+      .where('b.facility_id = :facilityId', { facilityId })
+      .andWhere('b.created_at >= :from', { from })
+      .andWhere('b.created_at <= :to', { to: toEnd })
+      .andWhere('b.status != :waived', { waived: BillingStatus.WAIVED })
+      .getMany();
+
+    const map = new Map<
+      string,
+      { payer: string; type: 'cash' | 'insurer'; billed: number; collected: number; outstanding: number; count: number }
+    >();
+    // Cash collections split by tender (cash / mpesa / card).
+    const tender = new Map<string, number>();
+
+    for (const b of bills) {
+      const isInsurer = b.paymentMode === PaymentMode.INSURANCE || b.paymentMode === PaymentMode.SPLIT;
+      const payer = isInsurer ? b.insurerName || b.insuranceSchemeName || 'Insurer (unspecified)' : 'Cash / self-pay';
+      const key = `${isInsurer ? 'I' : 'C'}:${payer}`;
+      const amount = Number(b.amount);
+      const paid = Number(b.amountPaid || 0);
+
+      const g = map.get(key) ?? {
+        payer, type: isInsurer ? 'insurer' as const : 'cash' as const,
+        billed: 0, collected: 0, outstanding: 0, count: 0,
+      };
+      g.billed = r2(g.billed + amount);
+      g.collected = r2(g.collected + paid);
+      g.outstanding = r2(g.outstanding + Math.max(0, amount - paid));
+      g.count += 1;
+      map.set(key, g);
+
+      if (!isInsurer && paid > 0) {
+        const t = (b.paymentMethod as string) || 'cash';
+        tender.set(t, r2((tender.get(t) || 0) + paid));
+      }
+    }
+
+    const totalBilled = r2([...map.values()].reduce((s, g) => s + g.billed, 0));
+    const rows = [...map.values()]
+      .map((g) => ({ ...g, share: totalBilled ? r2((g.billed / totalBilled) * 100) : 0 }))
+      .sort((a, b) => b.billed - a.billed);
+
+    return {
+      period: { from, to: toEnd },
+      rows,
+      tenderBreakdown: [...tender.entries()].map(([method, amount]) => ({ method, amount })),
+      totals: {
+        billed: totalBilled,
+        collected: r2([...map.values()].reduce((s, g) => s + g.collected, 0)),
+        outstanding: r2([...map.values()].reduce((s, g) => s + g.outstanding, 0)),
+      },
+    };
+  }
+
   // ── INSURANCE CLAIMS REPORT ────────────────────────────────────────────────
   async getInsuranceClaims(
     facilityId: string,

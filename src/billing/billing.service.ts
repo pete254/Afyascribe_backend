@@ -169,6 +169,82 @@ export class BillingService {
       .getMany();
   }
 
+  /**
+   * Accounts-receivable aging. Every bill with money still owed (unpaid or
+   * part-paid, cash or insurance) is bucketed by how long it has been
+   * outstanding as of `asOf`, and grouped by payer (the insurer, or "Cash /
+   * self-pay"). This is the classic 30/60/90 report finance uses to chase debt.
+   */
+  async agingReport(
+    facilityId: string,
+    asOf?: string,
+  ): Promise<{
+    asOf: string;
+    buckets: string[];
+    payers: {
+      payer: string;
+      type: 'cash' | 'insurer';
+      current: number;
+      d30: number;
+      d60: number;
+      d90: number;
+      d90plus: number;
+      total: number;
+    }[];
+    totals: { current: number; d30: number; d60: number; d90: number; d90plus: number; total: number };
+  }> {
+    const asOfDate = asOf ? new Date(`${asOf}T23:59:59.999`) : new Date();
+    const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+
+    const bills = await this.billingRepo
+      .createQueryBuilder('bill')
+      .where('bill.facility_id = :facilityId', { facilityId })
+      .andWhere('bill.status IN (:...statuses)', {
+        statuses: [BillingStatus.UNPAID, BillingStatus.INSURANCE_PENDING],
+      })
+      .andWhere('bill.created_at <= :asOf', { asOf: asOfDate })
+      .getMany();
+
+    type Row = {
+      payer: string;
+      type: 'cash' | 'insurer';
+      current: number; d30: number; d60: number; d90: number; d90plus: number; total: number;
+    };
+    const map = new Map<string, Row>();
+    const totals = { current: 0, d30: 0, d60: 0, d90: 0, d90plus: 0, total: 0 };
+
+    for (const b of bills) {
+      const owed = Number(b.amount) - Number(b.amountPaid || 0);
+      if (owed <= 0.009) continue;
+
+      const isInsurer = b.paymentMode === PaymentMode.INSURANCE || b.paymentMode === PaymentMode.SPLIT;
+      const payer = isInsurer ? b.insurerName || b.insuranceSchemeName || 'Insurer (unspecified)' : 'Cash / self-pay';
+      const key = `${isInsurer ? 'I' : 'C'}:${payer}`;
+
+      const days = Math.floor((asOfDate.getTime() - new Date(b.createdAt).getTime()) / 86400000);
+      const bucket =
+        days <= 30 ? 'current' : days <= 60 ? 'd30' : days <= 90 ? 'd60' : days <= 120 ? 'd90' : 'd90plus';
+
+      const row = map.get(key) ?? {
+        payer, type: isInsurer ? 'insurer' as const : 'cash' as const,
+        current: 0, d30: 0, d60: 0, d90: 0, d90plus: 0, total: 0,
+      };
+      row[bucket] = r2(row[bucket] + owed);
+      row.total = r2(row.total + owed);
+      totals[bucket] = r2(totals[bucket] + owed);
+      totals.total = r2(totals.total + owed);
+      map.set(key, row);
+    }
+
+    const payers = [...map.values()].sort((a, b) => b.total - a.total);
+    return {
+      asOf: asOfDate.toISOString().slice(0, 10),
+      buckets: ['0–30 days', '31–60 days', '61–90 days', '91–120 days', 'Over 120 days'],
+      payers,
+      totals,
+    };
+  }
+
   // ── COLLECT PARTIAL or FULL PAYMENT ──────────────────────────────────────
   async collectPayment(
     billId: string,
