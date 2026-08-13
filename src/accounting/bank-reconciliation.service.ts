@@ -5,6 +5,7 @@ import { BankReconciliation } from './entities/bank-reconciliation.entity';
 import { JournalLine } from './entities/journal-line.entity';
 import { JournalEntry } from './entities/journal-entry.entity';
 import { LedgerAccount } from './entities/ledger-account.entity';
+import { LedgerService } from './ledger.service';
 
 const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
 
@@ -28,7 +29,52 @@ export class BankReconciliationService {
     private readonly lines: Repository<JournalLine>,
     @InjectRepository(LedgerAccount)
     private readonly accounts: Repository<LedgerAccount>,
+    private readonly ledger: LedgerService,
   ) {}
+
+  /**
+   * Book a bank-only transaction found on the statement but missing from the
+   * books (a bank charge, interest, direct debit, standing order…) as a balanced
+   * two-line journal, and return the new GL line on the bank account so the
+   * caller can immediately mark it cleared/matched.
+   *   direction 'in'  → money into the bank:  Dr bank, Cr counter
+   *   direction 'out' → money out of the bank: Dr counter, Cr bank
+   */
+  async createTransaction(
+    facilityId: string,
+    input: {
+      bankAccountCode: string;
+      counterAccountCode: string;
+      amount: number;
+      direction: 'in' | 'out';
+      date: string;
+      description?: string;
+    },
+    userId?: string,
+  ): Promise<{ lineId: string; entryId: string; entryNo: string }> {
+    if (!(input.amount > 0)) throw new BadRequestException('Amount must be greater than 0');
+    const bank = { accountCode: input.bankAccountCode, description: input.description ?? null };
+    const other = { accountCode: input.counterAccountCode, description: input.description ?? null };
+    const amt = r2(input.amount);
+    const lines =
+      input.direction === 'in'
+        ? [{ ...bank, debit: amt, credit: 0 }, { ...other, debit: 0, credit: amt }]
+        : [{ ...other, debit: amt, credit: 0 }, { ...bank, debit: 0, credit: amt }];
+
+    const entry = await this.ledger.post({
+      facilityId,
+      date: input.date,
+      source: 'bank_recon',
+      sourceType: 'bank_transaction',
+      memo: input.description ?? 'Bank reconciliation adjustment',
+      postedById: userId ?? null,
+      lines,
+    });
+
+    const bankLine = (entry.lines ?? []).find((l) => l.accountCode === input.bankAccountCode);
+    if (!bankLine) throw new BadRequestException('Failed to locate the new bank line');
+    return { lineId: bankLine.id, entryId: entry.id, entryNo: entry.entryNo };
+  }
 
   /** Cash/bank accounts that exist for this facility, each with its GL balance. */
   async bankAccounts(facilityId: string) {

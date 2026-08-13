@@ -10,7 +10,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { IsArray, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -23,6 +23,15 @@ class CreateReconDto {
   @IsNumber() statementBalance: number;
   @IsArray() @IsString({ each: true }) clearedLineIds: string[];
   @IsOptional() @IsString() note?: string;
+}
+
+class CreateTxnDto {
+  @IsString() bankAccountCode: string;
+  @IsString() counterAccountCode: string;
+  @IsNumber() amount: number;
+  @IsIn(['in', 'out']) direction: 'in' | 'out';
+  @IsString() date: string;
+  @IsOptional() @IsString() description?: string;
 }
 
 /** Bank reconciliation — match the GL cash/bank accounts to bank statements. */
@@ -73,6 +82,12 @@ export class BankReconciliationController {
   @ApiOperation({ summary: 'Record a reconciliation (marks the ticked lines cleared)' })
   create(@CurrentUser() user: CurrentUserType, @Body() dto: CreateReconDto) {
     return this.service.create(this.facility(user), dto, user.id);
+  }
+
+  @Post('transaction')
+  @ApiOperation({ summary: 'Book a bank-only transaction (charge/interest) and return its new bank line' })
+  createTransaction(@CurrentUser() user: CurrentUserType, @Body() dto: CreateTxnDto) {
+    return this.service.createTransaction(this.facility(user), dto, user.id);
   }
 
   @Delete(':id')
