@@ -7,6 +7,7 @@ import { LedgerAccount } from './entities/ledger-account.entity';
 import { JournalEntry } from './entities/journal-entry.entity';
 import { JournalLine } from './entities/journal-line.entity';
 import { BankReconciliation } from './entities/bank-reconciliation.entity';
+import { BankReconRule } from './entities/bank-recon-rule.entity';
 import { LedgerService } from './ledger.service';
 import { HmisPostingService } from './hmis-posting.service';
 import { FinancialReportsService } from './financial-reports.service';
@@ -22,7 +23,7 @@ import { BankReconciliationController } from './bank-reconciliation.controller';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([LedgerAccount, JournalEntry, JournalLine, BankReconciliation]),
+    TypeOrmModule.forFeature([LedgerAccount, JournalEntry, JournalLine, BankReconciliation, BankReconRule]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

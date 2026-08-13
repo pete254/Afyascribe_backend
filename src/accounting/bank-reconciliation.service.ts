@@ -2,10 +2,12 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
 import { BankReconciliation } from './entities/bank-reconciliation.entity';
+import { BankReconRule } from './entities/bank-recon-rule.entity';
 import { JournalLine } from './entities/journal-line.entity';
 import { JournalEntry } from './entities/journal-entry.entity';
 import { LedgerAccount } from './entities/ledger-account.entity';
 import { LedgerService } from './ledger.service';
+import { DEFAULT_RECON_RULES } from './data/bank-recon-rule-defaults';
 
 const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
 
@@ -29,8 +31,92 @@ export class BankReconciliationService {
     private readonly lines: Repository<JournalLine>,
     @InjectRepository(LedgerAccount)
     private readonly accounts: Repository<LedgerAccount>,
+    @InjectRepository(BankReconRule)
+    private readonly rules: Repository<BankReconRule>,
     private readonly ledger: LedgerService,
   ) {}
+
+  // ── Categorisation rules ─────────────────────────────────────────────────────
+
+  listRules(facilityId: string): Promise<BankReconRule[]> {
+    return this.rules.find({
+      where: { facilityId },
+      order: { priority: 'DESC', createdAt: 'ASC' },
+    });
+  }
+
+  async createRule(
+    facilityId: string,
+    dto: { pattern: string; accountCode: string; accountName?: string; isRegex?: boolean; priority?: number },
+    userId?: string,
+  ): Promise<BankReconRule> {
+    if (!dto.pattern?.trim()) throw new BadRequestException('Pattern is required');
+    const account = await this.accounts.findOne({ where: { facilityId, code: dto.accountCode } });
+    if (!account) throw new BadRequestException('Account not found');
+    return this.rules.save(
+      this.rules.create({
+        facilityId,
+        pattern: dto.pattern.trim(),
+        isRegex: !!dto.isRegex,
+        accountCode: dto.accountCode,
+        accountName: dto.accountName ?? account.name,
+        priority: dto.priority ?? 0,
+        active: true,
+        createdById: userId ?? null,
+      }),
+    );
+  }
+
+  async updateRule(
+    facilityId: string,
+    id: string,
+    dto: Partial<{ pattern: string; accountCode: string; accountName: string; isRegex: boolean; priority: number; active: boolean }>,
+  ): Promise<BankReconRule> {
+    const rule = await this.rules.findOne({ where: { id, facilityId } });
+    if (!rule) throw new NotFoundException('Rule not found');
+    if (dto.accountCode && dto.accountCode !== rule.accountCode) {
+      const account = await this.accounts.findOne({ where: { facilityId, code: dto.accountCode } });
+      if (!account) throw new BadRequestException('Account not found');
+      rule.accountName = dto.accountName ?? account.name;
+    }
+    Object.assign(rule, {
+      pattern: dto.pattern?.trim() ?? rule.pattern,
+      accountCode: dto.accountCode ?? rule.accountCode,
+      isRegex: dto.isRegex ?? rule.isRegex,
+      priority: dto.priority ?? rule.priority,
+      active: dto.active ?? rule.active,
+    });
+    if (dto.accountName !== undefined) rule.accountName = dto.accountName;
+    return this.rules.save(rule);
+  }
+
+  async deleteRule(facilityId: string, id: string): Promise<{ deleted: boolean }> {
+    const res = await this.rules.delete({ id, facilityId });
+    return { deleted: (res.affected ?? 0) > 0 };
+  }
+
+  /** Seed the starter rules (only those whose account exists), once per facility. */
+  async seedRules(facilityId: string, userId?: string): Promise<{ created: number }> {
+    const existing = await this.rules.count({ where: { facilityId } });
+    if (existing > 0) return { created: 0 };
+    const codes = new Set(
+      (await this.accounts.find({ where: { facilityId } })).map((a) => a.code),
+    );
+    const rows = DEFAULT_RECON_RULES.filter((r) => codes.has(r.accountCode)).map((r) =>
+      this.rules.create({
+        facilityId,
+        pattern: r.pattern,
+        isRegex: false,
+        accountCode: r.accountCode,
+        accountName: r.accountName,
+        priority: r.priority,
+        active: true,
+        createdById: userId ?? null,
+      }),
+    );
+    if (rows.length) await this.rules.save(rows);
+    return { created: rows.length };
+  }
 
   /**
    * Book a bank-only transaction found on the statement but missing from the
@@ -190,11 +276,19 @@ export class BankReconciliationService {
       throw new BadRequestException('Some selected lines are missing or already reconciled');
     }
 
-    const { openingBalance } = await this.unreconciled(facilityId, input.accountCode, input.statementDate);
+    const unrec = await this.unreconciled(facilityId, input.accountCode, input.statementDate);
+    const openingBalance = unrec.openingBalance;
     const clearedNet = r2(cleared.reduce((s, l) => s + Number(l.debit) - Number(l.credit), 0));
     const reconciledBalance = r2(openingBalance + clearedNet);
     const difference = r2(Number(input.statementBalance) - reconciledBalance);
     const glBalance = await this.accountBalance(facilityId, input.accountCode, input.statementDate);
+
+    // Snapshot the timing differences (uncleared lines left after this session) so
+    // the historical report keeps its deposits-in-transit / outstanding detail.
+    const clearedSet = new Set(clearedIds);
+    const adjustments = unrec.lines
+      .filter((l) => !clearedSet.has(l.id))
+      .map((l) => ({ date: l.date, description: l.memo || '', amount: l.amount }));
 
     const recon = await this.recons.save(
       this.recons.create({
@@ -208,6 +302,7 @@ export class BankReconciliationService {
         difference: difference.toFixed(2),
         glBalance: glBalance.toFixed(2),
         clearedCount: cleared.length,
+        adjustments,
         status: Math.abs(difference) < 0.01 ? 'completed' : 'review',
         note: input.note ?? null,
         createdById: userId ?? null,

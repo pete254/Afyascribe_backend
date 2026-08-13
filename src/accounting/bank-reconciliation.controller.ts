@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Body,
   Param,
@@ -10,7 +11,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { IsArray, IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -32,6 +33,23 @@ class CreateTxnDto {
   @IsIn(['in', 'out']) direction: 'in' | 'out';
   @IsString() date: string;
   @IsOptional() @IsString() description?: string;
+}
+
+class CreateRuleDto {
+  @IsString() pattern: string;
+  @IsString() accountCode: string;
+  @IsOptional() @IsString() accountName?: string;
+  @IsOptional() @IsBoolean() isRegex?: boolean;
+  @IsOptional() @IsNumber() priority?: number;
+}
+
+class UpdateRuleDto {
+  @IsOptional() @IsString() pattern?: string;
+  @IsOptional() @IsString() accountCode?: string;
+  @IsOptional() @IsString() accountName?: string;
+  @IsOptional() @IsBoolean() isRegex?: boolean;
+  @IsOptional() @IsNumber() priority?: number;
+  @IsOptional() @IsBoolean() active?: boolean;
 }
 
 /** Bank reconciliation — match the GL cash/bank accounts to bank statements. */
@@ -70,6 +88,38 @@ export class BankReconciliationController {
   @ApiOperation({ summary: 'Reconciliation history' })
   list(@CurrentUser() user: CurrentUserType, @Query('accountCode') accountCode?: string) {
     return this.service.list(this.facility(user), accountCode);
+  }
+
+  // ── Categorisation rules (declared before :id so /rules isn't read as an id) ──
+
+  @Get('rules')
+  @ApiOperation({ summary: 'Editable description→account rules for this facility' })
+  listRules(@CurrentUser() user: CurrentUserType) {
+    return this.service.listRules(this.facility(user));
+  }
+
+  @Post('rules')
+  @ApiOperation({ summary: 'Create a categorisation rule' })
+  createRule(@CurrentUser() user: CurrentUserType, @Body() dto: CreateRuleDto) {
+    return this.service.createRule(this.facility(user), dto, user.id);
+  }
+
+  @Post('rules/seed')
+  @ApiOperation({ summary: 'Seed the starter rules (once per facility)' })
+  seedRules(@CurrentUser() user: CurrentUserType) {
+    return this.service.seedRules(this.facility(user), user.id);
+  }
+
+  @Patch('rules/:id')
+  @ApiOperation({ summary: 'Update a categorisation rule' })
+  updateRule(@CurrentUser() user: CurrentUserType, @Param('id') id: string, @Body() dto: UpdateRuleDto) {
+    return this.service.updateRule(this.facility(user), id, dto);
+  }
+
+  @Delete('rules/:id')
+  @ApiOperation({ summary: 'Delete a categorisation rule' })
+  deleteRule(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
+    return this.service.deleteRule(this.facility(user), id);
   }
 
   @Get(':id')

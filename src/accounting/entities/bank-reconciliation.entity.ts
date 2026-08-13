@@ -58,6 +58,15 @@ export class BankReconciliation {
   @Column({ name: 'cleared_count', type: 'int', default: 0 })
   clearedCount: number;
 
+  /**
+   * Snapshot of the timing differences at completion — the uncleared ledger
+   * lines (deposits in transit as positive, outstanding payments as negative) —
+   * so a historical reconciliation report can be reprinted in full even after
+   * later sessions clear those lines.
+   */
+  @Column({ name: 'adjustments', type: 'jsonb', default: [] })
+  adjustments: { date: string; description: string; amount: number }[];
+
   @Column({ type: 'varchar', length: 12, default: 'review' })
   status: BankReconStatus;
 
