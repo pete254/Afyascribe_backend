@@ -125,6 +125,26 @@ export class AdjustStockDto {
   date?: string;
 }
 
+export class StockCountLineDto {
+  @ApiProperty() @IsUUID() itemId: string;
+  @ApiProperty({ description: 'Physically counted quantity' }) @IsNumber() @Min(0) countedQty: number;
+  @ApiPropertyOptional() @IsString() @IsOptional() reason?: string;
+}
+
+export class StockCountDto {
+  @ApiProperty({ type: [StockCountLineDto] })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => StockCountLineDto)
+  lines: StockCountLineDto[];
+
+  @ApiPropertyOptional({ description: 'Effective date of the count (YYYY-MM-DD)' })
+  @IsDateString()
+  @IsOptional()
+  date?: string;
+}
+
 export class CreateSupplierDto {
   @ApiProperty() @IsString() name: string;
   @ApiPropertyOptional() @IsString() @IsOptional() contactPerson?: string;

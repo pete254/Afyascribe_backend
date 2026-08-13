@@ -28,6 +28,7 @@ import {
   UpdateSupplierDto,
   CreateGoodsReceiptDto,
   CreateSupplierPaymentDto,
+  StockCountDto,
 } from './dto/inventory.dto';
 import { CreatePurchaseOrderDto, DecisionDto } from './dto/purchase-order.dto';
 import { CreateRequisitionDto } from './dto/purchase-requisition.dto';
@@ -99,6 +100,11 @@ export class InventoryController {
   @Post('items/:id/adjust')
   adjust(@CurrentUser() user: CurrentUserType, @Param('id') id: string, @Body() dto: AdjustStockDto) {
     return this.stock.adjustStock(facilityOf(user), id, dto);
+  }
+
+  @Post('stock-count')
+  stockCount(@CurrentUser() user: CurrentUserType, @Body() dto: StockCountDto) {
+    return this.stock.applyStockCount(facilityOf(user), dto.lines, dto.date);
   }
 }
 

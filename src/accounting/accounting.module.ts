@@ -6,10 +6,13 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { LedgerAccount } from './entities/ledger-account.entity';
 import { JournalEntry } from './entities/journal-entry.entity';
 import { JournalLine } from './entities/journal-line.entity';
+import { BankReconciliation } from './entities/bank-reconciliation.entity';
 import { LedgerService } from './ledger.service';
 import { HmisPostingService } from './hmis-posting.service';
 import { FinancialReportsService } from './financial-reports.service';
+import { BankReconciliationService } from './bank-reconciliation.service';
 import { AccountingController } from './accounting.controller';
+import { BankReconciliationController } from './bank-reconciliation.controller';
 
 /**
  * The accounting core: the chart of accounts and the double-entry general
@@ -19,7 +22,7 @@ import { AccountingController } from './accounting.controller';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([LedgerAccount, JournalEntry, JournalLine]),
+    TypeOrmModule.forFeature([LedgerAccount, JournalEntry, JournalLine, BankReconciliation]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -29,8 +32,8 @@ import { AccountingController } from './accounting.controller';
       }),
     }),
   ],
-  controllers: [AccountingController],
-  providers: [LedgerService, HmisPostingService, FinancialReportsService],
+  controllers: [AccountingController, BankReconciliationController],
+  providers: [LedgerService, HmisPostingService, FinancialReportsService, BankReconciliationService],
   exports: [LedgerService, HmisPostingService, FinancialReportsService],
 })
 export class AccountingModule {}

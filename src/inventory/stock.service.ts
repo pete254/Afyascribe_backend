@@ -471,6 +471,141 @@ export class StockService {
     return item;
   }
 
+  /**
+   * Apply a physical stock count. Each line carries a counted quantity for an
+   * item; the difference against the system quantity is booked as an adjustment
+   * (in or out) at the item's moving-average cost, stock movements and batches
+   * are written, and the matching ledger journals are posted. Returns a report
+   * of every variance and the financial impact — the write-up/write-down value.
+   */
+  async applyStockCount(
+    facilityId: string,
+    lines: { itemId: string; countedQty: number; reason?: string }[],
+    date?: string,
+  ): Promise<{
+    date: string;
+    lines: {
+      itemId: string; name: string; category: string; unit: string;
+      systemQty: number; countedQty: number; variance: number;
+      unitCost: number; valueDelta: number; direction: 'in' | 'out' | 'none';
+    }[];
+    totals: {
+      itemsCounted: number; itemsAdjusted: number;
+      increaseValue: number; decreaseValue: number; netValue: number;
+    };
+  }> {
+    if (!Array.isArray(lines) || lines.length === 0) {
+      throw new BadRequestException('No count lines supplied');
+    }
+    const when = date ?? today();
+
+    // Collapse duplicate itemIds (last counted value wins) and validate numbers.
+    const counted = new Map<string, { countedQty: number; reason?: string }>();
+    for (const l of lines) {
+      if (!l.itemId) continue;
+      const qty = Number(l.countedQty);
+      if (!Number.isFinite(qty) || qty < 0) {
+        throw new BadRequestException(`Invalid counted quantity for item ${l.itemId}`);
+      }
+      counted.set(l.itemId, { countedQty: r3(qty), reason: l.reason });
+    }
+
+    const report: {
+      itemId: string; name: string; category: string; unit: string;
+      systemQty: number; countedQty: number; variance: number;
+      unitCost: number; valueDelta: number; direction: 'in' | 'out' | 'none';
+    }[] = [];
+    const toPost: {
+      inventoryAccountCode: string; cogsAccountCode: string;
+      value: number; direction: 'in' | 'out'; name: string; itemId: string; reason?: string;
+    }[] = [];
+
+    await this.dataSource.transaction(async (mgr) => {
+      for (const [itemId, { countedQty, reason }] of counted) {
+        const item = await mgr.getRepository(InventoryItem).findOne({ where: { id: itemId, facilityId } });
+        if (!item) throw new BadRequestException(`Unknown item ${itemId}`);
+
+        const systemQty = r3(Number(item.stockQty));
+        const variance = r3(countedQty - systemQty);
+
+        if (Math.abs(variance) < 0.0005) {
+          report.push({
+            itemId, name: item.name, category: item.category, unit: item.unit,
+            systemQty, countedQty, variance: 0, unitCost: r2(Number(item.costPrice)),
+            valueDelta: 0, direction: 'none',
+          });
+          continue;
+        }
+
+        const inbound = variance > 0;
+        const unitCost = r2(Number(item.costPrice));
+        const res = await this.recordMovement(mgr, item, {
+          type: inbound ? 'adjustment_in' : 'adjustment_out',
+          quantity: variance,
+          unitCost: inbound ? unitCost : undefined,
+          date: when,
+          sourceType: 'stock_count',
+          note: reason ?? 'Physical count adjustment',
+        });
+
+        if (inbound) {
+          await this.createBatch(mgr, {
+            facilityId, itemId,
+            batchNo: null, expiryDate: null,
+            quantity: variance, unitCost, date: when,
+            sourceType: 'stock_count', sourceId: item.id,
+          });
+        } else {
+          await this.consumeFefo(mgr, facilityId, itemId, variance);
+        }
+
+        const valueDelta = r2(res.value); // signed: negative for shrinkage
+        report.push({
+          itemId, name: item.name, category: item.category, unit: item.unit,
+          systemQty, countedQty, variance,
+          unitCost: r2(res.unitCost) || unitCost,
+          valueDelta, direction: inbound ? 'in' : 'out',
+        });
+        toPost.push({
+          inventoryAccountCode: item.inventoryAccountCode,
+          cogsAccountCode: item.cogsAccountCode,
+          value: Math.abs(valueDelta),
+          direction: inbound ? 'in' : 'out',
+          name: item.name, itemId: item.id, reason,
+        });
+      }
+    });
+
+    // Post the ledger impact per item (best-effort, mirrors adjustStock).
+    for (const p of toPost) {
+      await this.posting.onStockAdjustment({
+        facilityId,
+        date: when,
+        inventoryAccountCode: p.inventoryAccountCode,
+        adjustmentAccountCode: p.cogsAccountCode,
+        value: p.value,
+        direction: p.direction,
+        description: p.reason ? `Stock count: ${p.name} — ${p.reason}` : `Stock count: ${p.name}`,
+        sourceType: 'stock_count',
+        sourceId: p.itemId,
+      });
+    }
+
+    const increaseValue = r2(report.filter((l) => l.direction === 'in').reduce((s, l) => s + l.valueDelta, 0));
+    const decreaseValue = r2(report.filter((l) => l.direction === 'out').reduce((s, l) => s + l.valueDelta, 0));
+    return {
+      date: when,
+      lines: report,
+      totals: {
+        itemsCounted: report.length,
+        itemsAdjusted: report.filter((l) => l.direction !== 'none').length,
+        increaseValue,
+        decreaseValue,
+        netValue: r2(increaseValue + decreaseValue),
+      },
+    };
+  }
+
   // ── Expiry ────────────────────────────────────────────────────────────────────
 
   /** Batches still holding stock for an item, earliest expiry first. */

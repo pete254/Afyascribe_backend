@@ -48,4 +48,15 @@ export class JournalLine {
 
   @Column({ name: 'line_no', type: 'int', default: 0 })
   lineNo: number;
+
+  /**
+   * Bank reconciliation: set when this line (on a cash/bank account) has been
+   * matched to a bank statement in a reconciliation session. Null = not yet
+   * cleared (a deposit in transit or outstanding payment).
+   */
+  @Column({ name: 'reconciliation_id', type: 'uuid', nullable: true })
+  reconciliationId: string | null;
+
+  @Column({ name: 'cleared_at', type: 'timestamp with time zone', nullable: true })
+  clearedAt: Date | null;
 }
