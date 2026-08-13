@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -86,6 +87,12 @@ export class AccountingController {
     @Body() dto: UpdateAccountDto,
   ) {
     return this.ledger.updateAccount(this.facility(user), code, dto);
+  }
+
+  @Delete('accounts/:code')
+  @ApiOperation({ summary: 'Delete a custom account (only if unused and not a system account)' })
+  deleteAccount(@CurrentUser() user: CurrentUserType, @Param('code') code: string) {
+    return this.ledger.deleteAccount(this.facility(user), code);
   }
 
   @Get('accounts/:code/ledger')

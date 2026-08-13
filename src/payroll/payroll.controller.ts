@@ -19,6 +19,7 @@ import {
   CreateEmployeeDto,
   UpdateEmployeeDto,
   CreatePayrollRunDto,
+  UpdatePayrollSettingsDto,
 } from './dto/payroll.dto';
 
 function facilityOf(user: CurrentUserType): string {
@@ -34,6 +35,17 @@ function facilityOf(user: CurrentUserType): string {
 @Roles('facility_admin', 'super_admin', 'hr_manager', 'accountant')
 export class PayrollController {
   constructor(private readonly payroll: PayrollService) {}
+
+  // ── Settings ──────────────────────────────────────────────────────────────
+  @Get('settings')
+  getSettings(@CurrentUser() user: CurrentUserType) {
+    return this.payroll.getSettings(facilityOf(user));
+  }
+
+  @Patch('settings')
+  updateSettings(@CurrentUser() user: CurrentUserType, @Body() dto: UpdatePayrollSettingsDto) {
+    return this.payroll.updateSettings(facilityOf(user), dto);
+  }
 
   // ── Employees ─────────────────────────────────────────────────────────────
   @Get('employees')

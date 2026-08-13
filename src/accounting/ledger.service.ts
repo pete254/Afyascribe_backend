@@ -152,7 +152,53 @@ export class LedgerService {
     if (dto.name !== undefined) acc.name = dto.name.trim();
     if (dto.isActive !== undefined) acc.isActive = dto.isActive;
     if (dto.description !== undefined) acc.description = dto.description;
+    if (dto.parentCode !== undefined) acc.parentCode = dto.parentCode || null;
+
+    // Structural fields (type / normal balance / postability) change how balances
+    // are computed, so they can only be edited before anything has posted.
+    const wantsStructural =
+      (dto.type !== undefined && dto.type !== acc.type) ||
+      (dto.normalBalance !== undefined && dto.normalBalance !== acc.normalBalance) ||
+      (dto.isPostable !== undefined && dto.isPostable !== acc.isPostable);
+    if (wantsStructural) {
+      if (acc.isSystem) {
+        throw new BadRequestException('System accounts cannot have their type or postability changed');
+      }
+      const used = await this.lines.count({ where: { facilityId, accountCode: code } });
+      if (used > 0) {
+        throw new BadRequestException(
+          'This account already has transactions — you can rename or deactivate it, but not change its type or postability',
+        );
+      }
+      if (dto.type !== undefined) acc.type = dto.type as LedgerAccount['type'];
+      if (dto.normalBalance !== undefined) acc.normalBalance = dto.normalBalance as LedgerAccount['normalBalance'];
+      if (dto.isPostable !== undefined) acc.isPostable = dto.isPostable;
+    }
     return this.accounts.save(acc);
+  }
+
+  /**
+   * Delete a custom account. Refused for system accounts, accounts that have
+   * transactions (deactivate those instead), and group accounts that still have
+   * children — so the ledger's integrity is never broken.
+   */
+  async deleteAccount(facilityId: string, code: string): Promise<{ deleted: boolean }> {
+    const acc = await this.getAccount(facilityId, code);
+    if (acc.isSystem) {
+      throw new BadRequestException('System accounts cannot be deleted — deactivate it instead');
+    }
+    const used = await this.lines.count({ where: { facilityId, accountCode: code } });
+    if (used > 0) {
+      throw new BadRequestException(
+        'This account has transactions and cannot be deleted — deactivate it instead',
+      );
+    }
+    const children = await this.accounts.count({ where: { facilityId, parentCode: code } });
+    if (children > 0) {
+      throw new BadRequestException('This group still has sub-accounts — remove or reparent them first');
+    }
+    await this.accounts.delete({ facilityId, code });
+    return { deleted: true };
   }
 
   // ── Journals ───────────────────────────────────────────────────────────────

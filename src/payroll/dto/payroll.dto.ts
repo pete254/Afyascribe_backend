@@ -13,6 +13,11 @@ import {
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
+export class PayComponentDto {
+  @ApiProperty() @IsString() name: string;
+  @ApiProperty() @IsNumber() @Min(0) amount: number;
+}
+
 export class CreateEmployeeDto {
   @ApiProperty() @IsString() firstName: string;
   @ApiProperty() @IsString() lastName: string;
@@ -32,6 +37,19 @@ export class CreateEmployeeDto {
   @ApiPropertyOptional() @IsString() @IsOptional() employmentType?: string;
   @ApiPropertyOptional() @IsDateString() @IsOptional() hireDate?: string;
   @ApiPropertyOptional() @IsUUID() @IsOptional() userId?: string;
+
+  @ApiPropertyOptional() @IsBoolean() @IsOptional() applyPaye?: boolean;
+  @ApiPropertyOptional() @IsBoolean() @IsOptional() applyNssf?: boolean;
+  @ApiPropertyOptional() @IsBoolean() @IsOptional() applyShif?: boolean;
+  @ApiPropertyOptional() @IsBoolean() @IsOptional() applyHousing?: boolean;
+
+  @ApiPropertyOptional({ type: [PayComponentDto] })
+  @IsArray() @IsOptional() @ValidateNested({ each: true }) @Type(() => PayComponentDto)
+  allowances?: PayComponentDto[];
+
+  @ApiPropertyOptional({ type: [PayComponentDto] })
+  @IsArray() @IsOptional() @ValidateNested({ each: true }) @Type(() => PayComponentDto)
+  deductions?: PayComponentDto[];
 }
 
 export class UpdateEmployeeDto {
@@ -50,11 +68,41 @@ export class UpdateEmployeeDto {
   @ApiPropertyOptional() @IsString() @IsOptional() email?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() employmentType?: string;
   @ApiPropertyOptional() @IsBoolean() @IsOptional() isActive?: boolean;
+
+  @ApiPropertyOptional() @IsBoolean() @IsOptional() applyPaye?: boolean;
+  @ApiPropertyOptional() @IsBoolean() @IsOptional() applyNssf?: boolean;
+  @ApiPropertyOptional() @IsBoolean() @IsOptional() applyShif?: boolean;
+  @ApiPropertyOptional() @IsBoolean() @IsOptional() applyHousing?: boolean;
+
+  @ApiPropertyOptional({ type: [PayComponentDto] })
+  @IsArray() @IsOptional() @ValidateNested({ each: true }) @Type(() => PayComponentDto)
+  allowances?: PayComponentDto[];
+
+  @ApiPropertyOptional({ type: [PayComponentDto] })
+  @IsArray() @IsOptional() @ValidateNested({ each: true }) @Type(() => PayComponentDto)
+  deductions?: PayComponentDto[];
 }
 
-export class PayComponentDto {
-  @ApiProperty() @IsString() name: string;
-  @ApiProperty() @IsNumber() @Min(0) amount: number;
+class PayeBandDto {
+  @ApiPropertyOptional() @IsNumber() @IsOptional() upTo?: number | null;
+  @ApiProperty() @IsNumber() rate: number;
+}
+
+export class UpdatePayrollSettingsDto {
+  @ApiPropertyOptional() @IsBoolean() @IsOptional() payeEnabled?: boolean;
+  @ApiPropertyOptional() @IsBoolean() @IsOptional() nssfEnabled?: boolean;
+  @ApiPropertyOptional() @IsBoolean() @IsOptional() shifEnabled?: boolean;
+  @ApiPropertyOptional() @IsBoolean() @IsOptional() housingEnabled?: boolean;
+  @ApiPropertyOptional() @IsNumber() @IsOptional() nssfRate?: number;
+  @ApiPropertyOptional() @IsNumber() @IsOptional() nssfUpperLimit?: number;
+  @ApiPropertyOptional() @IsNumber() @IsOptional() shifRate?: number;
+  @ApiPropertyOptional() @IsNumber() @IsOptional() shifMin?: number;
+  @ApiPropertyOptional() @IsNumber() @IsOptional() housingRate?: number;
+  @ApiPropertyOptional() @IsNumber() @IsOptional() personalRelief?: number;
+
+  @ApiPropertyOptional({ type: [PayeBandDto] })
+  @IsArray() @IsOptional() @ValidateNested({ each: true }) @Type(() => PayeBandDto)
+  payeBands?: PayeBandDto[];
 }
 
 export class PayrollEntryDto {

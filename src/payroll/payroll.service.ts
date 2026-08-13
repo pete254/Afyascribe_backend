@@ -4,12 +4,14 @@ import { Repository, DataSource } from 'typeorm';
 import { Employee } from './entities/employee.entity';
 import { PayrollRun } from './entities/payroll-run.entity';
 import { Payslip, PayComponent } from './entities/payslip.entity';
+import { PayrollSettings } from './entities/payroll-settings.entity';
 import {
   CreateEmployeeDto,
   UpdateEmployeeDto,
   CreatePayrollRunDto,
+  UpdatePayrollSettingsDto,
 } from './dto/payroll.dto';
-import { computeStatutory } from './data/statutory';
+import { computeStatutory, StatutoryConfig, DEFAULT_STATUTORY_CONFIG } from './data/statutory';
 import { HmisPostingService } from '../accounting/hmis-posting.service';
 
 const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
@@ -25,9 +27,50 @@ export class PayrollService {
     private readonly runs: Repository<PayrollRun>,
     @InjectRepository(Payslip)
     private readonly payslips: Repository<Payslip>,
+    @InjectRepository(PayrollSettings)
+    private readonly settings: Repository<PayrollSettings>,
     private readonly posting: HmisPostingService,
     private readonly dataSource: DataSource,
   ) {}
+
+  // ── Settings ──────────────────────────────────────────────────────────────────
+
+  /** The facility's payroll settings, seeded from the statutory defaults once. */
+  async getSettings(facilityId: string): Promise<PayrollSettings> {
+    let s = await this.settings.findOne({ where: { facilityId } });
+    if (!s) {
+      s = await this.settings.save(this.settings.create({ facilityId }));
+    }
+    return s;
+  }
+
+  async updateSettings(facilityId: string, dto: UpdatePayrollSettingsDto): Promise<PayrollSettings> {
+    const s = await this.getSettings(facilityId);
+    const numeric = ['nssfRate', 'nssfUpperLimit', 'shifRate', 'shifMin', 'housingRate', 'personalRelief'] as const;
+    for (const [k, v] of Object.entries(dto)) {
+      if (v === undefined) continue;
+      if ((numeric as readonly string[]).includes(k)) (s as any)[k] = String(v);
+      else (s as any)[k] = v;
+    }
+    return this.settings.save(s);
+  }
+
+  /** Build the effective statutory config for one employee (facility ∧ employee). */
+  private configFor(settings: PayrollSettings, emp: Employee): StatutoryConfig {
+    return {
+      applyPaye: settings.payeEnabled && emp.applyPaye,
+      applyNssf: settings.nssfEnabled && emp.applyNssf,
+      applyShif: settings.shifEnabled && emp.applyShif,
+      applyHousing: settings.housingEnabled && emp.applyHousing,
+      nssfRate: Number(settings.nssfRate),
+      nssfUpperLimit: Number(settings.nssfUpperLimit),
+      shifRate: Number(settings.shifRate),
+      shifMin: Number(settings.shifMin),
+      housingRate: Number(settings.housingRate),
+      personalRelief: Number(settings.personalRelief),
+      payeBands: settings.payeBands?.length ? settings.payeBands : DEFAULT_STATUTORY_CONFIG.payeBands,
+    };
+  }
 
   // ── Employees ─────────────────────────────────────────────────────────────────
 
@@ -56,6 +99,12 @@ export class PayrollService {
       employmentType: dto.employmentType ?? 'permanent',
       hireDate: dto.hireDate ?? null,
       userId: dto.userId ?? null,
+      applyPaye: dto.applyPaye ?? true,
+      applyNssf: dto.applyNssf ?? true,
+      applyShif: dto.applyShif ?? true,
+      applyHousing: dto.applyHousing ?? true,
+      allowances: dto.allowances?.length ? dto.allowances : null,
+      deductions: dto.deductions?.length ? dto.deductions : null,
     });
     return this.employees.save(employee);
   }
@@ -96,18 +145,20 @@ export class PayrollService {
     const empIds = entries.map((e) => e.employeeId);
     const emps = await this.employees.find({ where: empIds.map((id) => ({ id, facilityId })) });
     const byId = new Map(emps.map((e) => [e.id, e]));
+    const settings = await this.getSettings(facilityId);
 
     const slips: Payslip[] = [];
     for (const entry of entries) {
       const emp = byId.get(entry.employeeId);
       if (!emp) throw new BadRequestException(`Unknown employee ${entry.employeeId}`);
 
-      const allowances = (entry.allowances ?? []) as PayComponent[];
-      const otherDeds = (entry.otherDeductions ?? []) as PayComponent[];
+      // Run-entry components override the employee's recurring ones for this run.
+      const allowances = (entry.allowances ?? emp.allowances ?? []) as PayComponent[];
+      const otherDeds = (entry.otherDeductions ?? emp.deductions ?? []) as PayComponent[];
       const basic = Number(emp.basicSalary);
       const gross = r2(basic + sum(allowances.map((a) => a.amount)));
 
-      const s = computeStatutory(gross);
+      const s = computeStatutory(gross, this.configFor(settings, emp));
       const otherTotal = sum(otherDeds.map((d) => d.amount));
       const totalDeductions = r2(s.paye + s.nssfEmployee + s.shif + s.housingEmployee + otherTotal);
       const netPay = r2(gross - totalDeductions);

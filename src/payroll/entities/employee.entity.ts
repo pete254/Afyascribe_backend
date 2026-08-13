@@ -50,6 +50,28 @@ export class Employee {
   @Column({ name: 'basic_salary', type: 'numeric', precision: 14, scale: 2, default: 0 })
   basicSalary: string;
 
+  // ── Per-employee statutory switches ────────────────────────────────────────
+  // Which statutory items apply to this person (on top of the facility master
+  // switch). E.g. a casual or non-resident may not pay the housing levy.
+  @Column({ name: 'apply_paye', type: 'boolean', default: true })
+  applyPaye: boolean;
+
+  @Column({ name: 'apply_nssf', type: 'boolean', default: true })
+  applyNssf: boolean;
+
+  @Column({ name: 'apply_shif', type: 'boolean', default: true })
+  applyShif: boolean;
+
+  @Column({ name: 'apply_housing', type: 'boolean', default: true })
+  applyHousing: boolean;
+
+  // Recurring pay components applied every run unless overridden for that run.
+  @Column({ name: 'allowances', type: 'jsonb', nullable: true })
+  allowances: { name: string; amount: number }[] | null;
+
+  @Column({ name: 'deductions', type: 'jsonb', nullable: true })
+  deductions: { name: string; amount: number }[] | null;
+
   @Column({ name: 'bank_name', type: 'varchar', nullable: true })
   bankName: string | null;
 

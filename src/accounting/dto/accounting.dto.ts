@@ -128,4 +128,24 @@ export class UpdateAccountDto {
   @IsString()
   @IsOptional()
   description?: string;
+
+  @ApiPropertyOptional({ description: 'Only editable while the account has no transactions' })
+  @IsString()
+  @IsOptional()
+  type?: string;
+
+  @ApiPropertyOptional({ description: 'Only editable while the account has no transactions' })
+  @IsString()
+  @IsOptional()
+  normalBalance?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  parentCode?: string;
+
+  @ApiPropertyOptional({ description: 'Only editable while the account has no transactions' })
+  @IsBoolean()
+  @IsOptional()
+  isPostable?: boolean;
 }

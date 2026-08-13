@@ -6,6 +6,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Employee } from './entities/employee.entity';
 import { PayrollRun } from './entities/payroll-run.entity';
 import { Payslip } from './entities/payslip.entity';
+import { PayrollSettings } from './entities/payroll-settings.entity';
 import { PayrollService } from './payroll.service';
 import { PayrollController } from './payroll.controller';
 import { AccountingModule } from '../accounting/accounting.module';
@@ -16,7 +17,7 @@ import { AccountingModule } from '../accounting/accounting.module';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Employee, PayrollRun, Payslip]),
+    TypeOrmModule.forFeature([Employee, PayrollRun, Payslip, PayrollSettings]),
     AccountingModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
