@@ -72,6 +72,24 @@ export class ReportsController {
     return this.reportsService.payerMix(user.facilityId, fromDate, toDate);
   }
 
+  // ── MOH 204A / 204B OUTPATIENT REGISTER ────────────────────────────────────
+  @Get('outpatient-register')
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({ summary: 'MOH 204A/204B outpatient register (under-5 / over-5) for a date range' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  getOutpatientRegister(
+    @CurrentUser() user: any,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    assertCanViewReports(user);
+    const today = new Date();
+    const fromDate = from ? new Date(from) : new Date(new Date().setDate(1));
+    const toDate = to ? new Date(to) : today;
+    return this.reportsService.outpatientRegister(user.facilityId, fromDate, toDate);
+  }
+
   // ── INSURANCE CLAIMS ───────────────────────────────────────────────────────
   @Get('insurance-claims')
   @Roles('facility_admin', 'super_admin', 'doctor')

@@ -63,13 +63,27 @@ export class PatientVisitsService {
       patientId: dto.patientId,
       facilityId,
       reasonForVisit: dto.reasonForVisit,
+      visitType: dto.visitType ?? null,
+      appointmentId: dto.appointmentId ?? null,
       assignedDoctorId: dto.assignedDoctorId,
       checkedInById,
       checkedInAt: new Date(),
       status: VisitStatus.CHECKED_IN,
     });
 
-    return this.visitsRepository.save(visit);
+    const saved = await this.visitsRepository.save(visit);
+
+    // Fulfilling a booked appointment marks it completed.
+    if (dto.appointmentId) {
+      await this.visitsRepository.manager
+        .query(`UPDATE appointments SET status = 'completed' WHERE id = $1 AND facility_id = $2`, [
+          dto.appointmentId,
+          facilityId,
+        ])
+        .catch(() => undefined);
+    }
+
+    return saved;
   }
 
   // ── GET ALL VISITS (facility-scoped, filterable) ───────────────────────────

@@ -1,8 +1,28 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository, Between, In } from 'typeorm';
 import { Billing, BillingStatus, PaymentMode } from '../billing/entities/billing.entity';
 import { PatientVisit, VisitStatus } from '../patient-visits/entities/patient-visit.entity';
+import { SoapNote } from '../soap-notes/entities/soap-note.entity';
+
+/** One line on an MOH 204A/204B outpatient register. */
+export interface OutpatientRegisterRow {
+  visitId: string;
+  date: string | null;
+  patientNo: string | null;
+  name: string;
+  ageYears: number | null;
+  ageMonths: number | null;
+  sex: string | null;
+  residence: string | null;
+  attendance: 'new' | 'revisit';
+  visitType: string | null;
+  diagnosis: string | null;
+  icd10: string | null;
+  treatment: string | null;
+  referredIn: boolean;
+  fee: number;
+}
 
 /** One bill behind a payer-mix figure — the drill-down unit. */
 export interface PayerMixDrillBill {
@@ -29,6 +49,8 @@ export class ReportsService {
     private readonly billingRepo: Repository<Billing>,
     @InjectRepository(PatientVisit)
     private readonly visitsRepo: Repository<PatientVisit>,
+    @InjectRepository(SoapNote)
+    private readonly soapRepo: Repository<SoapNote>,
   ) {}
 
   // ── PATIENTS TODAY ─────────────────────────────────────────────────────────
@@ -223,6 +245,112 @@ export class ReportsService {
       },
       bills: drill,
     };
+  }
+
+  // ── MOH 204A / 204B OUTPATIENT REGISTER ────────────────────────────────────
+  // The statutory outpatient register: one line per visit, split into under-5
+  // (204A) and 5-and-over (204B). Diagnosis/treatment come from the visit's
+  // SOAP note (matched by patient + same day); the fee from its bills.
+  async outpatientRegister(facilityId: string, from: Date, to: Date) {
+    const toEnd = new Date(to);
+    toEnd.setHours(23, 59, 59, 999);
+    const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+
+    const visits = await this.visitsRepo
+      .createQueryBuilder('v')
+      .leftJoinAndSelect('v.patient', 'patient')
+      .where('v.facility_id = :facilityId', { facilityId })
+      .andWhere('v.created_at >= :from', { from })
+      .andWhere('v.created_at <= :to', { to: toEnd })
+      .andWhere('v.status != :cancelled', { cancelled: VisitStatus.CANCELLED })
+      .orderBy('v.created_at', 'ASC')
+      .getMany();
+
+    const visitIds = visits.map((v) => v.id);
+    const patientIds = [...new Set(visits.map((v) => v.patientId))];
+
+    const bills = visitIds.length
+      ? await this.billingRepo.find({ where: { visitId: In(visitIds) } })
+      : [];
+    const feeByVisit = new Map<string, number>();
+    for (const b of bills)
+      feeByVisit.set(b.visitId, r2((feeByVisit.get(b.visitId) || 0) + Number(b.amount)));
+
+    const dayKey = (d: Date | string | null | undefined) =>
+      d ? new Date(d).toISOString().slice(0, 10) : '';
+    const notes = patientIds.length
+      ? await this.soapRepo.find({ where: { patientId: In(patientIds) }, order: { createdAt: 'ASC' } })
+      : [];
+    // Latest note per patient-day wins (most complete by the end of the visit).
+    const noteByPatientDay = new Map<string, SoapNote>();
+    for (const n of notes) noteByPatientDay.set(`${n.patientId}:${dayKey(n.createdAt)}`, n);
+
+    const REVISIT = new Set(['follow_up', 'appointment']);
+    const rows: OutpatientRegisterRow[] = visits.map((v) => {
+      const p = v.patient;
+      const when = v.checkedInAt ?? v.createdAt;
+      const age = this.ageAt(p?.dateOfBirth, when, p?.age);
+      const note = noteByPatientDay.get(`${v.patientId}:${dayKey(when)}`);
+      const icd10 = note?.icd10Code
+        ? `${note.icd10Code}${note.icd10Description ? ` ${note.icd10Description}` : ''}`
+        : null;
+      return {
+        visitId: v.id,
+        date: when ? new Date(when).toISOString().slice(0, 10) : null,
+        patientNo: p?.patientId ?? null,
+        name: p ? `${p.firstName ?? ''} ${p.lastName ?? ''}`.trim() || 'Patient' : 'Patient',
+        ageYears: age.years,
+        ageMonths: age.months,
+        sex: p?.gender ?? null,
+        residence: [p?.subCounty, p?.county].filter(Boolean).join(', ') || null,
+        attendance: v.visitType && REVISIT.has(v.visitType) ? 'revisit' : 'new',
+        visitType: v.visitType ?? null,
+        diagnosis: note?.diagnosis?.trim() || null,
+        icd10,
+        treatment: note?.management?.trim() || null,
+        referredIn: v.visitType === 'referral',
+        fee: feeByVisit.get(v.id) ?? 0,
+      };
+    });
+
+    const under5 = rows.filter((r) => r.ageYears !== null && r.ageYears < 5);
+    const over5 = rows.filter((r) => r.ageYears === null || r.ageYears >= 5);
+    const tally = (list: OutpatientRegisterRow[]) => ({
+      total: list.length,
+      new: list.filter((r) => r.attendance === 'new').length,
+      revisit: list.filter((r) => r.attendance === 'revisit').length,
+      male: list.filter((r) => (r.sex ?? '').toLowerCase().startsWith('m')).length,
+      female: list.filter((r) => (r.sex ?? '').toLowerCase().startsWith('f')).length,
+      referredIn: list.filter((r) => r.referredIn).length,
+      fees: r2(list.reduce((s, r) => s + r.fee, 0)),
+    });
+
+    return {
+      period: { from, to: toEnd },
+      under5,
+      over5,
+      totals: { under5: tally(under5), over5: tally(over5) },
+    };
+  }
+
+  /** Whole years (and residual months) at a reference date, from a DOB. */
+  private ageAt(
+    dob: string | null | undefined,
+    at: Date | string | null | undefined,
+    fallback?: number | null,
+  ): { years: number | null; months: number | null } {
+    if (!dob) return { years: fallback ?? null, months: null };
+    const birth = new Date(dob);
+    if (isNaN(birth.getTime())) return { years: fallback ?? null, months: null };
+    const ref = at ? new Date(at) : new Date();
+    let years = ref.getFullYear() - birth.getFullYear();
+    let months = ref.getMonth() - birth.getMonth();
+    if (ref.getDate() < birth.getDate()) months -= 1;
+    if (months < 0) {
+      years -= 1;
+      months += 12;
+    }
+    return { years: Math.max(0, years), months: Math.max(0, months) };
   }
 
   // ── INSURANCE CLAIMS REPORT ────────────────────────────────────────────────

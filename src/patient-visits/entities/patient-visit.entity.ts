@@ -46,6 +46,16 @@ export class PatientVisit {
   @Column({ name: 'reason_for_visit', type: 'text' })
   reasonForVisit: string;
 
+  // Structured attendance type — powers New/Revisit classification on the MOH
+  // outpatient registers. One of: first_visit | appointment | follow_up |
+  // referral | emergency | other. Nullable for pre-existing visits.
+  @Column({ name: 'visit_type', type: 'varchar', length: 32, nullable: true })
+  visitType: string | null;
+
+  // When the visit was booked as an appointment, the appointment it fulfils.
+  @Column({ name: 'appointment_id', type: 'uuid', nullable: true })
+  appointmentId: string | null;
+
   @Column({
     type: 'enum',
     enum: VisitStatus,
