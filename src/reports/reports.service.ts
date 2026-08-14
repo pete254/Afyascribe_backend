@@ -5,6 +5,17 @@ import { Billing, BillingStatus, PaymentMode } from '../billing/entities/billing
 import { PatientVisit, VisitStatus } from '../patient-visits/entities/patient-visit.entity';
 import { SoapNote } from '../soap-notes/entities/soap-note.entity';
 
+/** One disease line on an MOH 705A/705B outpatient morbidity summary. */
+export interface MorbidityRow {
+  diagnosis: string;
+  icd10: string | null;
+  total: number;
+  male: number;
+  female: number;
+  new: number;
+  revisit: number;
+}
+
 /** One line on an MOH 204A/204B outpatient register. */
 export interface OutpatientRegisterRow {
   visitId: string;
@@ -330,6 +341,52 @@ export class ReportsService {
       under5,
       over5,
       totals: { under5: tally(under5), over5: tally(over5) },
+    };
+  }
+
+  // ── MOH 705A / 705B OUTPATIENT MORBIDITY SUMMARY ───────────────────────────
+  // Compiled from the 204 register: the period's diagnoses ranked by frequency,
+  // split under-5 (705A) / over-5 (705B), each with sex and new/revisit counts.
+  // Grouped by ICD-10 code where recorded, otherwise by the diagnosis text.
+  async outpatientMorbidity(facilityId: string, from: Date, to: Date) {
+    const reg = await this.outpatientRegister(facilityId, from, to);
+
+    const build = (rows: OutpatientRegisterRow[]): MorbidityRow[] => {
+      const map = new Map<string, MorbidityRow>();
+      for (const r of rows) {
+        const code = r.icd10 ? r.icd10.split(' ')[0] : null;
+        const label = r.diagnosis || r.icd10 || 'Not recorded';
+        const key = (code || label).toLowerCase();
+        const g =
+          map.get(key) ??
+          { diagnosis: r.diagnosis || r.icd10 || 'Not recorded', icd10: code, total: 0, male: 0, female: 0, new: 0, revisit: 0 };
+        g.total += 1;
+        const sex = (r.sex ?? '').toLowerCase();
+        if (sex.startsWith('m')) g.male += 1;
+        else if (sex.startsWith('f')) g.female += 1;
+        if (r.attendance === 'new') g.new += 1;
+        else g.revisit += 1;
+        map.set(key, g);
+      }
+      return [...map.values()].sort((a, b) => b.total - a.total);
+    };
+
+    const under5 = build(reg.under5);
+    const over5 = build(reg.over5);
+    const sum = (list: MorbidityRow[]) => ({
+      diagnoses: list.length,
+      total: list.reduce((s, r) => s + r.total, 0),
+      male: list.reduce((s, r) => s + r.male, 0),
+      female: list.reduce((s, r) => s + r.female, 0),
+      new: list.reduce((s, r) => s + r.new, 0),
+      revisit: list.reduce((s, r) => s + r.revisit, 0),
+    });
+
+    return {
+      period: reg.period,
+      under5,
+      over5,
+      totals: { under5: sum(under5), over5: sum(over5) },
     };
   }
 
