@@ -19,6 +19,25 @@ import { PatientVisit, VisitStatus } from '../patient-visits/entities/patient-vi
 import { HmisPostingService } from '../accounting/hmis-posting.service';
 import { StockService } from '../inventory/stock.service';
 
+/** One outstanding bill behind an aging figure — the drill-down unit. */
+export interface AgingDrillBill {
+  id: string;
+  payer: string;
+  type: 'cash' | 'insurer';
+  bucket: 'current' | 'd30' | 'd60' | 'd90' | 'd90plus';
+  patientName: string;
+  patientNo: string | null;
+  serviceType: string;
+  serviceDescription: string | null;
+  createdAt: string | null;
+  ageDays: number;
+  amount: number;
+  amountPaid: number;
+  owed: number;
+  status: string;
+  visitId: string | null;
+}
+
 @Injectable()
 export class BillingService {
   constructor(
@@ -192,12 +211,16 @@ export class BillingService {
       total: number;
     }[];
     totals: { current: number; d30: number; d60: number; d90: number; d90plus: number; total: number };
+    bills: AgingDrillBill[];
   }> {
     const asOfDate = asOf ? new Date(`${asOf}T23:59:59.999`) : new Date();
     const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
 
     const bills = await this.billingRepo
       .createQueryBuilder('bill')
+      .leftJoinAndSelect('bill.patient', 'patient')
+      .leftJoinAndSelect('bill.visit', 'visit')
+      .leftJoinAndSelect('visit.patient', 'visitPatient')
       .where('bill.facility_id = :facilityId', { facilityId })
       .andWhere('bill.status IN (:...statuses)', {
         statuses: [BillingStatus.UNPAID, BillingStatus.INSURANCE_PENDING],
@@ -212,6 +235,9 @@ export class BillingService {
     };
     const map = new Map<string, Row>();
     const totals = { current: 0, d30: 0, d60: 0, d90: 0, d90plus: 0, total: 0 };
+    // The individual bills behind every figure — so the UI can drill from any
+    // bucket cell or card down to the exact debts that make it up.
+    const drill: AgingDrillBill[] = [];
 
     for (const b of bills) {
       const owed = Number(b.amount) - Number(b.amountPaid || 0);
@@ -234,6 +260,25 @@ export class BillingService {
       totals[bucket] = r2(totals[bucket] + owed);
       totals.total = r2(totals.total + owed);
       map.set(key, row);
+
+      const person = b.patient ?? b.visit?.patient;
+      drill.push({
+        id: b.id,
+        payer,
+        type: isInsurer ? 'insurer' : 'cash',
+        bucket,
+        patientName: person ? `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim() || 'Patient' : 'Patient',
+        patientNo: person?.patientId ?? null,
+        serviceType: b.serviceType,
+        serviceDescription: b.serviceDescription ?? null,
+        createdAt: b.createdAt ? new Date(b.createdAt).toISOString() : null,
+        ageDays: days,
+        amount: r2(Number(b.amount)),
+        amountPaid: r2(Number(b.amountPaid || 0)),
+        owed: r2(owed),
+        status: b.status,
+        visitId: b.visitId ?? null,
+      });
     }
 
     const payers = [...map.values()].sort((a, b) => b.total - a.total);
@@ -242,6 +287,7 @@ export class BillingService {
       buckets: ['0–30 days', '31–60 days', '61–90 days', '91–120 days', 'Over 120 days'],
       payers,
       totals,
+      bills: drill,
     };
   }
 

@@ -4,6 +4,24 @@ import { Repository, Between } from 'typeorm';
 import { Billing, BillingStatus, PaymentMode } from '../billing/entities/billing.entity';
 import { PatientVisit, VisitStatus } from '../patient-visits/entities/patient-visit.entity';
 
+/** One bill behind a payer-mix figure — the drill-down unit. */
+export interface PayerMixDrillBill {
+  id: string;
+  payer: string;
+  type: 'cash' | 'insurer';
+  patientName: string;
+  patientNo: string | null;
+  serviceType: string;
+  serviceDescription: string | null;
+  createdAt: string | null;
+  paymentMethod: string | null;
+  amount: number;
+  amountPaid: number;
+  owed: number;
+  status: string;
+  visitId: string | null;
+}
+
 @Injectable()
 export class ReportsService {
   constructor(
@@ -130,6 +148,9 @@ export class ReportsService {
 
     const bills = await this.billingRepo
       .createQueryBuilder('b')
+      .leftJoinAndSelect('b.patient', 'patient')
+      .leftJoinAndSelect('b.visit', 'visit')
+      .leftJoinAndSelect('visit.patient', 'visitPatient')
       .where('b.facility_id = :facilityId', { facilityId })
       .andWhere('b.created_at >= :from', { from })
       .andWhere('b.created_at <= :to', { to: toEnd })
@@ -142,6 +163,8 @@ export class ReportsService {
     >();
     // Cash collections split by tender (cash / mpesa / card).
     const tender = new Map<string, number>();
+    // The individual bills behind each figure — powers the drill-down.
+    const drill: PayerMixDrillBill[] = [];
 
     for (const b of bills) {
       const isInsurer = b.paymentMode === PaymentMode.INSURANCE || b.paymentMode === PaymentMode.SPLIT;
@@ -164,6 +187,24 @@ export class ReportsService {
         const t = (b.paymentMethod as string) || 'cash';
         tender.set(t, r2((tender.get(t) || 0) + paid));
       }
+
+      const person = b.patient ?? b.visit?.patient;
+      drill.push({
+        id: b.id,
+        payer,
+        type: isInsurer ? 'insurer' : 'cash',
+        patientName: person ? `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim() || 'Patient' : 'Patient',
+        patientNo: person?.patientId ?? null,
+        serviceType: b.serviceType,
+        serviceDescription: b.serviceDescription ?? null,
+        createdAt: b.createdAt ? new Date(b.createdAt).toISOString() : null,
+        paymentMethod: (b.paymentMethod as string) ?? null,
+        amount: r2(amount),
+        amountPaid: r2(paid),
+        owed: r2(Math.max(0, amount - paid)),
+        status: b.status,
+        visitId: b.visitId ?? null,
+      });
     }
 
     const totalBilled = r2([...map.values()].reduce((s, g) => s + g.billed, 0));
@@ -180,6 +221,7 @@ export class ReportsService {
         collected: r2([...map.values()].reduce((s, g) => s + g.collected, 0)),
         outstanding: r2([...map.values()].reduce((s, g) => s + g.outstanding, 0)),
       },
+      bills: drill,
     };
   }
 
