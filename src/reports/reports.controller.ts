@@ -108,6 +108,45 @@ export class ReportsController {
     return this.reportsService.outpatientMorbidity(user.facilityId, fromDate, toDate);
   }
 
+  // ── MOH 706 LABORATORY MONTHLY SUMMARY ─────────────────────────────────────
+  @Get('lab-summary')
+  @Roles('facility_admin', 'super_admin', 'doctor', 'lab_technician')
+  @ApiOperation({ summary: 'MOH 706 laboratory monthly summary — tests by department' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  getLabSummary(@CurrentUser() user: any, @Query('from') from?: string, @Query('to') to?: string) {
+    assertCanViewReports(user);
+    const fromDate = from ? new Date(from) : new Date(new Date().setDate(1));
+    const toDate = to ? new Date(to) : new Date();
+    return this.reportsService.labSummary(user.facilityId, fromDate, toDate);
+  }
+
+  // ── MOH 328 DAILY BED RETURN ───────────────────────────────────────────────
+  @Get('bed-return')
+  @Roles('facility_admin', 'super_admin', 'doctor', 'nurse')
+  @ApiOperation({ summary: 'MOH 328 bed return — admissions/discharges/occupancy by ward' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  getBedReturn(@CurrentUser() user: any, @Query('from') from?: string, @Query('to') to?: string) {
+    assertCanViewReports(user);
+    const fromDate = from ? new Date(from) : new Date(new Date().setHours(0, 0, 0, 0));
+    const toDate = to ? new Date(to) : new Date();
+    return this.reportsService.bedReturn(user.facilityId, fromDate, toDate);
+  }
+
+  // ── MOH 717 MONTHLY WORKLOAD ───────────────────────────────────────────────
+  @Get('workload')
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({ summary: 'MOH 717 monthly service workload summary' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  getWorkload(@CurrentUser() user: any, @Query('from') from?: string, @Query('to') to?: string) {
+    assertCanViewReports(user);
+    const fromDate = from ? new Date(from) : new Date(new Date().setDate(1));
+    const toDate = to ? new Date(to) : new Date();
+    return this.reportsService.workload(user.facilityId, fromDate, toDate);
+  }
+
   // ── INSURANCE CLAIMS ───────────────────────────────────────────────────────
   @Get('insurance-claims')
   @Roles('facility_admin', 'super_admin', 'doctor')

@@ -4,6 +4,10 @@ import { Repository, Between, In } from 'typeorm';
 import { Billing, BillingStatus, PaymentMode } from '../billing/entities/billing.entity';
 import { PatientVisit, VisitStatus } from '../patient-visits/entities/patient-visit.entity';
 import { SoapNote } from '../soap-notes/entities/soap-note.entity';
+import { LabOrder } from '../lab/entities/lab-order.entity';
+import { Admission } from '../inpatient/entities/admission.entity';
+import { Bed } from '../inpatient/entities/bed.entity';
+import { Ward } from '../inpatient/entities/ward.entity';
 
 /** One disease line on an MOH 705A/705B outpatient morbidity summary. */
 export interface MorbidityRow {
@@ -62,6 +66,14 @@ export class ReportsService {
     private readonly visitsRepo: Repository<PatientVisit>,
     @InjectRepository(SoapNote)
     private readonly soapRepo: Repository<SoapNote>,
+    @InjectRepository(LabOrder)
+    private readonly labOrderRepo: Repository<LabOrder>,
+    @InjectRepository(Admission)
+    private readonly admRepo: Repository<Admission>,
+    @InjectRepository(Bed)
+    private readonly bedRepo: Repository<Bed>,
+    @InjectRepository(Ward)
+    private readonly wardRepo: Repository<Ward>,
   ) {}
 
   // ── PATIENTS TODAY ─────────────────────────────────────────────────────────
@@ -387,6 +399,146 @@ export class ReportsService {
       under5,
       over5,
       totals: { under5: sum(under5), over5: sum(over5) },
+    };
+  }
+
+  // ── MOH 706 LABORATORY MONTHLY SUMMARY ─────────────────────────────────────
+  // Volume of tests done in the period, grouped by department and test. A test
+  // counts as completed once it has been resulted or verified.
+  async labSummary(facilityId: string, from: Date, to: Date) {
+    const toEnd = new Date(to);
+    toEnd.setHours(23, 59, 59, 999);
+
+    const orders = await this.labOrderRepo
+      .createQueryBuilder('o')
+      .where('o.facility_id = :facilityId', { facilityId })
+      .andWhere('o.created_at >= :from', { from })
+      .andWhere('o.created_at <= :to', { to: toEnd })
+      .getMany(); // items are eager
+
+    const DONE = new Set(['resulted', 'verified']);
+    const map = new Map<string, { department: string; testName: string; total: number; completed: number }>();
+    for (const o of orders) {
+      for (const it of o.items ?? []) {
+        const department = it.department || 'General';
+        const key = `${department}::${it.testName}`;
+        const g = map.get(key) ?? { department, testName: it.testName, total: 0, completed: 0 };
+        g.total += 1;
+        if (DONE.has(it.status)) g.completed += 1;
+        map.set(key, g);
+      }
+    }
+
+    const rows = [...map.values()].sort(
+      (a, b) => a.department.localeCompare(b.department) || b.total - a.total,
+    );
+    return {
+      period: { from, to: toEnd },
+      rows,
+      totals: {
+        tests: rows.length,
+        total: rows.reduce((s, r) => s + r.total, 0),
+        completed: rows.reduce((s, r) => s + r.completed, 0),
+      },
+    };
+  }
+
+  // ── MOH 328 DAILY BED RETURN ───────────────────────────────────────────────
+  // Per ward: admissions and discharges (and deaths) in the period, plus the
+  // current bed capacity / occupancy.
+  async bedReturn(facilityId: string, from: Date, to: Date) {
+    const toEnd = new Date(to);
+    toEnd.setHours(23, 59, 59, 999);
+
+    const wards = await this.wardRepo.find({ where: { facilityId }, order: { name: 'ASC' } });
+    const beds = await this.bedRepo.find({ where: { facilityId } });
+    const admissions = await this.admRepo.find({ where: { facilityId } });
+
+    const inRange = (d: Date | null | undefined) => !!d && d >= from && d <= toEnd;
+
+    const rows = wards.map((w) => {
+      const wb = beds.filter((b) => b.wardId === w.id && b.isActive);
+      const wa = admissions.filter((a) => a.wardId === w.id);
+      const admitted = wa.filter((a) => inRange(a.admittedAt)).length;
+      const discharged = wa.filter((a) => inRange(a.dischargedAt) && a.outcome !== 'deceased').length;
+      const deaths = wa.filter((a) => inRange(a.dischargedAt) && a.outcome === 'deceased').length;
+      const occupied = wb.filter((b) => b.status === 'occupied').length;
+      return {
+        wardId: w.id,
+        wardName: w.name,
+        wardType: w.wardType,
+        beds: wb.length,
+        occupied,
+        available: wb.filter((b) => b.status === 'available').length,
+        admissions: admitted,
+        discharges: discharged,
+        deaths,
+      };
+    });
+
+    const sum = (k: 'beds' | 'occupied' | 'available' | 'admissions' | 'discharges' | 'deaths') =>
+      rows.reduce((s, r) => s + r[k], 0);
+    const beds_ = sum('beds');
+    return {
+      period: { from, to: toEnd },
+      wards: rows,
+      totals: {
+        beds: beds_,
+        occupied: sum('occupied'),
+        available: sum('available'),
+        admissions: sum('admissions'),
+        discharges: sum('discharges'),
+        deaths: sum('deaths'),
+        occupancyRate: beds_ > 0 ? Math.round((sum('occupied') / beds_) * 1000) / 10 : 0,
+      },
+    };
+  }
+
+  // ── MOH 717 MONTHLY SERVICE WORKLOAD SUMMARY ───────────────────────────────
+  // Outpatient attendance + service workload + lab/inpatient totals for the month.
+  async workload(facilityId: string, from: Date, to: Date) {
+    const toEnd = new Date(to);
+    toEnd.setHours(23, 59, 59, 999);
+
+    const register = await this.outpatientRegister(facilityId, from, to);
+    const lab = await this.labSummary(facilityId, from, to);
+    const beds = await this.bedReturn(facilityId, from, to);
+
+    const ru = register.totals.under5;
+    const ro = register.totals.over5;
+    const outpatient = {
+      under5: { total: ru.total, new: ru.new, revisit: ru.revisit, male: ru.male, female: ru.female },
+      over5: { total: ro.total, new: ro.new, revisit: ro.revisit, male: ro.male, female: ro.female },
+      total: ru.total + ro.total,
+      newAttendances: ru.new + ro.new,
+      reAttendances: ru.revisit + ro.revisit,
+      referralsIn: ru.referredIn + ro.referredIn,
+    };
+
+    // Service workload — count billed services by type in the period.
+    const bills = await this.billingRepo
+      .createQueryBuilder('b')
+      .where('b.facility_id = :facilityId', { facilityId })
+      .andWhere('b.created_at >= :from', { from })
+      .andWhere('b.created_at <= :to', { to: toEnd })
+      .andWhere('b.status != :waived', { waived: BillingStatus.WAIVED })
+      .getMany();
+    const services: Record<string, number> = {};
+    for (const b of bills) services[b.serviceType] = (services[b.serviceType] || 0) + 1;
+
+    return {
+      period: { from, to: toEnd },
+      outpatient,
+      services, // { consultation, lab, imaging, pharmacy, procedure, other, … }
+      laboratory: { tests: lab.totals.total, completed: lab.totals.completed },
+      inpatient: {
+        admissions: beds.totals.admissions,
+        discharges: beds.totals.discharges,
+        deaths: beds.totals.deaths,
+        beds: beds.totals.beds,
+        occupied: beds.totals.occupied,
+        occupancyRate: beds.totals.occupancyRate,
+      },
     };
   }
 
