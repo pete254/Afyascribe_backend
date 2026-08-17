@@ -66,6 +66,7 @@ import { Payslip } from './payroll/entities/payslip.entity';
 import { LabModule } from './lab/lab.module';
 import { PrescriptionsModule } from './prescriptions/prescriptions.module';
 import { InpatientModule } from './inpatient/inpatient.module';
+import { KardexModule } from './kardex/kardex.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -122,6 +123,7 @@ import { InpatientModule } from './inpatient/inpatient.module';
     LabModule,
     PrescriptionsModule,
     InpatientModule,
+    KardexModule,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],

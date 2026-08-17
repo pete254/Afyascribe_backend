@@ -101,16 +101,29 @@ export class InviteCodesService {
   }
 
   /**
-   * Mark code as used (increment usage counter).
-   * Called after a user successfully registers with the code.
+   * Atomically consume a **single-use** invite code.
+   *
+   * The code is retired (`isActive = false`) the moment it is first used, so the
+   * same code can never create a second account — a person given a code cannot
+   * onboard themselves twice (or grant themselves several roles). The update is
+   * conditional on the code still being unused (`usageCount = 0`), active and
+   * unexpired, so two racing sign-ups with the same code can never both win:
+   * exactly one row is affected and the other caller gets `false`.
+   *
+   * Returns true when this call consumed the code, false when it was already
+   * used, deactivated or expired.
    */
-  async recordUsage(code: string): Promise<void> {
-    await this.inviteCodeRepository
+  async consumeCode(code: string): Promise<boolean> {
+    const res = await this.inviteCodeRepository
       .createQueryBuilder()
       .update()
-      .set({ usageCount: () => '"usageCount" + 1' })
+      .set({ usageCount: () => '"usageCount" + 1', isActive: false })
       .where('code = :code', { code: code.toUpperCase() })
+      .andWhere('"isActive" = true')
+      .andWhere('"usageCount" = 0')
+      .andWhere('"expiresAt" > now()')
       .execute();
+    return (res.affected ?? 0) > 0;
   }
 
   /**

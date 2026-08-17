@@ -258,6 +258,17 @@ export class AuthService {
     const existing = await this.usersService.findByEmail(dto.email);
     if (existing) throw new ConflictException('Email already registered');
 
+    // Retire the code atomically *before* creating the account. Invite codes are
+    // single-use, so this both records the usage and slams the door on any
+    // second sign-up — a person can't reuse their code to spin up extra
+    // accounts/roles, and two racing requests can't both consume one code.
+    const consumed = await this.inviteCodesService.consumeCode(dto.inviteCode);
+    if (!consumed) {
+      throw new BadRequestException(
+        'This invite code has already been used. Ask your facility admin for a new one.',
+      );
+    }
+
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     const user = await this.usersService.create({
       email: dto.email,
@@ -267,8 +278,6 @@ export class AuthService {
       role: dto.role,
       facilityId,
     });
-
-    await this.inviteCodesService.recordUsage(dto.inviteCode);
 
     // Fetch the facility to get clinicMode
     const facility = await this.facilitiesService.findOne(facilityId);

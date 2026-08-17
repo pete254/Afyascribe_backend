@@ -138,7 +138,9 @@ export class FacilityUsersController {
   @ApiOperation({
     summary: 'Generate (or regenerate) invite code for your facility',
     description:
-      'Creates a new 30-day invite code. If one already exists it is immediately invalidated.',
+      'Creates a new single-use invite code (valid up to 30 days). It works for ' +
+      'exactly one staff sign-up and then retires itself. If an unused code ' +
+      'already exists it is immediately invalidated.',
   })
   async generateInviteCode(@CurrentUser() user: CurrentUserType) {
     assertCanManageStaff(user);
@@ -153,7 +155,7 @@ export class FacilityUsersController {
       code: inviteCode.code,
       expiresAt: inviteCode.expiresAt,
       daysLeft,
-      message: `Share this code with new staff. It expires in ${daysLeft} days.`,
+      message: `Share this code with one new staff member. It works for a single sign-up, then expires (or in ${daysLeft} days, whichever comes first).`,
     };
   }
 
