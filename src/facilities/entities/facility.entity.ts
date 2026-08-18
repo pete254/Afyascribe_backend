@@ -124,6 +124,13 @@ export class Facility {
   @Column({ name: 'default_markup_pct', type: 'numeric', precision: 6, scale: 2, default: 0 })
   defaultMarkupPct: string;
 
+  // Stock-entry posture. When true (default), staff may add stock items and
+  // opening quantities directly on the Stock page. When false, the facility is
+  // procurement-only: items are born — and stock only ever rises — when goods
+  // are received against a purchase order, for full audit transparency.
+  @Column({ name: 'stock_direct_entry', type: 'boolean', default: true })
+  stockDirectEntry: boolean;
+
   @CreateDateColumn({ name: 'created_at' })  // ✅ fixed
   createdAt: Date;
 

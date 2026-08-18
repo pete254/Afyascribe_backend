@@ -12,8 +12,9 @@ import { PurchaseOrderLine } from './purchase-order-line.entity';
 export type PurchaseOrderStatus =
   | 'pending_approval'
   | 'approved'
-  | 'rejected'
+  | 'partially_received'
   | 'received'
+  | 'rejected'
   | 'cancelled';
 
 /**

@@ -85,7 +85,10 @@ export class PurchaseOrderService {
         this.orders.manager.getRepository(PurchaseOrderLine).create({
           itemId: l.itemId ?? null,
           description: l.description.trim(),
+          category: l.category ?? null,
+          unit: l.unit ?? null,
           quantity: l.quantity.toFixed(3),
+          receivedQty: '0',
           unitPrice: l.unitPrice.toFixed(2),
           lineTotal: r2(l.quantity * l.unitPrice).toFixed(2),
         }),

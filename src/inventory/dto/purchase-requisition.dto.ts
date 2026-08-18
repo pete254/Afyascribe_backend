@@ -22,6 +22,16 @@ export class RequisitionLineDto {
   @IsString()
   description: string;
 
+  @ApiPropertyOptional({ description: 'Stock category (drug, reagent…) for auto-creating the item on receipt' })
+  @IsString()
+  @IsOptional()
+  category?: string;
+
+  @ApiPropertyOptional({ description: 'Unit of issue (unit, box, ml…)' })
+  @IsString()
+  @IsOptional()
+  unit?: string;
+
   @ApiProperty()
   @IsNumber()
   @Min(0)

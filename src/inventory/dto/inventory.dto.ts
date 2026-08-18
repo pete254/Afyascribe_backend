@@ -164,7 +164,21 @@ export class UpdateSupplierDto {
 }
 
 export class GoodsReceiptLineDto {
-  @ApiProperty() @IsUUID() itemId: string;
+  @ApiPropertyOptional({ description: 'Existing stock item. Omit to have it created from name/category/unit.' })
+  @IsUUID() @IsOptional() itemId?: string;
+
+  @ApiPropertyOptional({ description: 'LPO line being received against (tracks partial receipts)' })
+  @IsUUID() @IsOptional() purchaseOrderLineId?: string;
+
+  @ApiPropertyOptional({ description: 'New item name, when itemId is omitted (procurement-only facilities)' })
+  @IsString() @IsOptional() name?: string;
+
+  @ApiPropertyOptional({ description: 'Category for a newly-created item (drug, reagent…)' })
+  @IsString() @IsOptional() category?: string;
+
+  @ApiPropertyOptional({ description: 'Unit of issue for a newly-created item' })
+  @IsString() @IsOptional() unit?: string;
+
   @ApiProperty() @IsNumber() @Min(0) quantity: number;
   @ApiProperty() @IsNumber() @Min(0) unitCost: number;
   @ApiPropertyOptional({ description: 'Batch / lot number' })

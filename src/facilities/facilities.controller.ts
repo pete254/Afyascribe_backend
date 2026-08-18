@@ -196,6 +196,23 @@ export class FacilitiesController {
     });
   }
 
+  // Switch a facility between direct stock entry and procurement-only. Owner/admin.
+  @Patch(':id/stock-entry-mode')
+  @ApiOperation({ summary: 'Set whether stock items can be added directly or only via procurement' })
+  async setStockEntryMode(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { stockDirectEntry: boolean },
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    this.assertCanViewFacility(id, user);
+    const facility = await this.facilitiesService.update(id, {
+      stockDirectEntry: !!body?.stockDirectEntry,
+    } as any);
+    return plainToInstance(FacilityResponseDto, facility, {
+      excludeExtraneousValues: true,
+    });
+  }
+
   // Allow (or stop) doctors seeing patients who still owe a bill. Owner/admin only.
   @Patch(':id/pending-bill-policy')
   @ApiOperation({ summary: 'Allow the doctor to see patients with an unpaid bill' })

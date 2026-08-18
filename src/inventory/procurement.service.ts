@@ -7,6 +7,8 @@ import { GoodsReceipt } from './entities/goods-receipt.entity';
 import { GoodsReceiptLine } from './entities/goods-receipt-line.entity';
 import { SupplierPayment } from './entities/supplier-payment.entity';
 import { PurchaseOrder } from './entities/purchase-order.entity';
+import { PurchaseOrderLine } from './entities/purchase-order-line.entity';
+import { Facility } from '../facilities/entities/facility.entity';
 import { SupplierInvoiceService } from './supplier-invoice.service';
 import {
   CreateSupplierDto,
@@ -18,7 +20,27 @@ import { StockService } from './stock.service';
 import { HmisPostingService } from '../accounting/hmis-posting.service';
 
 const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+const r3 = (v: number) => Math.round((v + Number.EPSILON) * 1000) / 1000;
 const today = () => new Date().toISOString().slice(0, 10);
+const priceFromMarkup = (cost: number, markupPct: number) => r2(cost * (1 + markupPct / 100));
+
+/**
+ * Category → GL account mapping for stock items auto-created when goods are
+ * received against an order (procurement-only facilities). Mirrors the web's
+ * ITEM_CATEGORIES so a drug, reagent or consumable lands in the right
+ * inventory / COGS / revenue accounts without anyone touching account codes.
+ */
+const CATEGORY_ACCOUNTS: Record<string, { inventory: string; cogs: string; revenue: string }> = {
+  drug: { inventory: '13001', cogs: '51001', revenue: '42001' },
+  reagent: { inventory: '13002', cogs: '51003', revenue: '43001' },
+  consumable: { inventory: '13003', cogs: '51002', revenue: '41004' },
+  surgical: { inventory: '13004', cogs: '51005', revenue: '45001' },
+  vaccine: { inventory: '13007', cogs: '51006', revenue: '41004' },
+  radiology: { inventory: '13005', cogs: '51007', revenue: '44001' },
+  other: { inventory: '13003', cogs: '51002', revenue: '41004' },
+};
+const accountsFor = (category?: string | null) =>
+  CATEGORY_ACCOUNTS[category ?? 'drug'] ?? CATEGORY_ACCOUNTS.drug;
 
 @Injectable()
 export class ProcurementService {
@@ -33,6 +55,10 @@ export class ProcurementService {
     private readonly payments: Repository<SupplierPayment>,
     @InjectRepository(PurchaseOrder)
     private readonly purchaseOrders: Repository<PurchaseOrder>,
+    @InjectRepository(PurchaseOrderLine)
+    private readonly purchaseOrderLines: Repository<PurchaseOrderLine>,
+    @InjectRepository(Facility)
+    private readonly facilities: Repository<Facility>,
     private readonly stock: StockService,
     private readonly posting: HmisPostingService,
     private readonly supplierInvoices: SupplierInvoiceService,
@@ -156,21 +182,23 @@ export class ProcurementService {
     userId?: string,
   ): Promise<GoodsReceipt> {
     const supplier = await this.getSupplier(facilityId, dto.supplierId);
-
-    // Validate every line item exists for this facility.
-    const itemIds = dto.lines.map((l) => l.itemId);
-    const items = await this.items.find({
-      where: itemIds.map((id) => ({ id, facilityId })),
-    });
-    const byId = new Map(items.map((i) => [i.id, i]));
     for (const line of dto.lines) {
-      if (!byId.has(line.itemId)) throw new BadRequestException(`Unknown item ${line.itemId}`);
       if (line.quantity <= 0) throw new BadRequestException('Line quantity must be greater than 0');
+      if (!line.itemId && !(line.name && line.name.trim())) {
+        throw new BadRequestException('Each received line needs an existing item or a name');
+      }
     }
 
+    // Default markup for any item born on this receipt, so its shelf price is set.
+    const facility = await this.facilities.findOne({ where: { id: facilityId } });
+    const defaultMarkup = Number(facility?.defaultMarkupPct ?? 0) || 0;
+
     const date = dto.date ?? today();
+    // LPO lines we touched, so we can recompute the order's receipt status after.
+    const touchedPoIds = new Set<string>(dto.purchaseOrderId ? [dto.purchaseOrderId] : []);
 
     const { grn, postingLines } = await this.dataSource.transaction(async (mgr) => {
+      const itemRepo = mgr.getRepository(InventoryItem);
       const count = await mgr.getRepository(GoodsReceipt).count({ where: { facilityId } });
       const grnNo = `GRN-${String(count + 1).padStart(6, '0')}`;
 
@@ -192,7 +220,39 @@ export class ProcurementService {
       const postingLines: { inventoryAccountCode: string; value: number; description?: string }[] = [];
 
       for (const line of dto.lines) {
-        const item = byId.get(line.itemId)!;
+        // Resolve the line to a stock item: use the given one, match an existing
+        // item by name, or create it (procurement-only facilities never pre-add).
+        let item: InventoryItem | null = null;
+        if (line.itemId) {
+          item = await itemRepo.findOne({ where: { id: line.itemId, facilityId } });
+          if (!item) throw new BadRequestException(`Unknown item ${line.itemId}`);
+        } else {
+          const name = line.name!.trim();
+          item = await itemRepo
+            .createQueryBuilder('i')
+            .where('i.facilityId = :facilityId', { facilityId })
+            .andWhere('LOWER(i.name) = LOWER(:name)', { name })
+            .getOne();
+          if (!item) {
+            const acc = accountsFor(line.category);
+            const sale = defaultMarkup > 0 ? priceFromMarkup(line.unitCost, defaultMarkup) : 0;
+            item = await itemRepo.save(
+              itemRepo.create({
+                facilityId,
+                name,
+                category: line.category ?? 'drug',
+                unit: line.unit ?? 'unit',
+                costPrice: line.unitCost.toFixed(2),
+                salePrice: sale.toFixed(2),
+                markupPct: defaultMarkup > 0 ? defaultMarkup.toFixed(2) : null,
+                inventoryAccountCode: acc.inventory,
+                cogsAccountCode: acc.cogs,
+                revenueAccountCode: acc.revenue,
+              }),
+            );
+          }
+        }
+
         const lineValue = r2(line.quantity * line.unitCost);
         total = r2(total + lineValue);
 
@@ -232,6 +292,20 @@ export class ProcurementService {
           }),
         );
 
+        // Accumulate the received quantity on the ordered line (partial receipts).
+        if (line.purchaseOrderLineId) {
+          const poLine = await mgr.getRepository(PurchaseOrderLine).findOne({
+            where: { id: line.purchaseOrderLineId },
+          });
+          if (poLine) {
+            const ordered = Number(poLine.quantity);
+            const already = Number(poLine.receivedQty);
+            poLine.receivedQty = r3(Math.min(ordered, already + line.quantity)).toFixed(3);
+            await mgr.getRepository(PurchaseOrderLine).save(poLine);
+            touchedPoIds.add(poLine.purchaseOrderId);
+          }
+        }
+
         postingLines.push({
           inventoryAccountCode: item.inventoryAccountCode,
           value: lineValue,
@@ -245,6 +319,21 @@ export class ProcurementService {
       // Increase what we owe the supplier.
       supplier.balance = r2(Number(supplier.balance) + total).toFixed(2);
       await mgr.getRepository(Supplier).save(supplier);
+
+      // Recompute the receipt status of every LPO this receipt touched: fully
+      // received when every line is met, otherwise partially received.
+      for (const poId of touchedPoIds) {
+        const po = await mgr
+          .getRepository(PurchaseOrder)
+          .findOne({ where: { id: poId, facilityId }, relations: ['lines'] });
+        if (!po || po.status === 'cancelled' || po.status === 'rejected') continue;
+        const lines = po.lines ?? [];
+        const fully =
+          lines.length > 0 && lines.every((l) => Number(l.receivedQty) >= Number(l.quantity) - 0.0005);
+        po.status = fully ? 'received' : 'partially_received';
+        po.goodsReceiptId = header.id;
+        await mgr.getRepository(PurchaseOrder).save(po);
+      }
 
       return { grn: header, postingLines };
     });
@@ -261,14 +350,6 @@ export class ProcurementService {
       lines: postingLines,
     });
     if (journalId) await this.grns.update({ id: grn.id }, { journalEntryId: journalId });
-
-    // Mark the originating LPO as received.
-    if (dto.purchaseOrderId) {
-      await this.purchaseOrders.update(
-        { id: dto.purchaseOrderId, facilityId },
-        { status: 'received', goodsReceiptId: grn.id },
-      );
-    }
 
     return this.grns.findOne({ where: { id: grn.id }, relations: ['lines'] }) as Promise<GoodsReceipt>;
   }

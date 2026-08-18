@@ -71,6 +71,8 @@ export class PurchaseRequisitionService {
         this.reqs.manager.getRepository(PurchaseRequisitionLine).create({
           itemId: l.itemId ?? null,
           description: l.description.trim(),
+          category: l.category ?? null,
+          unit: l.unit ?? null,
           quantity: l.quantity.toFixed(3),
           estimatedUnitPrice: (l.estimatedUnitPrice ?? 0).toFixed(2),
           purpose: l.purpose ?? null,

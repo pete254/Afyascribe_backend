@@ -25,6 +25,14 @@ export class PurchaseRequisitionLine {
   @Column()
   description: string;
 
+  /** Stock category (drug, reagent…) — carried to auto-create the item on receipt. */
+  @Column({ type: 'varchar', length: 40, nullable: true })
+  category: string | null;
+
+  /** Unit of issue (unit, box, ml…) — carried onto the item created on receipt. */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  unit: string | null;
+
   @Column({ type: 'numeric', precision: 14, scale: 3 })
   quantity: string;
 

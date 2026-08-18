@@ -80,6 +80,11 @@ export class FacilityResponseDto {
   @ApiProperty()
   defaultMarkupPct: string;
 
+  /** When true, staff may add stock items directly; false = procurement-only. */
+  @Expose()
+  @ApiProperty()
+  stockDirectEntry: boolean;
+
   @Expose()
   @ApiProperty()
   createdAt: Date;

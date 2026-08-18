@@ -30,8 +30,20 @@ export class PurchaseOrderLine {
   @Column()
   description: string;
 
+  /** Stock category (drug, reagent…) — used to auto-create the item on receipt. */
+  @Column({ type: 'varchar', length: 40, nullable: true })
+  category: string | null;
+
+  /** Unit of issue (unit, box, ml…) — carried onto the item created on receipt. */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  unit: string | null;
+
   @Column({ type: 'numeric', precision: 14, scale: 3 })
   quantity: string;
+
+  /** How much of this line has been received so far (partial receipts accumulate). */
+  @Column({ name: 'received_qty', type: 'numeric', precision: 14, scale: 3, default: 0 })
+  receivedQty: string;
 
   @Column({ name: 'unit_price', type: 'numeric', precision: 14, scale: 2 })
   unitPrice: string;
