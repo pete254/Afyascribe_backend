@@ -2,10 +2,17 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, Not } from 'typeorm';
 import { MedicationAdministration } from './entities/medication-administration.entity';
+import { NursingVital } from './entities/nursing-vital.entity';
+import { CarePlanEntry } from './entities/care-plan-entry.entity';
 import { Prescription } from '../prescriptions/entities/prescription.entity';
 import { Admission } from '../inpatient/entities/admission.entity';
 import { Patient } from '../patients/entities/patient.entity';
-import { RecordAdministrationDto } from './dto/kardex.dto';
+import {
+  RecordAdministrationDto,
+  RecordVitalDto,
+  CreateCarePlanDto,
+  UpdateCarePlanDto,
+} from './dto/kardex.dto';
 
 /** A single drug order on the kardex, distilled from the doctor's prescriptions. */
 export interface KardexOrder {
@@ -38,6 +45,10 @@ export class KardexService {
   constructor(
     @InjectRepository(MedicationAdministration)
     private readonly marRepo: Repository<MedicationAdministration>,
+    @InjectRepository(NursingVital)
+    private readonly vitalRepo: Repository<NursingVital>,
+    @InjectRepository(CarePlanEntry)
+    private readonly carePlanRepo: Repository<CarePlanEntry>,
     @InjectRepository(Prescription)
     private readonly rxRepo: Repository<Prescription>,
     @InjectRepository(Admission)
@@ -119,7 +130,90 @@ export class KardexService {
     const admission = await this.admRepo.findOne({ where: { id: admissionId, facilityId } });
     if (!admission) throw new NotFoundException('Admission not found');
     const kardex = await this.patientKardex(facilityId, admission.patientId);
-    return { admission, ...kardex };
+    const [vitals, carePlan] = await Promise.all([
+      this.vitalRepo.find({
+        where: { facilityId, admissionId },
+        order: { recordedAt: 'DESC' },
+      }),
+      this.carePlanRepo.find({
+        where: { facilityId, admissionId },
+        order: { createdAt: 'ASC' },
+      }),
+    ]);
+    return { admission, ...kardex, vitals, carePlan };
+  }
+
+  // ── Vitals ─────────────────────────────────────────────────────────────────
+  private async assertAdmission(facilityId: string, admissionId?: string) {
+    if (!admissionId) return;
+    const adm = await this.admRepo.findOne({ where: { id: admissionId, facilityId } });
+    if (!adm) throw new BadRequestException('Admission not found');
+  }
+
+  async recordVital(facilityId: string, dto: RecordVitalDto, userId: string, userName: string) {
+    const patient = await this.patientRepo.findOne({ where: { id: dto.patientId } });
+    if (!patient || (patient.facilityId && patient.facilityId !== facilityId)) {
+      throw new NotFoundException('Patient not found');
+    }
+    await this.assertAdmission(facilityId, dto.admissionId);
+    const num = (v?: number) => (v === undefined || v === null ? null : String(v));
+    const entry = this.vitalRepo.create({
+      facilityId,
+      patientId: dto.patientId,
+      admissionId: dto.admissionId ?? null,
+      temperature: num(dto.temperature),
+      pulse: dto.pulse ?? null,
+      respRate: dto.respRate ?? null,
+      bpSystolic: dto.bpSystolic ?? null,
+      bpDiastolic: dto.bpDiastolic ?? null,
+      spo2: dto.spo2 ?? null,
+      weightKg: num(dto.weightKg),
+      bloodGlucose: num(dto.bloodGlucose),
+      painScore: dto.painScore ?? null,
+      notes: dto.notes?.trim() || null,
+      recordedAt: dto.recordedAt ? new Date(dto.recordedAt) : new Date(),
+      recordedById: userId,
+      recordedByName: userName || null,
+    });
+    return this.vitalRepo.save(entry);
+  }
+
+  // ── Care plan ────────────────────────────────────────────────────────────────
+  async createCarePlan(
+    facilityId: string,
+    dto: CreateCarePlanDto,
+    userId: string,
+    userName: string,
+  ) {
+    const patient = await this.patientRepo.findOne({ where: { id: dto.patientId } });
+    if (!patient || (patient.facilityId && patient.facilityId !== facilityId)) {
+      throw new NotFoundException('Patient not found');
+    }
+    await this.assertAdmission(facilityId, dto.admissionId);
+    const entry = this.carePlanRepo.create({
+      facilityId,
+      patientId: dto.patientId,
+      admissionId: dto.admissionId ?? null,
+      problem: dto.problem.trim(),
+      goal: dto.goal?.trim() || null,
+      intervention: dto.intervention?.trim() || null,
+      evaluation: dto.evaluation?.trim() || null,
+      status: 'active',
+      createdById: userId,
+      createdByName: userName || null,
+    });
+    return this.carePlanRepo.save(entry);
+  }
+
+  async updateCarePlan(facilityId: string, id: string, dto: UpdateCarePlanDto) {
+    const entry = await this.carePlanRepo.findOne({ where: { id, facilityId } });
+    if (!entry) throw new NotFoundException('Care plan entry not found');
+    if (dto.problem !== undefined) entry.problem = dto.problem.trim();
+    if (dto.goal !== undefined) entry.goal = dto.goal.trim() || null;
+    if (dto.intervention !== undefined) entry.intervention = dto.intervention.trim() || null;
+    if (dto.evaluation !== undefined) entry.evaluation = dto.evaluation.trim() || null;
+    if (dto.status !== undefined) entry.status = dto.status;
+    return this.carePlanRepo.save(entry);
   }
 
   /** Record one administration event, signed by the acting nurse. */

@@ -1,16 +1,25 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MedicationAdministration } from './entities/medication-administration.entity';
+import { NursingVital } from './entities/nursing-vital.entity';
+import { CarePlanEntry } from './entities/care-plan-entry.entity';
 import { Prescription } from '../prescriptions/entities/prescription.entity';
 import { Admission } from '../inpatient/entities/admission.entity';
 import { Patient } from '../patients/entities/patient.entity';
 import { KardexService } from './kardex.service';
 import { KardexController } from './kardex.controller';
 
-/** Nursing kardex / Medication Administration Record (MAR). */
+/** Nursing kardex — care plan, vitals and the Medication Administration Record. */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([MedicationAdministration, Prescription, Admission, Patient]),
+    TypeOrmModule.forFeature([
+      MedicationAdministration,
+      NursingVital,
+      CarePlanEntry,
+      Prescription,
+      Admission,
+      Patient,
+    ]),
   ],
   controllers: [KardexController],
   providers: [KardexService],

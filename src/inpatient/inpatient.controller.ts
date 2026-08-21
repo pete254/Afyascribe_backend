@@ -16,6 +16,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.decorator';
 import { InpatientService } from './inpatient.service';
+import { InpatientBillingService } from './inpatient-billing.service';
 import {
   CreateWardDto,
   UpdateWardDto,
@@ -24,6 +25,8 @@ import {
   CreateAdmissionDto,
   DischargeAdmissionDto,
   TransferAdmissionDto,
+  CollectDepositDto,
+  AddChargeDto,
 } from './dto/inpatient.dto';
 
 function facilityOf(user: CurrentUserType): string {
@@ -38,7 +41,10 @@ function facilityOf(user: CurrentUserType): string {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('facility_admin', 'super_admin', 'doctor', 'nurse', 'receptionist')
 export class InpatientController {
-  constructor(private readonly svc: InpatientService) {}
+  constructor(
+    private readonly svc: InpatientService,
+    private readonly billing: InpatientBillingService,
+  ) {}
 
   // ── Census ────────────────────────────────────────────────────────────────
   @Get('census')
@@ -124,5 +130,31 @@ export class InpatientController {
     @Body() dto: TransferAdmissionDto,
   ) {
     return this.svc.transfer(facilityOf(user), id, dto);
+  }
+
+  // ── Running bill ──────────────────────────────────────────────────────────
+  @Get('admissions/:id/bill')
+  runningBill(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
+    return this.billing.getRunningBill(facilityOf(user), id);
+  }
+
+  @Post('admissions/:id/deposit')
+  @Roles('facility_admin', 'super_admin', 'doctor', 'nurse', 'receptionist')
+  collectDeposit(
+    @CurrentUser() user: CurrentUserType,
+    @Param('id') id: string,
+    @Body() dto: CollectDepositDto,
+  ) {
+    return this.billing.collectDeposit(facilityOf(user), id, dto, user.id);
+  }
+
+  @Post('admissions/:id/charges')
+  @Roles('facility_admin', 'super_admin', 'doctor', 'nurse')
+  addCharge(
+    @CurrentUser() user: CurrentUserType,
+    @Param('id') id: string,
+    @Body() dto: AddChargeDto,
+  ) {
+    return this.billing.addCharge(facilityOf(user), id, dto, user.id);
   }
 }

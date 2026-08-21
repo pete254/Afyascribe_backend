@@ -368,6 +368,51 @@ export class BillingService {
     return { bill: savedBill, visit, isFullyPaid };
   }
 
+  /**
+   * Settle part or all of a bill from an admission's prepaid deposit. Behaves
+   * like a collection but the money moves off the held deposit liability rather
+   * than a fresh cash receipt (Dr Patient Deposits, Cr Receivable). Returns how
+   * much was actually applied (capped at the outstanding balance).
+   */
+  async settleFromDeposit(
+    billId: string,
+    amount: number,
+    facilityId: string,
+    collectedById?: string,
+  ): Promise<number> {
+    const bill = await this.billingRepo.findOne({ where: { id: billId, facilityId } });
+    if (!bill) throw new NotFoundException(`Bill ${billId} not found`);
+    if (bill.status === BillingStatus.PAID || bill.status === BillingStatus.WAIVED) return 0;
+
+    const remaining = Number(bill.amount) - Number(bill.amountPaid || 0);
+    const applied = Math.min(Number(amount), remaining);
+    if (!(applied > 0)) return 0;
+
+    bill.amountPaid = Number(bill.amountPaid || 0) + applied;
+    bill.paymentHistory = [
+      ...(bill.paymentHistory || []),
+      {
+        paymentMethod: 'deposit',
+        amount: applied,
+        paidAt: new Date().toISOString(),
+        collectedById: collectedById ?? '',
+      },
+    ];
+    if (collectedById) bill.collectedById = collectedById;
+
+    const isFullyPaid = bill.amountPaid >= Number(bill.amount);
+    if (isFullyPaid) {
+      bill.status = BillingStatus.PAID;
+      bill.paidAt = new Date();
+      bill.paymentMethod = 'deposit' as PaymentMethod;
+    }
+
+    const saved = await this.billingRepo.save(bill);
+    // Move the held deposit onto the receivable (Dr Patient Deposits, Cr Receivable).
+    await this.posting.onDepositApplied(saved, applied);
+    return applied;
+  }
+
   // ── LEGACY markPaid (kept for backward compat) ────────────────────────────
   async markPaid(
     billId: string,

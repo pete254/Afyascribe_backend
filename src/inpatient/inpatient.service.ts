@@ -5,6 +5,8 @@ import { Ward } from './entities/ward.entity';
 import { Bed } from './entities/bed.entity';
 import { Admission } from './entities/admission.entity';
 import { Patient } from '../patients/entities/patient.entity';
+import { PatientVisit, VisitStatus } from '../patient-visits/entities/patient-visit.entity';
+import { InpatientBillingService } from './inpatient-billing.service';
 import {
   CreateWardDto,
   UpdateWardDto,
@@ -22,6 +24,8 @@ export class InpatientService {
     @InjectRepository(Bed) private readonly bedRepo: Repository<Bed>,
     @InjectRepository(Admission) private readonly admRepo: Repository<Admission>,
     @InjectRepository(Patient) private readonly patientRepo: Repository<Patient>,
+    @InjectRepository(PatientVisit) private readonly visitRepo: Repository<PatientVisit>,
+    private readonly inpatientBilling: InpatientBillingService,
   ) {}
 
   // ── Wards ──────────────────────────────────────────────────────────────────
@@ -42,7 +46,13 @@ export class InpatientService {
 
   async createWard(facilityId: string, dto: CreateWardDto) {
     const ward = await this.wardRepo.save(
-      this.wardRepo.create({ facilityId, name: dto.name.trim(), wardType: dto.wardType ?? 'general' }),
+      this.wardRepo.create({
+        facilityId,
+        name: dto.name.trim(),
+        wardType: dto.wardType ?? 'general',
+        bedChargeMode: dto.bedChargeMode ?? 'normal',
+        bedDailyCharge: String(dto.bedDailyCharge ?? 0),
+      }),
     );
     if (dto.bedCount && dto.bedCount > 0) {
       await this.bedRepo.save(
@@ -59,6 +69,8 @@ export class InpatientService {
     if (!ward) throw new NotFoundException('Ward not found');
     if (dto.name !== undefined) ward.name = dto.name.trim();
     if (dto.wardType !== undefined) ward.wardType = dto.wardType;
+    if (dto.bedChargeMode !== undefined) ward.bedChargeMode = dto.bedChargeMode;
+    if (dto.bedDailyCharge !== undefined) ward.bedDailyCharge = String(dto.bedDailyCharge);
     if (dto.isActive !== undefined) ward.isActive = dto.isActive;
     return this.wardRepo.save(ward);
   }
@@ -167,6 +179,27 @@ export class InpatientService {
       await this.bedRepo.save(bed);
     }
 
+    // Every admission needs a visit to hang its running bill on. Reuse the one
+    // passed in (e.g. admitted straight from an outpatient visit) or open a
+    // dedicated inpatient visit.
+    let visitId = dto.visitId ?? null;
+    if (!visitId) {
+      const visit = await this.visitRepo.save(
+        this.visitRepo.create({
+          facilityId,
+          patientId: dto.patientId,
+          reasonForVisit: dto.admissionDiagnosis?.trim() || 'Inpatient admission',
+          visitType: 'inpatient',
+          // Kept out of the outpatient queue/stats (which only track active
+          // statuses); this visit exists purely to anchor the running bill.
+          status: VisitStatus.COMPLETED,
+          checkedInById: userId ?? null,
+          checkedInAt: new Date(),
+        }),
+      );
+      visitId = visit.id;
+    }
+
     const count = await this.admRepo.count({ where: { facilityId } });
     const admission = await this.admRepo.save(
       this.admRepo.create({
@@ -175,20 +208,49 @@ export class InpatientService {
         patientId: dto.patientId,
         wardId: dto.wardId,
         bedId,
-        visitId: dto.visitId ?? null,
+        visitId,
         admittedAt: dto.admittedAt ? new Date(dto.admittedAt) : new Date(),
         admittedById: userId ?? null,
         admissionDiagnosis: dto.admissionDiagnosis ?? null,
         status: 'admitted',
       }),
     );
-    return (await this.enrich([admission]))[0];
+
+    // Take the admission deposit up front (best-effort; never blocks the admit).
+    if (dto.depositAmount && dto.depositAmount > 0) {
+      try {
+        await this.inpatientBilling.collectDeposit(
+          facilityId,
+          admission.id,
+          { amount: dto.depositAmount, method: dto.depositMethod ?? 'cash' },
+          userId,
+        );
+      } catch {
+        /* deposit can be topped up later from the Kardex */
+      }
+    }
+
+    const fresh = (await this.admRepo.findOne({ where: { id: admission.id } })) ?? admission;
+    return (await this.enrich([fresh]))[0];
   }
 
   async discharge(facilityId: string, id: string, dto: DischargeAdmissionDto) {
     const adm = await this.admRepo.findOne({ where: { id, facilityId } });
     if (!adm) throw new NotFoundException('Admission not found');
     if (adm.status === 'discharged') throw new BadRequestException('Already discharged.');
+
+    // A patient who was discharged/referred can only leave once the running bill
+    // is settled (deposit applied first). Deceased/absconded can't pay, so they
+    // are exempt; `force` lets an admin override with a documented decision.
+    if (!dto.force && (dto.outcome === 'discharged' || dto.outcome === 'referred')) {
+      const outstanding = await this.inpatientBilling.outstandingForDischarge(facilityId, adm);
+      if (outstanding > 0) {
+        throw new BadRequestException(
+          `Outstanding balance of KES ${outstanding.toLocaleString()} must be settled (or the discharge overridden) before release.`,
+        );
+      }
+    }
+
     adm.status = 'discharged';
     adm.dischargedAt = dto.dischargedAt ? new Date(dto.dischargedAt) : new Date();
     adm.outcome = dto.outcome;

@@ -141,6 +141,93 @@ export class HmisPostingService {
   }
 
   /**
+   * Admission deposit collected up front → cash lands as a patient-deposit
+   * liability (the money isn't earned yet, it's held against future charges).
+   *   Dr Cash/Bank/Mobile   Cr Patient Deposits
+   */
+  async onDepositCollected(input: {
+    facilityId: string;
+    admissionId: string;
+    amount: number;
+    method: string;
+    memo?: string;
+  }): Promise<void> {
+    const amount = Number(input.amount);
+    if (!(amount > 0)) return;
+    await this.postWithDepositAccount(input.facilityId, () =>
+      this.ledger.post({
+        facilityId: input.facilityId,
+        source: 'billing',
+        sourceType: 'admission_deposit',
+        sourceId: input.admissionId,
+        memo: input.memo ?? 'Admission deposit',
+        lines: [
+          { accountCode: this.paymentAccount(input.method), debit: amount },
+          { accountCode: ACCOUNTS.PATIENT_DEPOSITS, credit: amount },
+        ],
+      }),
+    );
+  }
+
+  /**
+   * A running-bill charge settled from the patient's held deposit → move the
+   * deposit liability onto the receivable the bill raised.
+   *   Dr Patient Deposits   Cr Receivable
+   */
+  async onDepositApplied(
+    bill: {
+      id: string;
+      facilityId: string;
+      serviceType?: string;
+      paymentMode?: string;
+      status?: string;
+      insuranceSchemeName?: string | null;
+    },
+    amount: number,
+  ): Promise<void> {
+    const value = Number(amount);
+    if (!(value > 0)) return;
+    await this.postWithDepositAccount(bill.facilityId, () =>
+      this.ledger.post({
+        facilityId: bill.facilityId,
+        source: 'billing',
+        sourceType: 'deposit_applied',
+        sourceId: bill.id,
+        memo: 'Charge settled from deposit',
+        lines: [
+          { accountCode: ACCOUNTS.PATIENT_DEPOSITS, debit: value, costCenter: bill.serviceType },
+          { accountCode: this.receivableAccount(bill), credit: value, costCenter: bill.serviceType },
+        ],
+      }),
+    );
+  }
+
+  /**
+   * Run a deposit-related post, tolerating a facility whose chart predates the
+   * Patient Deposits account: seed the missing standard accounts once and retry.
+   * Like the rest of this service, a persistent failure is logged, never thrown.
+   */
+  private async postWithDepositAccount(facilityId: string, run: () => Promise<unknown>): Promise<void> {
+    try {
+      if (!(await this.ledger.hasChart(facilityId))) return;
+      await run();
+    } catch (e) {
+      const msg = (e as Error).message ?? '';
+      if (/Unknown account/i.test(msg)) {
+        try {
+          await this.ledger.seedChartOfAccounts(facilityId);
+          await run();
+          return;
+        } catch (e2) {
+          this.logger.error(`Deposit posting failed after reseed: ${(e2 as Error).message}`);
+          return;
+        }
+      }
+      this.logger.error(`Deposit posting failed: ${msg}`);
+    }
+  }
+
+  /**
    * Catch-up payment for a bill that was paid before the chart existed. Unlike
    * onPaymentCollected (one journal per live collection), this posts a single
    * journal for the total already collected, and is idempotency-guarded so a

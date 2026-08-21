@@ -6,6 +6,7 @@ import {
   IsInt,
   IsBoolean,
   IsIn,
+  IsNumber,
   Min,
   Max,
 } from 'class-validator';
@@ -13,6 +14,8 @@ import {
 export const WARD_TYPES = ['general', 'maternity', 'paediatric', 'surgical', 'private', 'icu', 'other'];
 export const BED_STATUSES = ['available', 'occupied', 'blocked'];
 export const OUTCOMES = ['discharged', 'referred', 'deceased', 'absconded'];
+/** normal → auto-accrue the daily bed fee; special → bed charges entered by hand. */
+export const BED_CHARGE_MODES = ['normal', 'special'];
 
 export class CreateWardDto {
   @IsString()
@@ -22,6 +25,15 @@ export class CreateWardDto {
   @IsOptional()
   @IsIn(WARD_TYPES)
   wardType?: string;
+
+  @IsOptional()
+  @IsIn(BED_CHARGE_MODES)
+  bedChargeMode?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  bedDailyCharge?: number;
 
   /** Optionally seed this many beds (labelled 1..n) with the ward. */
   @IsOptional()
@@ -39,6 +51,15 @@ export class UpdateWardDto {
   @IsOptional()
   @IsIn(WARD_TYPES)
   wardType?: string;
+
+  @IsOptional()
+  @IsIn(BED_CHARGE_MODES)
+  bedChargeMode?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  bedDailyCharge?: number;
 
   @IsOptional()
   @IsBoolean()
@@ -98,6 +119,16 @@ export class CreateAdmissionDto {
   @IsOptional()
   @IsUUID()
   visitId?: string;
+
+  /** Deposit collected at admission — seeds the running-bill credit. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  depositAmount?: number;
+
+  @IsOptional()
+  @IsString()
+  depositMethod?: string;
 }
 
 export class DischargeAdmissionDto {
@@ -111,6 +142,46 @@ export class DischargeAdmissionDto {
   @IsOptional()
   @IsString()
   dischargeNotes?: string;
+
+  /** Override the unpaid-balance block (documented admin decision). */
+  @IsOptional()
+  @IsBoolean()
+  force?: boolean;
+}
+
+// ── Running bill ─────────────────────────────────────────────────────────────
+export class CollectDepositDto {
+  @IsNumber()
+  @Min(0)
+  amount: number;
+
+  @IsOptional()
+  @IsString()
+  method?: string;
+}
+
+export class AddChargeDto {
+  @IsOptional()
+  @IsString()
+  serviceType?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  description: string;
+
+  @IsNumber()
+  @Min(0)
+  amount: number;
+
+  /** When set, the charge also depletes pharmacy stock and books COGS. */
+  @IsOptional()
+  @IsUUID()
+  itemId?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  quantity?: number;
 }
 
 export class TransferAdmissionDto {

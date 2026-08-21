@@ -45,6 +45,26 @@ export class Admission {
   @Column({ name: 'admission_diagnosis', type: 'text', nullable: true })
   admissionDiagnosis: string | null;
 
+  // ── Running bill / deposit ─────────────────────────────────────────────────
+  /** Total deposit money collected up front for this admission. */
+  @Column({ name: 'deposit_paid', type: 'numeric', precision: 14, scale: 2, default: 0 })
+  depositPaid: string;
+
+  /**
+   * Remaining prepaid deposit credit. Charges (bed, meds, services) draw this
+   * down as they land; once it hits zero, further charges are unpaid and must be
+   * settled before the patient is discharged.
+   */
+  @Column({ name: 'deposit_balance', type: 'numeric', precision: 14, scale: 2, default: 0 })
+  depositBalance: string;
+
+  /**
+   * The last night (date) for which the daily bed fee has been accrued. Bed
+   * charges are materialised lazily up to today, so this marks how far we've got.
+   */
+  @Column({ name: 'bed_charged_through', type: 'date', nullable: true })
+  bedChargedThrough: string | null;
+
   // admitted | discharged
   @Column({ type: 'varchar', length: 20, default: 'admitted' })
   status: string;

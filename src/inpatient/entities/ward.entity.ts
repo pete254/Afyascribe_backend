@@ -24,6 +24,18 @@ export class Ward {
   @Column({ name: 'ward_type', type: 'varchar', length: 32, default: 'general' })
   wardType: string;
 
+  /**
+   * How the daily bed fee is charged for patients in this ward:
+   *   normal  → auto-accrue `bedDailyCharge` every night from the admission day
+   *   special → no auto charge; the nurse enters bed/accommodation charges by hand
+   */
+  @Column({ name: 'bed_charge_mode', type: 'varchar', length: 16, default: 'normal' })
+  bedChargeMode: string;
+
+  /** The nightly bed fee (used when bedChargeMode = 'normal'). */
+  @Column({ name: 'bed_daily_charge', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  bedDailyCharge: string;
+
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 

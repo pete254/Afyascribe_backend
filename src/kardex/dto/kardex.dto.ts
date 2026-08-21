@@ -1,9 +1,13 @@
 import {
   IsIn,
+  IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
   IsDateString,
+  Max,
+  Min,
   MaxLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -78,4 +82,153 @@ export class RecordAdministrationDto {
   @IsOptional()
   @IsString()
   notes?: string;
+}
+
+// ── Vitals ────────────────────────────────────────────────────────────────────
+/** Record a set of bedside observations for an admitted patient. */
+export class RecordVitalDto {
+  @ApiProperty()
+  @IsUUID()
+  patientId: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  admissionId?: string;
+
+  @ApiPropertyOptional({ example: 37.2, description: '°C' })
+  @IsOptional()
+  @IsNumber()
+  @Min(25)
+  @Max(45)
+  temperature?: number;
+
+  @ApiPropertyOptional({ example: 80, description: 'beats/min' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(300)
+  pulse?: number;
+
+  @ApiPropertyOptional({ example: 18, description: 'breaths/min' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(120)
+  respRate?: number;
+
+  @ApiPropertyOptional({ example: 120 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(320)
+  bpSystolic?: number;
+
+  @ApiPropertyOptional({ example: 80 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(220)
+  bpDiastolic?: number;
+
+  @ApiPropertyOptional({ example: 98, description: 'SpO₂ %' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  spo2?: number;
+
+  @ApiPropertyOptional({ example: 62.5, description: 'kg' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(500)
+  weightKg?: number;
+
+  @ApiPropertyOptional({ example: 5.5, description: 'mmol/L (RBS)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(80)
+  bloodGlucose?: number;
+
+  @ApiPropertyOptional({ example: 2, description: '0–10 pain score' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(10)
+  painScore?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @ApiPropertyOptional({ description: 'When the observations were taken (defaults to now)' })
+  @IsOptional()
+  @IsDateString()
+  recordedAt?: string;
+}
+
+// ── Care plan ─────────────────────────────────────────────────────────────────
+export const CARE_PLAN_STATUSES = ['active', 'resolved'] as const;
+
+/** Add a nursing care-plan entry (problem → goal → intervention → evaluation). */
+export class CreateCarePlanDto {
+  @ApiProperty()
+  @IsUUID()
+  patientId: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  admissionId?: string;
+
+  @ApiProperty({ example: 'Risk of falls' })
+  @IsString()
+  @MaxLength(500)
+  problem: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  goal?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  intervention?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  evaluation?: string;
+}
+
+/** Update an existing care-plan entry (evaluation / status as care progresses). */
+export class UpdateCarePlanDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  problem?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  goal?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  intervention?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  evaluation?: string;
+
+  @ApiPropertyOptional({ enum: CARE_PLAN_STATUSES })
+  @IsOptional()
+  @IsIn(CARE_PLAN_STATUSES as unknown as string[])
+  status?: string;
 }
