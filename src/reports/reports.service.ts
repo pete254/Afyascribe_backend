@@ -14,6 +14,9 @@ import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { Supplier } from '../inventory/entities/supplier.entity';
 import { SupplierInvoice } from '../inventory/entities/supplier-invoice.entity';
 import { SupplierPayment } from '../inventory/entities/supplier-payment.entity';
+import { Employee } from '../payroll/entities/employee.entity';
+import { PayrollRun } from '../payroll/entities/payroll-run.entity';
+import { Payslip } from '../payroll/entities/payslip.entity';
 
 /** One disease line on an MOH 705A/705B outpatient morbidity summary. */
 export interface MorbidityRow {
@@ -118,6 +121,12 @@ export class ReportsService {
     private readonly supplierInvoiceRepo: Repository<SupplierInvoice>,
     @InjectRepository(SupplierPayment)
     private readonly supplierPaymentRepo: Repository<SupplierPayment>,
+    @InjectRepository(Employee)
+    private readonly employeeRepo: Repository<Employee>,
+    @InjectRepository(PayrollRun)
+    private readonly payrollRunRepo: Repository<PayrollRun>,
+    @InjectRepository(Payslip)
+    private readonly payslipRepo: Repository<Payslip>,
   ) {}
 
   // ── PATIENTS TODAY ─────────────────────────────────────────────────────────
@@ -527,6 +536,138 @@ export class ReportsService {
       totals: {
         billed: r2(rows.reduce((s, r) => s + r.billed, 0)),
         collected: r2(rows.reduce((s, r) => s + r.collected, 0)),
+      },
+    };
+  }
+
+  // ── PAYROLL STATUTORY (MONTHLY) ────────────────────────────────────────────
+  /**
+   * One month's payroll as a statutory return: per-employee gross, PAYE, NSSF,
+   * SHIF and Housing (with KRA PIN / NSSF / SHIF numbers) plus their bank
+   * details for the banking list. Feeds the P10, NSSF/SHIF returns and the bank
+   * transfer schedule.
+   */
+  async payrollStatutory(facilityId: string, month: string) {
+    const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+    const runs = await this.payrollRunRepo.find({ where: { facilityId, periodMonth: month } });
+    const runIds = runs.map((r) => r.id);
+    const payDate = runs.map((r) => r.payDate).find(Boolean) ?? null;
+
+    const slips = runIds.length ? await this.payslipRepo.find({ where: { payrollRunId: In(runIds) } }) : [];
+    const empIds = [...new Set(slips.map((s) => s.employeeId))];
+    const emps = empIds.length ? await this.employeeRepo.find({ where: { id: In(empIds) } }) : [];
+    const empById = new Map(emps.map((e) => [e.id, e]));
+
+    const map = new Map<
+      string,
+      {
+        employeeNo: string; name: string; kraPin: string | null; nssfNo: string | null; shifNo: string | null;
+        bankName: string | null; bankAccount: string | null;
+        basic: number; gross: number; paye: number; nssf: number; shif: number; housing: number; net: number;
+      }
+    >();
+    for (const s of slips) {
+      const e = empById.get(s.employeeId);
+      const g =
+        map.get(s.employeeId) ??
+        {
+          employeeNo: e?.employeeNo ?? '', name: s.employeeName, kraPin: e?.kraPin ?? null,
+          nssfNo: e?.nssfNo ?? null, shifNo: e?.shifNo ?? null, bankName: e?.bankName ?? null,
+          bankAccount: e?.bankAccount ?? null,
+          basic: 0, gross: 0, paye: 0, nssf: 0, shif: 0, housing: 0, net: 0,
+        };
+      g.basic = r2(g.basic + Number(s.basic));
+      g.gross = r2(g.gross + Number(s.grossPay));
+      g.paye = r2(g.paye + Number(s.paye));
+      g.nssf = r2(g.nssf + Number(s.nssfEmployee));
+      g.shif = r2(g.shif + Number(s.shif));
+      g.housing = r2(g.housing + Number(s.housingEmployee));
+      g.net = r2(g.net + Number(s.netPay));
+      map.set(s.employeeId, g);
+    }
+
+    const rows = [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+    const sum = (k: 'basic' | 'gross' | 'paye' | 'nssf' | 'shif' | 'housing' | 'net') =>
+      r2(rows.reduce((s, r) => s + r[k], 0));
+
+    return {
+      month,
+      payDate,
+      runs: runs.length,
+      rows,
+      totals: {
+        basic: sum('basic'), gross: sum('gross'), paye: sum('paye'),
+        nssf: sum('nssf'), shif: sum('shif'), housing: sum('housing'), net: sum('net'),
+      },
+    };
+  }
+
+  // ── PAYROLL ANNUAL (P9A / YEARLY) ──────────────────────────────────────────
+  /** A year's pay per employee — annual totals plus a month-by-month gross/PAYE grid. */
+  async payrollAnnual(facilityId: string, year: string) {
+    const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+    const runs = await this.payrollRunRepo
+      .createQueryBuilder('r')
+      .where('r.facility_id = :facilityId', { facilityId })
+      .andWhere('r.period_month LIKE :y', { y: `${year}-%` })
+      .getMany();
+    const monthByRun = new Map(runs.map((r) => [r.id, r.periodMonth.slice(5, 7)]));
+    const runIds = runs.map((r) => r.id);
+
+    const slips = runIds.length ? await this.payslipRepo.find({ where: { payrollRunId: In(runIds) } }) : [];
+    const empIds = [...new Set(slips.map((s) => s.employeeId))];
+    const emps = empIds.length ? await this.employeeRepo.find({ where: { id: In(empIds) } }) : [];
+    const empById = new Map(emps.map((e) => [e.id, e]));
+
+    const map = new Map<
+      string,
+      {
+        employeeNo: string; name: string; kraPin: string | null;
+        gross: number; paye: number; nssf: number; shif: number; housing: number; net: number;
+        months: Record<string, { gross: number; paye: number }>;
+      }
+    >();
+    const monthlyTotals: Record<string, { gross: number; paye: number; net: number }> = {};
+
+    for (const s of slips) {
+      const mm = monthByRun.get(s.payrollRunId) ?? '00';
+      const e = empById.get(s.employeeId);
+      const g =
+        map.get(s.employeeId) ??
+        {
+          employeeNo: e?.employeeNo ?? '', name: s.employeeName, kraPin: e?.kraPin ?? null,
+          gross: 0, paye: 0, nssf: 0, shif: 0, housing: 0, net: 0, months: {} as Record<string, { gross: number; paye: number }>,
+        };
+      const gross = Number(s.grossPay);
+      const paye = Number(s.paye);
+      g.gross = r2(g.gross + gross);
+      g.paye = r2(g.paye + paye);
+      g.nssf = r2(g.nssf + Number(s.nssfEmployee));
+      g.shif = r2(g.shif + Number(s.shif));
+      g.housing = r2(g.housing + Number(s.housingEmployee));
+      g.net = r2(g.net + Number(s.netPay));
+      const m = g.months[mm] ?? { gross: 0, paye: 0 };
+      m.gross = r2(m.gross + gross);
+      m.paye = r2(m.paye + paye);
+      g.months[mm] = m;
+      map.set(s.employeeId, g);
+
+      const mt = monthlyTotals[mm] ?? { gross: 0, paye: 0, net: 0 };
+      mt.gross = r2(mt.gross + gross);
+      mt.paye = r2(mt.paye + paye);
+      mt.net = r2(mt.net + Number(s.netPay));
+      monthlyTotals[mm] = mt;
+    }
+
+    const rows = [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+    return {
+      year,
+      rows,
+      monthlyTotals,
+      totals: {
+        gross: r2(rows.reduce((s, r) => s + r.gross, 0)),
+        paye: r2(rows.reduce((s, r) => s + r.paye, 0)),
+        net: r2(rows.reduce((s, r) => s + r.net, 0)),
       },
     };
   }

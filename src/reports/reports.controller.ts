@@ -195,6 +195,28 @@ export class ReportsController {
     return this.reportsService.revenueByDoctor(user.facilityId, fromDate, toDate);
   }
 
+  // ── PAYROLL STATUTORY ──────────────────────────────────────────────────────
+  @Get('payroll-statutory')
+  @Roles('facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Monthly payroll statutory return + banking list (P10)' })
+  @ApiQuery({ name: 'month', required: false, example: '2026-08' })
+  getPayrollStatutory(@CurrentUser() user: any, @Query('month') month?: string) {
+    assertCanViewReports(user);
+    const m = month || new Date().toISOString().slice(0, 7);
+    return this.reportsService.payrollStatutory(user.facilityId, m);
+  }
+
+  // ── PAYROLL ANNUAL (P9A / YEARLY) ──────────────────────────────────────────
+  @Get('payroll-annual')
+  @Roles('facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Annual pay per employee with a month-by-month grid (P9A)' })
+  @ApiQuery({ name: 'year', required: false, example: '2026' })
+  getPayrollAnnual(@CurrentUser() user: any, @Query('year') year?: string) {
+    assertCanViewReports(user);
+    const y = year || String(new Date().getFullYear());
+    return this.reportsService.payrollAnnual(user.facilityId, y);
+  }
+
   // ── SUPPLIER AGED PAYABLES ─────────────────────────────────────────────────
   @Get('supplier-payables')
   @Roles('facility_admin', 'super_admin', 'doctor')

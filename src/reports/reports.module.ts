@@ -13,6 +13,9 @@ import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { Supplier } from '../inventory/entities/supplier.entity';
 import { SupplierInvoice } from '../inventory/entities/supplier-invoice.entity';
 import { SupplierPayment } from '../inventory/entities/supplier-payment.entity';
+import { Employee } from '../payroll/entities/employee.entity';
+import { PayrollRun } from '../payroll/entities/payroll-run.entity';
+import { Payslip } from '../payroll/entities/payslip.entity';
 import { ReportsService } from './reports.service';
 import { ReportsController } from './reports.controller';
 
@@ -20,7 +23,7 @@ import { ReportsController } from './reports.controller';
   imports: [
     TypeOrmModule.forFeature([
       Billing, PatientVisit, SoapNote, LabOrder, Admission, Bed, Ward, User, Patient, InventoryItem,
-      Supplier, SupplierInvoice, SupplierPayment,
+      Supplier, SupplierInvoice, SupplierPayment, Employee, PayrollRun, Payslip,
     ]),
   ],
   controllers: [ReportsController],
