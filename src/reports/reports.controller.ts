@@ -147,6 +147,54 @@ export class ReportsController {
     return this.reportsService.workload(user.facilityId, fromDate, toDate);
   }
 
+  // ── CASHIER / COLLECTIONS ──────────────────────────────────────────────────
+  @Get('collections')
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({ summary: 'Money collected in a period, grouped by cashier and tender' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  getCollections(@CurrentUser() user: any, @Query('from') from?: string, @Query('to') to?: string) {
+    assertCanViewReports(user);
+    const fromDate = from ? new Date(from) : new Date(new Date().setHours(0, 0, 0, 0));
+    const toDate = to ? new Date(to) : new Date();
+    return this.reportsService.collections(user.facilityId, fromDate, toDate);
+  }
+
+  // ── PATIENT CREDITS ────────────────────────────────────────────────────────
+  @Get('patient-credits')
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({ summary: 'Patients holding prepaid deposit credit' })
+  getPatientCredits(@CurrentUser() user: any) {
+    assertCanViewReports(user);
+    return this.reportsService.patientCredits(user.facilityId);
+  }
+
+  // ── REVERSED / WRITTEN-OFF INVOICES ────────────────────────────────────────
+  @Get('reversed-invoices')
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({ summary: 'Bills waived / written off in a period' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  getReversedInvoices(@CurrentUser() user: any, @Query('from') from?: string, @Query('to') to?: string) {
+    assertCanViewReports(user);
+    const fromDate = from ? new Date(from) : new Date(new Date().setDate(1));
+    const toDate = to ? new Date(to) : new Date();
+    return this.reportsService.reversedInvoices(user.facilityId, fromDate, toDate);
+  }
+
+  // ── REVENUE SHARING (BY DOCTOR) ────────────────────────────────────────────
+  @Get('revenue-by-doctor')
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({ summary: 'Revenue attributed to each attending doctor in a period' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  getRevenueByDoctor(@CurrentUser() user: any, @Query('from') from?: string, @Query('to') to?: string) {
+    assertCanViewReports(user);
+    const fromDate = from ? new Date(from) : new Date(new Date().setDate(1));
+    const toDate = to ? new Date(to) : new Date();
+    return this.reportsService.revenueByDoctor(user.facilityId, fromDate, toDate);
+  }
+
   // ── INSURANCE CLAIMS ───────────────────────────────────────────────────────
   @Get('insurance-claims')
   @Roles('facility_admin', 'super_admin', 'doctor')

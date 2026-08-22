@@ -7,11 +7,15 @@ import { LabOrder } from '../lab/entities/lab-order.entity';
 import { Admission } from '../inpatient/entities/admission.entity';
 import { Bed } from '../inpatient/entities/bed.entity';
 import { Ward } from '../inpatient/entities/ward.entity';
+import { User } from '../users/entities/user.entity';
+import { Patient } from '../patients/entities/patient.entity';
 import { ReportsService } from './reports.service';
 import { ReportsController } from './reports.controller';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Billing, PatientVisit, SoapNote, LabOrder, Admission, Bed, Ward])],
+  imports: [
+    TypeOrmModule.forFeature([Billing, PatientVisit, SoapNote, LabOrder, Admission, Bed, Ward, User, Patient]),
+  ],
   controllers: [ReportsController],
   providers: [ReportsService],
 })

@@ -8,6 +8,8 @@ import { LabOrder } from '../lab/entities/lab-order.entity';
 import { Admission } from '../inpatient/entities/admission.entity';
 import { Bed } from '../inpatient/entities/bed.entity';
 import { Ward } from '../inpatient/entities/ward.entity';
+import { User } from '../users/entities/user.entity';
+import { Patient } from '../patients/entities/patient.entity';
 
 /** One disease line on an MOH 705A/705B outpatient morbidity summary. */
 export interface MorbidityRow {
@@ -74,6 +76,10 @@ export class ReportsService {
     private readonly bedRepo: Repository<Bed>,
     @InjectRepository(Ward)
     private readonly wardRepo: Repository<Ward>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
+    @InjectRepository(Patient)
+    private readonly patientRepo: Repository<Patient>,
   ) {}
 
   // ── PATIENTS TODAY ─────────────────────────────────────────────────────────
@@ -267,6 +273,236 @@ export class ReportsService {
         outstanding: r2([...map.values()].reduce((s, g) => s + g.outstanding, 0)),
       },
       bills: drill,
+    };
+  }
+
+  // ── CASHIER / COLLECTIONS ──────────────────────────────────────────────────
+  /**
+   * Every payment actually received in the period, from each bill's payment
+   * history (so partial payments and deposits are counted at the moment money
+   * changed hands). Grouped by cashier and by tender — the basis for the cashier
+   * summary, the shift/till reconciliation and the cash-position report.
+   */
+  async collections(facilityId: string, from: Date, to: Date) {
+    const fromStart = new Date(from);
+    fromStart.setHours(0, 0, 0, 0);
+    const toEnd = new Date(to);
+    toEnd.setHours(23, 59, 59, 999);
+    const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+
+    // Any bill with money on it, raised on or before the period end — a payment
+    // in the window can sit on a bill raised earlier.
+    const bills = await this.billingRepo
+      .createQueryBuilder('b')
+      .leftJoinAndSelect('b.patient', 'patient')
+      .where('b.facility_id = :facilityId', { facilityId })
+      .andWhere('b.amount_paid > 0')
+      .andWhere('b.created_at <= :to', { to: toEnd })
+      .getMany();
+
+    interface Entry {
+      cashierId: string;
+      method: string;
+      amount: number;
+      paidAt: string;
+      billId: string;
+      patientName: string;
+      patientNo: string | null;
+      serviceType: string;
+      serviceDescription: string | null;
+      isDeposit: boolean;
+      mpesaReference: string | null;
+    }
+    const entries: Entry[] = [];
+    const cashierIds = new Set<string>();
+
+    for (const b of bills) {
+      const person = b.patient;
+      for (const ph of b.paymentHistory ?? []) {
+        const paidAt = ph.paidAt ? new Date(ph.paidAt) : null;
+        if (!paidAt || paidAt < fromStart || paidAt > toEnd) continue;
+        const cashierId = ph.collectedById || '';
+        if (cashierId) cashierIds.add(cashierId);
+        entries.push({
+          cashierId,
+          method: ph.paymentMethod || 'cash',
+          amount: Number(ph.amount || 0),
+          paidAt: paidAt.toISOString(),
+          billId: b.id,
+          patientName: person ? `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim() || 'Patient' : 'Patient',
+          patientNo: person?.patientId ?? null,
+          serviceType: b.serviceType,
+          serviceDescription: b.serviceDescription ?? null,
+          isDeposit: !!b.isDeposit,
+          mpesaReference: ph.mpesaReference ?? null,
+        });
+      }
+    }
+
+    const users = cashierIds.size
+      ? await this.userRepo.find({ where: { id: In([...cashierIds]) } })
+      : [];
+    const nameById = new Map(users.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]));
+
+    const methodSet = new Set<string>();
+    const byCashier = new Map<
+      string,
+      { cashierId: string; cashierName: string; total: number; count: number; methods: Record<string, number> }
+    >();
+    const byMethod = new Map<string, number>();
+
+    for (const e of entries) {
+      methodSet.add(e.method);
+      byMethod.set(e.method, r2((byMethod.get(e.method) || 0) + e.amount));
+      const key = e.cashierId || 'unknown';
+      const g =
+        byCashier.get(key) ??
+        {
+          cashierId: e.cashierId,
+          cashierName: nameById.get(e.cashierId) ?? 'Unknown',
+          total: 0,
+          count: 0,
+          methods: {} as Record<string, number>,
+        };
+      g.total = r2(g.total + e.amount);
+      g.count += 1;
+      g.methods[e.method] = r2((g.methods[e.method] || 0) + e.amount);
+      byCashier.set(key, g);
+    }
+
+    return {
+      period: { from: fromStart, to: toEnd },
+      methods: [...methodSet],
+      byCashier: [...byCashier.values()].sort((a, b) => b.total - a.total),
+      byMethod: [...byMethod.entries()].map(([method, amount]) => ({ method, amount })),
+      total: r2(entries.reduce((s, e) => s + e.amount, 0)),
+      depositsCollected: r2(entries.filter((e) => e.isDeposit).reduce((s, e) => s + e.amount, 0)),
+      count: entries.length,
+      entries: entries.sort((a, b) => (a.paidAt < b.paidAt ? 1 : -1)),
+    };
+  }
+
+  // ── PATIENT CREDITS ────────────────────────────────────────────────────────
+  /** Patients holding prepaid credit — admission deposits not yet spent. */
+  async patientCredits(facilityId: string) {
+    const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+    const adms = await this.admRepo.find({ where: { facilityId } });
+    const withCredit = adms.filter((a) => Number(a.depositBalance || 0) > 0.005);
+
+    const patientIds = [...new Set(withCredit.map((a) => a.patientId))];
+    const patients = patientIds.length
+      ? await this.patientRepo.find({ where: { id: In(patientIds) } })
+      : [];
+    const pById = new Map(patients.map((p) => [p.id, p]));
+
+    const rows = withCredit
+      .map((a) => {
+        const p = pById.get(a.patientId);
+        return {
+          admissionId: a.id,
+          admissionNo: a.admissionNo,
+          patientId: a.patientId,
+          patientName: p ? `${p.firstName ?? ''} ${p.lastName ?? ''}`.trim() || 'Patient' : 'Patient',
+          patientNo: p?.patientId ?? null,
+          status: a.status,
+          depositPaid: r2(Number(a.depositPaid || 0)),
+          depositBalance: r2(Number(a.depositBalance || 0)),
+          admittedAt: a.admittedAt ? new Date(a.admittedAt).toISOString() : null,
+        };
+      })
+      .sort((a, b) => b.depositBalance - a.depositBalance);
+
+    return { rows, total: r2(rows.reduce((s, r) => s + r.depositBalance, 0)) };
+  }
+
+  // ── REVERSED / WRITTEN-OFF INVOICES ────────────────────────────────────────
+  /** Bills waived (written off) in the period — the reversal trail. */
+  async reversedInvoices(facilityId: string, from: Date, to: Date) {
+    const toEnd = new Date(to);
+    toEnd.setHours(23, 59, 59, 999);
+    const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+
+    const bills = await this.billingRepo
+      .createQueryBuilder('b')
+      .leftJoinAndSelect('b.patient', 'patient')
+      .leftJoinAndSelect('b.collectedBy', 'collectedBy')
+      .where('b.facility_id = :facilityId', { facilityId })
+      .andWhere('b.status = :waived', { waived: BillingStatus.WAIVED })
+      .andWhere('b.updated_at >= :from', { from })
+      .andWhere('b.updated_at <= :to', { to: toEnd })
+      .orderBy('b.updated_at', 'DESC')
+      .getMany();
+
+    const rows = bills.map((b) => {
+      const person = b.patient;
+      return {
+        id: b.id,
+        patientName: person ? `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim() || 'Patient' : 'Patient',
+        patientNo: person?.patientId ?? null,
+        serviceType: b.serviceType,
+        serviceDescription: b.serviceDescription ?? null,
+        amount: r2(Number(b.amount)),
+        amountPaid: r2(Number(b.amountPaid || 0)),
+        reversedAt: b.updatedAt ? new Date(b.updatedAt).toISOString() : null,
+        by: b.collectedBy ? `${b.collectedBy.firstName ?? ''} ${b.collectedBy.lastName ?? ''}`.trim() : null,
+        visitId: b.visitId ?? null,
+      };
+    });
+
+    return { rows, total: r2(rows.reduce((s, r) => s + r.amount, 0)), count: rows.length };
+  }
+
+  // ── REVENUE SHARING (BY DOCTOR) ────────────────────────────────────────────
+  /**
+   * Revenue attributed to each attending doctor from the bills on their visits —
+   * the basis for doctor revenue-share payouts. A share percentage is applied on
+   * the client so the split can be tuned without a schema change.
+   */
+  async revenueByDoctor(facilityId: string, from: Date, to: Date) {
+    const toEnd = new Date(to);
+    toEnd.setHours(23, 59, 59, 999);
+    const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+
+    const bills = await this.billingRepo
+      .createQueryBuilder('b')
+      .leftJoinAndSelect('b.visit', 'visit')
+      .leftJoinAndSelect('visit.assignedDoctor', 'doctor')
+      .where('b.facility_id = :facilityId', { facilityId })
+      .andWhere('b.created_at >= :from', { from })
+      .andWhere('b.created_at <= :to', { to: toEnd })
+      .andWhere('b.status != :waived', { waived: BillingStatus.WAIVED })
+      .getMany();
+
+    const map = new Map<
+      string,
+      { doctorId: string | null; doctorName: string; billed: number; collected: number; count: number }
+    >();
+    for (const b of bills) {
+      const doc = b.visit?.assignedDoctor ?? null;
+      const key = doc?.id ?? 'unassigned';
+      const g =
+        map.get(key) ??
+        {
+          doctorId: doc?.id ?? null,
+          doctorName: doc ? `${doc.firstName ?? ''} ${doc.lastName ?? ''}`.trim() || 'Doctor' : 'Unassigned',
+          billed: 0,
+          collected: 0,
+          count: 0,
+        };
+      g.billed = r2(g.billed + Number(b.amount));
+      g.collected = r2(g.collected + Number(b.amountPaid || 0));
+      g.count += 1;
+      map.set(key, g);
+    }
+
+    const rows = [...map.values()].sort((a, b) => b.billed - a.billed);
+    return {
+      period: { from, to: toEnd },
+      rows,
+      totals: {
+        billed: r2(rows.reduce((s, r) => s + r.billed, 0)),
+        collected: r2(rows.reduce((s, r) => s + r.collected, 0)),
+      },
     };
   }
 
