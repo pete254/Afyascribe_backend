@@ -87,6 +87,15 @@ export class InventoryController {
     return this.stock.performanceReport(facilityOf(user), { from, to });
   }
 
+  @Get('reports/stock-variance')
+  stockVariance(
+    @CurrentUser() user: CurrentUserType,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.stock.stockVariance(facilityOf(user), from, to);
+  }
+
   @Get('expiry')
   expiry(@CurrentUser() user: CurrentUserType, @Query('withinDays') withinDays?: string) {
     return this.stock.expiryReport(facilityOf(user), withinDays ? Number(withinDays) : 90);

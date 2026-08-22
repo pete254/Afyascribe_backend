@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, EntityManager } from 'typeorm';
+import { Repository, DataSource, EntityManager, Between } from 'typeorm';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { StockMovement, StockMovementType } from './entities/stock-movement.entity';
 import { StockBatch } from './entities/stock-batch.entity';
@@ -114,6 +114,63 @@ export class StockService {
       item.salePrice = priceFromMarkup(Number(item.costPrice), Number(item.markupPct)).toFixed(2);
     }
     return this.items.save(item);
+  }
+
+  /**
+   * Stock variance report — the write-ups and write-downs from physical stock
+   * counts in a period, from the count adjustment movements. Signed quantity and
+   * value per item (positive = found surplus, negative = shrinkage).
+   */
+  async stockVariance(facilityId: string, from?: string, to?: string) {
+    const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+    const r3 = (v: number) => Math.round((v + Number.EPSILON) * 1000) / 1000;
+    const fromStr = from || '1900-01-01';
+    const toStr = to || today();
+
+    const moves = await this.movements.find({
+      where: { facilityId, sourceType: 'stock_count', date: Between(fromStr, toStr) },
+      relations: ['item'],
+      order: { date: 'DESC' },
+    });
+
+    const map = new Map<
+      string,
+      { itemId: string; name: string; category: string; unit: string; varianceQty: number; valueDelta: number; count: number; lastDate: string }
+    >();
+    for (const m of moves) {
+      const g =
+        map.get(m.itemId) ??
+        {
+          itemId: m.itemId,
+          name: m.item?.name ?? 'Item',
+          category: m.item?.category ?? 'other',
+          unit: m.item?.unit ?? 'unit',
+          varianceQty: 0,
+          valueDelta: 0,
+          count: 0,
+          lastDate: m.date,
+        };
+      g.varianceQty = r3(g.varianceQty + Number(m.quantity));
+      g.valueDelta = r2(g.valueDelta + Number(m.value));
+      g.count += 1;
+      if (m.date > g.lastDate) g.lastDate = m.date;
+      map.set(m.itemId, g);
+    }
+
+    const rows = [...map.values()].sort((a, b) => Math.abs(b.valueDelta) - Math.abs(a.valueDelta));
+    const increaseValue = r2(rows.reduce((s, r) => s + Math.max(0, r.valueDelta), 0));
+    const decreaseValue = r2(rows.reduce((s, r) => s + Math.min(0, r.valueDelta), 0));
+
+    return {
+      period: { from: fromStr, to: toStr },
+      rows,
+      totals: {
+        itemsAdjusted: rows.length,
+        increaseValue,
+        decreaseValue,
+        netValue: r2(increaseValue + decreaseValue),
+      },
+    };
   }
 
   async getItemLedger(facilityId: string, id: string): Promise<StockMovement[]> {
