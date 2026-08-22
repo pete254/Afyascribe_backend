@@ -150,14 +150,10 @@ export class DischargeAdmissionDto {
 }
 
 // ── Running bill ─────────────────────────────────────────────────────────────
-export class CollectDepositDto {
+export class RequestDepositDto {
   @IsNumber()
   @Min(0)
   amount: number;
-
-  @IsOptional()
-  @IsString()
-  method?: string;
 }
 
 export class AddChargeDto {

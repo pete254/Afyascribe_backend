@@ -80,7 +80,11 @@ export class HmisPostingService {
     paymentMode?: string;
     status?: string;
     insuranceSchemeName?: string | null;
+    isDeposit?: boolean;
   }): Promise<void> {
+    // A deposit line is prepaid credit, not earned revenue — nothing is posted
+    // when it's raised; the liability lands when the cashier collects it.
+    if (bill.isDeposit) return;
     await this.safe(bill.facilityId, 'bill', bill.id, async () => {
       const amount = Number(bill.amount);
       if (!(amount > 0)) return;
@@ -115,9 +119,30 @@ export class HmisPostingService {
       paymentMode?: string;
       status?: string;
       insuranceSchemeName?: string | null;
+      isDeposit?: boolean;
     },
     payment: { method: string; amount: number },
   ): Promise<void> {
+    // A collected deposit is cash held as a patient-deposit liability — not the
+    // clearing of a service receivable.
+    if (bill.isDeposit) {
+      const amount = Number(payment.amount);
+      if (!(amount > 0)) return;
+      await this.postWithDepositAccount(bill.facilityId, () =>
+        this.ledger.post({
+          facilityId: bill.facilityId,
+          source: 'billing',
+          sourceType: 'bill_payment',
+          sourceId: bill.id,
+          memo: `Deposit received via ${payment.method}`,
+          lines: [
+            { accountCode: this.paymentAccount(payment.method), debit: amount },
+            { accountCode: ACCOUNTS.PATIENT_DEPOSITS, credit: amount },
+          ],
+        }),
+      );
+      return;
+    }
     try {
       if (!(await this.ledger.hasChart(bill.facilityId))) return;
       const amount = Number(payment.amount);

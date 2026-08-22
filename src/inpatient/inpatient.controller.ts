@@ -25,7 +25,7 @@ import {
   CreateAdmissionDto,
   DischargeAdmissionDto,
   TransferAdmissionDto,
-  CollectDepositDto,
+  RequestDepositDto,
   AddChargeDto,
 } from './dto/inpatient.dto';
 
@@ -140,12 +140,12 @@ export class InpatientController {
 
   @Post('admissions/:id/deposit')
   @Roles('facility_admin', 'super_admin', 'doctor', 'nurse', 'receptionist')
-  collectDeposit(
+  requestDeposit(
     @CurrentUser() user: CurrentUserType,
     @Param('id') id: string,
-    @Body() dto: CollectDepositDto,
+    @Body() dto: RequestDepositDto,
   ) {
-    return this.billing.collectDeposit(facilityOf(user), id, dto, user.id);
+    return this.billing.requestDeposit(facilityOf(user), id, dto);
   }
 
   @Post('admissions/:id/charges')

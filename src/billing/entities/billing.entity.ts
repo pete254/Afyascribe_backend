@@ -81,6 +81,14 @@ export class Billing {
   @Column({ name: 'service_description', type: 'text', nullable: true })
   serviceDescription: string | null;
 
+  // ── Deposit line ────────────────────────────────────────────────────────────
+  // A deposit isn't a service charge: it's prepaid credit requested from the
+  // patient and collected by the cashier like any other queue item, then
+  // recognised as a patient-deposit liability (not revenue). Flagged so the
+  // running bill excludes it from charges and the GL posts it correctly.
+  @Column({ name: 'is_deposit', type: 'boolean', default: false })
+  isDeposit: boolean;
+
   // ── Optional link to a stock item ──────────────────────────────────────────
   // When set, billing this line also depletes stock and posts cost of sales at
   // the item's moving-average cost (pharmacy/lab dispensing).

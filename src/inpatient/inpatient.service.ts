@@ -216,17 +216,15 @@ export class InpatientService {
       }),
     );
 
-    // Take the admission deposit up front (best-effort; never blocks the admit).
+    // Raise the admission deposit as a billing-queue line for the cashier to
+    // collect (best-effort; never blocks the admit).
     if (dto.depositAmount && dto.depositAmount > 0) {
       try {
-        await this.inpatientBilling.collectDeposit(
-          facilityId,
-          admission.id,
-          { amount: dto.depositAmount, method: dto.depositMethod ?? 'cash' },
-          userId,
-        );
+        await this.inpatientBilling.requestDeposit(facilityId, admission.id, {
+          amount: dto.depositAmount,
+        });
       } catch {
-        /* deposit can be topped up later from the Kardex */
+        /* deposit can be requested later from the Kardex */
       }
     }
 

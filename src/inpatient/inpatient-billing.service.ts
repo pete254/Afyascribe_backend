@@ -47,6 +47,8 @@ export interface RunningBill {
   totalCharges: number;
   depositPaid: number;
   depositBalance: number;
+  /** Deposit requested but not yet collected by the cashier. */
+  depositPending: number;
   /** What the patient still owes once the deposit is applied. */
   outstanding: number;
 }
@@ -125,10 +127,12 @@ export class InpatientBillingService {
     let balance = Number(admission.depositBalance || 0);
     if (!(balance > 0) || !admission.visitId) return;
 
-    const unpaid = await this.billingRepo.find({
-      where: { visitId: admission.visitId, facilityId, status: BillingStatus.UNPAID },
-      order: { createdAt: 'ASC' },
-    });
+    const unpaid = (
+      await this.billingRepo.find({
+        where: { visitId: admission.visitId, facilityId, status: BillingStatus.UNPAID },
+        order: { createdAt: 'ASC' },
+      })
+    ).filter((b) => !b.isDeposit); // never settle a deposit line from the deposit
 
     for (const bill of unpaid) {
       if (!(balance > 0)) break;
@@ -147,29 +151,41 @@ export class InpatientBillingService {
     await this.admRepo.save(admission);
   }
 
-  /** Collect (top up) an admission deposit and immediately apply it to charges. */
-  async collectDeposit(
+  /**
+   * Request an admission deposit — raise it as an unpaid line on the running
+   * bill so it joins the cashier's billing queue. No money is taken here; the
+   * cashier collects it like any other charge and it is then recognised as the
+   * patient's deposit credit (see the reconcile step in {@link getRunningBill}).
+   */
+  async requestDeposit(
     facilityId: string,
     admissionId: string,
-    dto: { amount: number; method?: string },
-    userId?: string,
+    dto: { amount: number },
   ): Promise<RunningBill> {
     const admission = await this.getAdmission(facilityId, admissionId);
+    if (!admission.visitId) {
+      throw new BadRequestException('This admission has no visit to bill against.');
+    }
     const amount = r2(Number(dto.amount));
     if (!(amount > 0)) throw new BadRequestException('Deposit amount must be greater than 0');
 
-    admission.depositPaid = String(r2(Number(admission.depositPaid || 0) + amount));
-    admission.depositBalance = String(r2(Number(admission.depositBalance || 0) + amount));
-    await this.admRepo.save(admission);
-
-    await this.posting.onDepositCollected({
+    // Created directly (not via billing.create) so no revenue is recognised —
+    // a deposit request is neither income nor a firm receivable until collected.
+    const bill = this.billingRepo.create({
+      visitId: admission.visitId,
+      patientId: admission.patientId,
       facilityId,
-      admissionId,
+      serviceType: ServiceType.OTHER,
+      serviceDescription: 'Admission deposit',
       amount,
-      method: dto.method ?? 'cash',
+      amountPaid: 0,
+      paymentMode: PaymentMode.CASH,
+      paymentHistory: [],
+      status: BillingStatus.UNPAID,
+      isDeposit: true,
     });
+    await this.billingRepo.save(bill);
 
-    await this.applyDeposit(facilityId, admission, userId);
     return this.getRunningBill(facilityId, admissionId);
   }
 
@@ -220,16 +236,46 @@ export class InpatientBillingService {
     return this.getRunningBill(facilityId, admissionId);
   }
 
+  /**
+   * Recognise deposit money the cashier has collected: sum what's been paid on
+   * the deposit lines and, if it exceeds what we've already credited, top up the
+   * admission's deposit balance and spend it on outstanding charges. Idempotent —
+   * running it again with no new collection is a no-op.
+   */
+  private async reconcileDeposits(facilityId: string, admission: Admission): Promise<boolean> {
+    if (!admission.visitId) return false;
+    const depositBills = await this.billingRepo.find({
+      where: { visitId: admission.visitId, facilityId },
+    });
+    const collected = r2(
+      depositBills
+        .filter((b) => b.isDeposit)
+        .reduce((s, b) => s + Number(b.amountPaid || 0), 0),
+    );
+    const recognised = r2(Number(admission.depositPaid || 0));
+    const delta = r2(collected - recognised);
+    if (!(delta > 0)) return false;
+
+    admission.depositPaid = String(collected);
+    admission.depositBalance = String(r2(Number(admission.depositBalance || 0) + delta));
+    await this.admRepo.save(admission);
+    await this.applyDeposit(facilityId, admission);
+    return true;
+  }
+
   /** The running bill, accruing any outstanding bed fees first. */
   async getRunningBill(facilityId: string, admissionId: string): Promise<RunningBill> {
     let admission = await this.getAdmission(facilityId, admissionId);
 
+    let touched = false;
     if (admission.status === 'admitted') {
-      const accrued = await this.accrueBedCharges(facilityId, admission);
-      if (accrued) {
-        await this.applyDeposit(facilityId, admission);
-        admission = await this.getAdmission(facilityId, admissionId);
-      }
+      touched = (await this.accrueBedCharges(facilityId, admission)) || touched;
+    }
+    // Pull in any deposit the cashier has collected since we last looked.
+    touched = (await this.reconcileDeposits(facilityId, admission)) || touched;
+    if (touched) {
+      await this.applyDeposit(facilityId, admission);
+      admission = await this.getAdmission(facilityId, admissionId);
     }
 
     const bills = admission.visitId
@@ -239,7 +285,10 @@ export class InpatientBillingService {
         })
       : [];
 
-    const charges: RunningBillCharge[] = bills.map((b) => {
+    // Deposit lines are credit, not charges — keep them out of the charge list
+    // and totals (they still show for the cashier via the billing queue).
+    const chargeBills = bills.filter((b) => !b.isDeposit);
+    const charges: RunningBillCharge[] = chargeBills.map((b) => {
       const amount = Number(b.amount);
       const amountPaid = Number(b.amountPaid || 0);
       return {
@@ -256,8 +305,13 @@ export class InpatientBillingService {
 
     const totalCharges = r2(charges.reduce((s, c) => s + c.amount, 0));
     const outstanding = r2(
-      bills
+      chargeBills
         .filter((b) => b.status === BillingStatus.UNPAID)
+        .reduce((s, b) => s + (Number(b.amount) - Number(b.amountPaid || 0)), 0),
+    );
+    const depositPending = r2(
+      bills
+        .filter((b) => b.isDeposit && b.status === BillingStatus.UNPAID)
         .reduce((s, b) => s + (Number(b.amount) - Number(b.amountPaid || 0)), 0),
     );
 
@@ -268,6 +322,7 @@ export class InpatientBillingService {
       totalCharges,
       depositPaid: r2(Number(admission.depositPaid || 0)),
       depositBalance: r2(Number(admission.depositBalance || 0)),
+      depositPending,
       outstanding,
     };
   }
@@ -278,13 +333,18 @@ export class InpatientBillingService {
    */
   async outstandingForDischarge(facilityId: string, admission: Admission): Promise<number> {
     await this.accrueBedCharges(facilityId, admission);
+    await this.reconcileDeposits(facilityId, admission);
     await this.applyDeposit(facilityId, admission);
     if (!admission.visitId) return 0;
     const bills = await this.billingRepo.find({
       where: { visitId: admission.visitId, facilityId, status: BillingStatus.UNPAID },
     });
+    // Deposit lines aren't a charge the patient "owes" for discharge purposes —
+    // if uncollected, the charges they'd have covered are already counted here.
     return r2(
-      bills.reduce((s, b) => s + (Number(b.amount) - Number(b.amountPaid || 0)), 0),
+      bills
+        .filter((b) => !b.isDeposit)
+        .reduce((s, b) => s + (Number(b.amount) - Number(b.amountPaid || 0)), 0),
     );
   }
 }
