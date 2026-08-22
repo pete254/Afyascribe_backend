@@ -506,6 +506,196 @@ export class ReportsService {
     };
   }
 
+  // ── OUT-PATIENT TURNAROUND TIME (TAT) ──────────────────────────────────────
+  /**
+   * How long outpatients spend in the facility: check-in → triage → completion.
+   * There's no explicit completion stamp, so a completed visit's `updatedAt`
+   * (its last transition) is used as the completion time. Inpatient anchor
+   * visits are excluded.
+   */
+  async outpatientTat(facilityId: string, from: Date, to: Date) {
+    const toEnd = new Date(to);
+    toEnd.setHours(23, 59, 59, 999);
+    const r1 = (v: number) => Math.round(v * 10) / 10;
+    const mins = (a?: Date | null, b?: Date | null): number | null =>
+      a && b ? Math.max(0, (new Date(b).getTime() - new Date(a).getTime()) / 60000) : null;
+
+    const visits = await this.visitsRepo
+      .createQueryBuilder('v')
+      .leftJoinAndSelect('v.patient', 'patient')
+      .leftJoinAndSelect('v.assignedDoctor', 'doctor')
+      .where('v.facility_id = :facilityId', { facilityId })
+      .andWhere('v.created_at >= :from', { from })
+      .andWhere('v.created_at <= :to', { to: toEnd })
+      .andWhere('v.status != :cancelled', { cancelled: VisitStatus.CANCELLED })
+      .orderBy('v.created_at', 'DESC')
+      .getMany();
+
+    const rows = visits
+      .filter((v) => v.visitType !== 'inpatient')
+      .map((v) => {
+        const start = v.checkedInAt ?? v.createdAt;
+        const completed = v.status === VisitStatus.COMPLETED;
+        const p = v.patient;
+        return {
+          visitId: v.id,
+          patientName: p ? `${p.firstName ?? ''} ${p.lastName ?? ''}`.trim() || 'Patient' : 'Patient',
+          patientNo: p?.patientId ?? null,
+          doctor: v.assignedDoctor
+            ? `${v.assignedDoctor.firstName ?? ''} ${v.assignedDoctor.lastName ?? ''}`.trim()
+            : null,
+          checkedInAt: start ? new Date(start).toISOString() : null,
+          triagedAt: v.triagedAt ? new Date(v.triagedAt).toISOString() : null,
+          completedAt: completed && v.updatedAt ? new Date(v.updatedAt).toISOString() : null,
+          status: v.status,
+          triageWaitMins: mins(start, v.triagedAt),
+          totalMins: completed ? mins(start, v.updatedAt) : null,
+        };
+      });
+
+    const totalVals = rows.map((r) => r.totalMins).filter((n): n is number => n != null);
+    const triageVals = rows.map((r) => r.triageWaitMins).filter((n): n is number => n != null);
+    const avg = (xs: number[]) => (xs.length ? r1(xs.reduce((s, x) => s + x, 0) / xs.length) : 0);
+
+    return {
+      period: { from, to: toEnd },
+      rows,
+      summary: {
+        visits: rows.length,
+        completed: totalVals.length,
+        avgTotalMins: avg(totalVals),
+        avgTriageWaitMins: avg(triageVals),
+      },
+    };
+  }
+
+  // ── DIAGNOSIS BY COUNTY ────────────────────────────────────────────────────
+  /** Consultations with a diagnosis, grouped by the patient's county — surveillance. */
+  async diagnosisByCounty(facilityId: string, from: Date, to: Date) {
+    const fromStart = new Date(from);
+    fromStart.setHours(0, 0, 0, 0);
+    const toEnd = new Date(to);
+    toEnd.setHours(23, 59, 59, 999);
+
+    const notes = await this.soapRepo.find({
+      where: { facilityId, createdAt: Between(fromStart, toEnd) },
+    });
+
+    const map = new Map<string, { county: string; cases: number; patients: Set<string> }>();
+    let withDiagnosis = 0;
+    for (const n of notes) {
+      const hasDx = !!(n.diagnosis?.trim() || n.icd10Code?.trim());
+      if (!hasDx) continue;
+      withDiagnosis += 1;
+      const county = n.patient?.county?.trim() || 'Unknown';
+      const g = map.get(county) ?? { county, cases: 0, patients: new Set<string>() };
+      g.cases += 1;
+      if (n.patientId) g.patients.add(n.patientId);
+      map.set(county, g);
+    }
+
+    const rows = [...map.values()]
+      .map((g) => ({ county: g.county, cases: g.cases, patients: g.patients.size }))
+      .sort((a, b) => b.cases - a.cases);
+
+    return { period: { from: fromStart, to: toEnd }, rows, total: withDiagnosis };
+  }
+
+  // ── SERVICES STATISTICS ────────────────────────────────────────────────────
+  /** Utilisation of billed services: volume and revenue by type and by service. */
+  async servicesStatistics(facilityId: string, from: Date, to: Date) {
+    const toEnd = new Date(to);
+    toEnd.setHours(23, 59, 59, 999);
+    const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+
+    const bills = await this.billingRepo
+      .createQueryBuilder('b')
+      .where('b.facility_id = :facilityId', { facilityId })
+      .andWhere('b.created_at >= :from', { from })
+      .andWhere('b.created_at <= :to', { to: toEnd })
+      .andWhere('b.status != :waived', { waived: BillingStatus.WAIVED })
+      .getMany();
+
+    const byType = new Map<string, { type: string; count: number; revenue: number }>();
+    const byService = new Map<string, { name: string; type: string; count: number; revenue: number }>();
+    for (const b of bills) {
+      const amount = Number(b.amount);
+      const t = byType.get(b.serviceType) ?? { type: b.serviceType, count: 0, revenue: 0 };
+      t.count += 1;
+      t.revenue = r2(t.revenue + amount);
+      byType.set(b.serviceType, t);
+
+      const name = b.serviceDescription?.trim() || b.serviceType;
+      const key = `${b.serviceType}:${name.toLowerCase()}`;
+      const s = byService.get(key) ?? { name, type: b.serviceType, count: 0, revenue: 0 };
+      s.count += 1;
+      s.revenue = r2(s.revenue + amount);
+      byService.set(key, s);
+    }
+
+    return {
+      period: { from, to: toEnd },
+      byType: [...byType.values()].sort((a, b) => b.revenue - a.revenue),
+      topServices: [...byService.values()].sort((a, b) => b.count - a.count).slice(0, 50),
+      totals: {
+        count: bills.length,
+        revenue: r2(bills.reduce((s, b) => s + Number(b.amount), 0)),
+      },
+    };
+  }
+
+  // ── CONSULTATIONS REPORT ───────────────────────────────────────────────────
+  /** Consultations (SOAP notes) in a period, tallied by attending clinician. */
+  async consultationsReport(facilityId: string, from: Date, to: Date) {
+    const fromStart = new Date(from);
+    fromStart.setHours(0, 0, 0, 0);
+    const toEnd = new Date(to);
+    toEnd.setHours(23, 59, 59, 999);
+
+    const notes = await this.soapRepo.find({
+      where: { facilityId, createdAt: Between(fromStart, toEnd) },
+      relations: ['createdBy'],
+      order: { createdAt: 'DESC' },
+    });
+
+    const byDoctor = new Map<string, { doctorId: string; doctorName: string; count: number; withDiagnosis: number }>();
+    for (const n of notes) {
+      const doc = n.createdBy;
+      const key = n.createdById || 'unknown';
+      const g =
+        byDoctor.get(key) ??
+        {
+          doctorId: n.createdById,
+          doctorName: doc ? `${doc.firstName ?? ''} ${doc.lastName ?? ''}`.trim() || 'Clinician' : 'Unknown',
+          count: 0,
+          withDiagnosis: 0,
+        };
+      g.count += 1;
+      if (n.diagnosis?.trim() || n.icd10Code?.trim()) g.withDiagnosis += 1;
+      byDoctor.set(key, g);
+    }
+
+    const recent = notes.slice(0, 100).map((n) => ({
+      id: n.id,
+      patientName: n.patient
+        ? `${n.patient.firstName ?? ''} ${n.patient.lastName ?? ''}`.trim() || 'Patient'
+        : 'Patient',
+      patientNo: n.patient?.patientId ?? null,
+      diagnosis: n.diagnosis?.trim() || n.icd10Description?.trim() || null,
+      icd10: n.icd10Code?.trim() || null,
+      doctor: n.createdBy ? `${n.createdBy.firstName ?? ''} ${n.createdBy.lastName ?? ''}`.trim() : null,
+      createdAt: n.createdAt ? new Date(n.createdAt).toISOString() : null,
+    }));
+
+    return {
+      period: { from: fromStart, to: toEnd },
+      total: notes.length,
+      withDiagnosis: notes.filter((n) => n.diagnosis?.trim() || n.icd10Code?.trim()).length,
+      byDoctor: [...byDoctor.values()].sort((a, b) => b.count - a.count),
+      recent,
+    };
+  }
+
   // ── MOH 204A / 204B OUTPATIENT REGISTER ────────────────────────────────────
   // The statutory outpatient register: one line per visit, split into under-5
   // (204A) and 5-and-over (204B). Diagnosis/treatment come from the visit's

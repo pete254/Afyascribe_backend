@@ -195,6 +195,58 @@ export class ReportsController {
     return this.reportsService.revenueByDoctor(user.facilityId, fromDate, toDate);
   }
 
+  // ── OUT-PATIENT TAT ────────────────────────────────────────────────────────
+  @Get('outpatient-tat')
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({ summary: 'Out-patient turnaround time (check-in → triage → completion)' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  getOutpatientTat(@CurrentUser() user: any, @Query('from') from?: string, @Query('to') to?: string) {
+    assertCanViewReports(user);
+    const fromDate = from ? new Date(from) : new Date(new Date().setHours(0, 0, 0, 0));
+    const toDate = to ? new Date(to) : new Date();
+    return this.reportsService.outpatientTat(user.facilityId, fromDate, toDate);
+  }
+
+  // ── DIAGNOSIS BY COUNTY ────────────────────────────────────────────────────
+  @Get('diagnosis-by-county')
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({ summary: 'Diagnoses grouped by patient county' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  getDiagnosisByCounty(@CurrentUser() user: any, @Query('from') from?: string, @Query('to') to?: string) {
+    assertCanViewReports(user);
+    const fromDate = from ? new Date(from) : new Date(new Date().setDate(1));
+    const toDate = to ? new Date(to) : new Date();
+    return this.reportsService.diagnosisByCounty(user.facilityId, fromDate, toDate);
+  }
+
+  // ── SERVICES STATISTICS ────────────────────────────────────────────────────
+  @Get('services-statistics')
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({ summary: 'Volume and revenue of billed services by type and service' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  getServicesStatistics(@CurrentUser() user: any, @Query('from') from?: string, @Query('to') to?: string) {
+    assertCanViewReports(user);
+    const fromDate = from ? new Date(from) : new Date(new Date().setDate(1));
+    const toDate = to ? new Date(to) : new Date();
+    return this.reportsService.servicesStatistics(user.facilityId, fromDate, toDate);
+  }
+
+  // ── CONSULTATIONS ──────────────────────────────────────────────────────────
+  @Get('consultations')
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({ summary: 'Consultations in a period, tallied by clinician' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  getConsultations(@CurrentUser() user: any, @Query('from') from?: string, @Query('to') to?: string) {
+    assertCanViewReports(user);
+    const fromDate = from ? new Date(from) : new Date(new Date().setDate(1));
+    const toDate = to ? new Date(to) : new Date();
+    return this.reportsService.consultationsReport(user.facilityId, fromDate, toDate);
+  }
+
   // ── INSURANCE CLAIMS ───────────────────────────────────────────────────────
   @Get('insurance-claims')
   @Roles('facility_admin', 'super_admin', 'doctor')
