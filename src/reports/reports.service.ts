@@ -11,6 +11,9 @@ import { Ward } from '../inpatient/entities/ward.entity';
 import { User } from '../users/entities/user.entity';
 import { Patient } from '../patients/entities/patient.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { Supplier } from '../inventory/entities/supplier.entity';
+import { SupplierInvoice } from '../inventory/entities/supplier-invoice.entity';
+import { SupplierPayment } from '../inventory/entities/supplier-payment.entity';
 
 /** One disease line on an MOH 705A/705B outpatient morbidity summary. */
 export interface MorbidityRow {
@@ -60,6 +63,17 @@ export interface PayerMixDrillBill {
   visitId: string | null;
 }
 
+/** One supplier's aged-payables row. */
+export interface SupplierPayableRow {
+  supplierId: string;
+  supplierName: string;
+  current: number;
+  d30: number;
+  d60: number;
+  d90plus: number;
+  total: number;
+}
+
 /** One received payment on the cashier/collections report. */
 export interface CollectionEntry {
   cashierId: string;
@@ -98,6 +112,12 @@ export class ReportsService {
     private readonly patientRepo: Repository<Patient>,
     @InjectRepository(InventoryItem)
     private readonly itemRepo: Repository<InventoryItem>,
+    @InjectRepository(Supplier)
+    private readonly supplierRepo: Repository<Supplier>,
+    @InjectRepository(SupplierInvoice)
+    private readonly supplierInvoiceRepo: Repository<SupplierInvoice>,
+    @InjectRepository(SupplierPayment)
+    private readonly supplierPaymentRepo: Repository<SupplierPayment>,
   ) {}
 
   // ── PATIENTS TODAY ─────────────────────────────────────────────────────────
@@ -508,6 +528,107 @@ export class ReportsService {
         billed: r2(rows.reduce((s, r) => s + r.billed, 0)),
         collected: r2(rows.reduce((s, r) => s + r.collected, 0)),
       },
+    };
+  }
+
+  // ── SUPPLIER AGED PAYABLES / BALANCES ──────────────────────────────────────
+  /**
+   * What the facility owes suppliers as of a date, from unpaid/part-paid
+   * supplier invoices, aged into 0–30 / 31–60 / 61–90 / 90+ day buckets by
+   * invoice date. Each supplier row also carries their total balance.
+   */
+  async supplierPayables(facilityId: string, asOf: Date) {
+    const asOfEnd = new Date(asOf);
+    asOfEnd.setHours(23, 59, 59, 999);
+    const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+
+    const invoices = await this.supplierInvoiceRepo
+      .createQueryBuilder('i')
+      .where('i.facility_id = :facilityId', { facilityId })
+      .andWhere('i.status != :paid', { paid: 'paid' })
+      .andWhere('i.date <= :asOf', { asOf: asOfEnd.toISOString().slice(0, 10) })
+      .getMany();
+
+    const supplierIds = [...new Set(invoices.map((i) => i.supplierId))];
+    const suppliers = supplierIds.length
+      ? await this.supplierRepo.find({ where: { id: In(supplierIds) } })
+      : [];
+    const nameById = new Map(suppliers.map((s) => [s.id, s.name]));
+
+    const map = new Map<string, SupplierPayableRow>();
+    const totals = { current: 0, d30: 0, d60: 0, d90plus: 0, total: 0 };
+
+    for (const inv of invoices) {
+      const outstanding = Number(inv.total) - Number(inv.amountPaid || 0);
+      if (!(outstanding > 0.005)) continue;
+      const ageDays = Math.floor((asOfEnd.getTime() - new Date(inv.date).getTime()) / 86400000);
+      const g =
+        map.get(inv.supplierId) ??
+        {
+          supplierId: inv.supplierId,
+          supplierName: nameById.get(inv.supplierId) ?? 'Supplier',
+          current: 0,
+          d30: 0,
+          d60: 0,
+          d90plus: 0,
+          total: 0,
+        };
+      const bucket: 'current' | 'd30' | 'd60' | 'd90plus' =
+        ageDays <= 30 ? 'current' : ageDays <= 60 ? 'd30' : ageDays <= 90 ? 'd60' : 'd90plus';
+      g[bucket] = r2(g[bucket] + outstanding);
+      g.total = r2(g.total + outstanding);
+      totals[bucket] = r2(totals[bucket] + outstanding);
+      totals.total = r2(totals.total + outstanding);
+      map.set(inv.supplierId, g);
+    }
+
+    return {
+      asOf: asOfEnd,
+      rows: [...map.values()].sort((a, b) => b.total - a.total),
+      totals,
+    };
+  }
+
+  // ── SUPPLIER REMITTANCES ───────────────────────────────────────────────────
+  /** Payments made to suppliers in a period — the remittance trail. */
+  async supplierRemittances(facilityId: string, from: Date, to: Date) {
+    const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+    const fromStr = new Date(from).toISOString().slice(0, 10);
+    const toStr = new Date(to).toISOString().slice(0, 10);
+
+    const payments = await this.supplierPaymentRepo
+      .createQueryBuilder('p')
+      .where('p.facility_id = :facilityId', { facilityId })
+      .andWhere('p.date >= :from', { from: fromStr })
+      .andWhere('p.date <= :to', { to: toStr })
+      .orderBy('p.date', 'DESC')
+      .getMany();
+
+    const supplierIds = [...new Set(payments.map((p) => p.supplierId))];
+    const suppliers = supplierIds.length
+      ? await this.supplierRepo.find({ where: { id: In(supplierIds) } })
+      : [];
+    const nameById = new Map(suppliers.map((s) => [s.id, s.name]));
+
+    const byMethod = new Map<string, number>();
+    const rows = payments.map((p) => {
+      byMethod.set(p.method, r2((byMethod.get(p.method) || 0) + Number(p.amount)));
+      return {
+        id: p.id,
+        paymentNo: p.paymentNo,
+        date: p.date,
+        supplierName: nameById.get(p.supplierId) ?? 'Supplier',
+        amount: r2(Number(p.amount)),
+        method: p.method,
+      };
+    });
+
+    return {
+      period: { from: fromStr, to: toStr },
+      rows,
+      byMethod: [...byMethod.entries()].map(([method, amount]) => ({ method, amount })),
+      total: r2(rows.reduce((s, r) => s + r.amount, 0)),
+      count: rows.length,
     };
   }
 

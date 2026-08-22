@@ -195,6 +195,30 @@ export class ReportsController {
     return this.reportsService.revenueByDoctor(user.facilityId, fromDate, toDate);
   }
 
+  // ── SUPPLIER AGED PAYABLES ─────────────────────────────────────────────────
+  @Get('supplier-payables')
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({ summary: 'Aged supplier payables (and balances) as of a date' })
+  @ApiQuery({ name: 'asOf', required: false })
+  getSupplierPayables(@CurrentUser() user: any, @Query('asOf') asOf?: string) {
+    assertCanViewReports(user);
+    const asOfDate = asOf ? new Date(asOf) : new Date();
+    return this.reportsService.supplierPayables(user.facilityId, asOfDate);
+  }
+
+  // ── SUPPLIER REMITTANCES ───────────────────────────────────────────────────
+  @Get('supplier-remittances')
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({ summary: 'Payments made to suppliers in a period' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  getSupplierRemittances(@CurrentUser() user: any, @Query('from') from?: string, @Query('to') to?: string) {
+    assertCanViewReports(user);
+    const fromDate = from ? new Date(from) : new Date(new Date().setDate(1));
+    const toDate = to ? new Date(to) : new Date();
+    return this.reportsService.supplierRemittances(user.facilityId, fromDate, toDate);
+  }
+
   // ── PHARMACY SALES ─────────────────────────────────────────────────────────
   @Get('pharmacy-sales')
   @Roles('facility_admin', 'super_admin', 'doctor', 'pharmacist')
