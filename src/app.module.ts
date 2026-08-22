@@ -67,6 +67,7 @@ import { LabModule } from './lab/lab.module';
 import { PrescriptionsModule } from './prescriptions/prescriptions.module';
 import { InpatientModule } from './inpatient/inpatient.module';
 import { KardexModule } from './kardex/kardex.module';
+import { AssetsModule } from './assets/assets.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -124,6 +125,7 @@ import { KardexModule } from './kardex/kardex.module';
     PrescriptionsModule,
     InpatientModule,
     KardexModule,
+    AssetsModule,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],
