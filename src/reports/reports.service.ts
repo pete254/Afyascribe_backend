@@ -945,23 +945,39 @@ export class ReportsService {
     });
 
     const map = new Map<string, { county: string; cases: number; patients: Set<string> }>();
+    const icdMap = new Map<string, { code: string; description: string; count: number }>();
     let withDiagnosis = 0;
     for (const n of notes) {
-      const hasDx = !!(n.diagnosis?.trim() || n.icd10Code?.trim());
-      if (!hasDx) continue;
+      // Stats key on the structured ICD-10 codes, not the free-text diagnosis.
+      const codes =
+        n.icd10Codes && n.icd10Codes.length
+          ? n.icd10Codes
+          : n.icd10Code?.trim()
+            ? [{ code: n.icd10Code.trim(), description: n.icd10Description?.trim() || '' }]
+            : [];
+      if (codes.length === 0) continue;
       withDiagnosis += 1;
       const county = n.patient?.county?.trim() || 'Unknown';
       const g = map.get(county) ?? { county, cases: 0, patients: new Set<string>() };
       g.cases += 1;
       if (n.patientId) g.patients.add(n.patientId);
       map.set(county, g);
+      for (const c of codes) {
+        const code = (c.code || '').trim();
+        if (!code) continue;
+        const e = icdMap.get(code) ?? { code, description: c.description || '', count: 0 };
+        e.count += 1;
+        if (!e.description && c.description) e.description = c.description;
+        icdMap.set(code, e);
+      }
     }
 
     const rows = [...map.values()]
       .map((g) => ({ county: g.county, cases: g.cases, patients: g.patients.size }))
       .sort((a, b) => b.cases - a.cases);
+    const topDiagnoses = [...icdMap.values()].sort((a, b) => b.count - a.count).slice(0, 50);
 
-    return { period: { from: fromStart, to: toEnd }, rows, total: withDiagnosis };
+    return { period: { from: fromStart, to: toEnd }, rows, total: withDiagnosis, topDiagnoses };
   }
 
   // ── SERVICES STATISTICS ────────────────────────────────────────────────────
@@ -1034,7 +1050,7 @@ export class ReportsService {
           withDiagnosis: 0,
         };
       g.count += 1;
-      if (n.diagnosis?.trim() || n.icd10Code?.trim()) g.withDiagnosis += 1;
+      if ((n.icd10Codes && n.icd10Codes.length) || n.icd10Code?.trim()) g.withDiagnosis += 1;
       byDoctor.set(key, g);
     }
 
@@ -1044,7 +1060,7 @@ export class ReportsService {
         ? `${n.patient.firstName ?? ''} ${n.patient.lastName ?? ''}`.trim() || 'Patient'
         : 'Patient',
       patientNo: n.patient?.patientId ?? null,
-      diagnosis: n.diagnosis?.trim() || n.icd10Description?.trim() || null,
+      diagnosis: n.icd10Description?.trim() || n.diagnosis?.trim() || null,
       icd10: n.icd10Code?.trim() || null,
       doctor: n.createdBy ? `${n.createdBy.firstName ?? ''} ${n.createdBy.lastName ?? ''}`.trim() : null,
       createdAt: n.createdAt ? new Date(n.createdAt).toISOString() : null,
@@ -1053,7 +1069,7 @@ export class ReportsService {
     return {
       period: { from: fromStart, to: toEnd },
       total: notes.length,
-      withDiagnosis: notes.filter((n) => n.diagnosis?.trim() || n.icd10Code?.trim()).length,
+      withDiagnosis: notes.filter((n) => (n.icd10Codes && n.icd10Codes.length) || n.icd10Code?.trim()).length,
       byDoctor: [...byDoctor.values()].sort((a, b) => b.count - a.count),
       recent,
     };
