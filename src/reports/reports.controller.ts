@@ -195,6 +195,19 @@ export class ReportsController {
     return this.reportsService.revenueByDoctor(user.facilityId, fromDate, toDate);
   }
 
+  // ── PHARMACY SALES ─────────────────────────────────────────────────────────
+  @Get('pharmacy-sales')
+  @Roles('facility_admin', 'super_admin', 'doctor', 'pharmacist')
+  @ApiOperation({ summary: 'Pharmacy sales by item, group, patient, and inpatient/outpatient' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  getPharmacySales(@CurrentUser() user: any, @Query('from') from?: string, @Query('to') to?: string) {
+    assertCanViewReports(user);
+    const fromDate = from ? new Date(from) : new Date(new Date().setDate(1));
+    const toDate = to ? new Date(to) : new Date();
+    return this.reportsService.pharmacySales(user.facilityId, fromDate, toDate);
+  }
+
   // ── OUT-PATIENT TAT ────────────────────────────────────────────────────────
   @Get('outpatient-tat')
   @Roles('facility_admin', 'super_admin', 'doctor')

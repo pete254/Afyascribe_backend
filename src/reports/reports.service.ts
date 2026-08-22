@@ -10,6 +10,7 @@ import { Bed } from '../inpatient/entities/bed.entity';
 import { Ward } from '../inpatient/entities/ward.entity';
 import { User } from '../users/entities/user.entity';
 import { Patient } from '../patients/entities/patient.entity';
+import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 
 /** One disease line on an MOH 705A/705B outpatient morbidity summary. */
 export interface MorbidityRow {
@@ -59,6 +60,21 @@ export interface PayerMixDrillBill {
   visitId: string | null;
 }
 
+/** One received payment on the cashier/collections report. */
+export interface CollectionEntry {
+  cashierId: string;
+  method: string;
+  amount: number;
+  paidAt: string;
+  billId: string;
+  patientName: string;
+  patientNo: string | null;
+  serviceType: string;
+  serviceDescription: string | null;
+  isDeposit: boolean;
+  mpesaReference: string | null;
+}
+
 @Injectable()
 export class ReportsService {
   constructor(
@@ -80,6 +96,8 @@ export class ReportsService {
     private readonly userRepo: Repository<User>,
     @InjectRepository(Patient)
     private readonly patientRepo: Repository<Patient>,
+    @InjectRepository(InventoryItem)
+    private readonly itemRepo: Repository<InventoryItem>,
   ) {}
 
   // ── PATIENTS TODAY ─────────────────────────────────────────────────────────
@@ -300,20 +318,7 @@ export class ReportsService {
       .andWhere('b.created_at <= :to', { to: toEnd })
       .getMany();
 
-    interface Entry {
-      cashierId: string;
-      method: string;
-      amount: number;
-      paidAt: string;
-      billId: string;
-      patientName: string;
-      patientNo: string | null;
-      serviceType: string;
-      serviceDescription: string | null;
-      isDeposit: boolean;
-      mpesaReference: string | null;
-    }
-    const entries: Entry[] = [];
+    const entries: CollectionEntry[] = [];
     const cashierIds = new Set<string>();
 
     for (const b of bills) {
@@ -502,6 +507,102 @@ export class ReportsService {
       totals: {
         billed: r2(rows.reduce((s, r) => s + r.billed, 0)),
         collected: r2(rows.reduce((s, r) => s + r.collected, 0)),
+      },
+    };
+  }
+
+  // ── PHARMACY SALES ─────────────────────────────────────────────────────────
+  /**
+   * Pharmacy sales for a period, from the billed pharmacy lines (drugs/vaccines
+   * dispensed). Broken down by item, by group (item category), by patient, and
+   * split inpatient vs outpatient (by the visit type the bill sits on).
+   */
+  async pharmacySales(facilityId: string, from: Date, to: Date) {
+    const toEnd = new Date(to);
+    toEnd.setHours(23, 59, 59, 999);
+    const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+
+    const bills = await this.billingRepo
+      .createQueryBuilder('b')
+      .leftJoinAndSelect('b.patient', 'patient')
+      .leftJoinAndSelect('b.visit', 'visit')
+      .where('b.facility_id = :facilityId', { facilityId })
+      .andWhere('b.created_at >= :from', { from })
+      .andWhere('b.created_at <= :to', { to: toEnd })
+      .andWhere('b.service_type = :pharmacy', { pharmacy: 'pharmacy' })
+      .andWhere('b.status != :waived', { waived: BillingStatus.WAIVED })
+      .getMany();
+
+    const itemIds = [...new Set(bills.map((b) => b.itemId).filter((x): x is string => !!x))];
+    const items = itemIds.length ? await this.itemRepo.find({ where: { id: In(itemIds) } }) : [];
+    const itemById = new Map(items.map((i) => [i.id, i]));
+
+    const byItem = new Map<string, { name: string; category: string; qty: number; revenue: number; count: number }>();
+    const byGroup = new Map<string, { group: string; qty: number; revenue: number; count: number }>();
+    const byPatient = new Map<string, { patientName: string; patientNo: string | null; revenue: number; count: number }>();
+    const inpatientByItem = new Map<string, { name: string; qty: number; revenue: number; count: number }>();
+    const split = { inpatient: { revenue: 0, qty: 0, count: 0 }, outpatient: { revenue: 0, qty: 0, count: 0 } };
+
+    for (const b of bills) {
+      const amount = Number(b.amount);
+      const qty = Number(b.quantity || 0);
+      const item = b.itemId ? itemById.get(b.itemId) : null;
+      const name = item?.name || b.serviceDescription?.trim() || 'Pharmacy item';
+      const category = item?.category || 'Uncategorised';
+      const isInpatient = b.visit?.visitType === 'inpatient';
+
+      const iKey = b.itemId || name.toLowerCase();
+      const gi = byItem.get(iKey) ?? { name, category, qty: 0, revenue: 0, count: 0 };
+      gi.qty = r2(gi.qty + qty);
+      gi.revenue = r2(gi.revenue + amount);
+      gi.count += 1;
+      byItem.set(iKey, gi);
+
+      const gg = byGroup.get(category) ?? { group: category, qty: 0, revenue: 0, count: 0 };
+      gg.qty = r2(gg.qty + qty);
+      gg.revenue = r2(gg.revenue + amount);
+      gg.count += 1;
+      byGroup.set(category, gg);
+
+      const person = b.patient ?? b.visit?.patient;
+      const pKey = person?.id || 'unknown';
+      const gp =
+        byPatient.get(pKey) ??
+        {
+          patientName: person ? `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim() || 'Patient' : 'Patient',
+          patientNo: person?.patientId ?? null,
+          revenue: 0,
+          count: 0,
+        };
+      gp.revenue = r2(gp.revenue + amount);
+      gp.count += 1;
+      byPatient.set(pKey, gp);
+
+      const bucket = isInpatient ? split.inpatient : split.outpatient;
+      bucket.revenue = r2(bucket.revenue + amount);
+      bucket.qty = r2(bucket.qty + qty);
+      bucket.count += 1;
+
+      if (isInpatient) {
+        const ii = inpatientByItem.get(iKey) ?? { name, qty: 0, revenue: 0, count: 0 };
+        ii.qty = r2(ii.qty + qty);
+        ii.revenue = r2(ii.revenue + amount);
+        ii.count += 1;
+        inpatientByItem.set(iKey, ii);
+      }
+    }
+
+    return {
+      period: { from, to: toEnd },
+      byItem: [...byItem.values()].sort((a, b) => b.revenue - a.revenue),
+      byGroup: [...byGroup.values()].sort((a, b) => b.revenue - a.revenue),
+      byPatient: [...byPatient.values()].sort((a, b) => b.revenue - a.revenue),
+      inpatientByItem: [...inpatientByItem.values()].sort((a, b) => b.revenue - a.revenue),
+      split,
+      totals: {
+        count: bills.length,
+        qty: r2(bills.reduce((s, b) => s + Number(b.quantity || 0), 0)),
+        revenue: r2(bills.reduce((s, b) => s + Number(b.amount), 0)),
       },
     };
   }
