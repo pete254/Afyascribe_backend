@@ -128,7 +128,14 @@ export class PatientVisitsService {
   }
 
   // ── GET DOCTOR'S QUEUE ─────────────────────────────────────────────────────
+  // Returns the doctor's active patients PLUS the ones they've already completed
+  // (discharged) today, so a doctor can find someone they just sent off and
+  // reopen the visit to keep working with them. Older completed visits drop off
+  // at day's end; the active list is unbounded by date as before.
   async getDoctorQueue(doctorId: string, facilityId: string): Promise<PatientVisit[]> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     return this.visitsRepository
       .createQueryBuilder('visit')
       .leftJoinAndSelect('visit.patient', 'patient')
@@ -136,7 +143,10 @@ export class PatientVisitsService {
       .leftJoinAndSelect('visit.triagedBy', 'triagedBy')
       .where('visit.assignedDoctorId = :doctorId', { doctorId })
       .andWhere('visit.facilityId = :facilityId', { facilityId })
-      .andWhere('visit.status IN (:...statuses)', { statuses: ACTIVE_DOCTOR_STATUSES })
+      .andWhere(
+        '(visit.status IN (:...statuses) OR (visit.status = :completed AND visit.created_at >= :today))',
+        { statuses: ACTIVE_DOCTOR_STATUSES, completed: VisitStatus.COMPLETED, today },
+      )
       .orderBy('visit.created_at', 'ASC')
       .getMany();
   }
@@ -240,6 +250,19 @@ export class PatientVisitsService {
   async complete(visitId: string, facilityId: string): Promise<PatientVisit> {
     const visit = await this.findOne(visitId, facilityId);
     visit.status = VisitStatus.COMPLETED;
+    return this.visitsRepository.save(visit);
+  }
+
+  // ── REOPEN (REVERSE DISCHARGE) ─────────────────────────────────────────────
+  // Puts a completed visit back in front of the doctor. Used when a patient was
+  // discharged but the clinician needs to do something more with them, so the
+  // patient is "in clinic" again rather than filed away as done.
+  async reopen(visitId: string, facilityId: string): Promise<PatientVisit> {
+    const visit = await this.findOne(visitId, facilityId);
+    if (visit.status !== VisitStatus.COMPLETED) {
+      throw new BadRequestException('Only a completed visit can be reopened');
+    }
+    visit.status = VisitStatus.WITH_DOCTOR;
     return this.visitsRepository.save(visit);
   }
 

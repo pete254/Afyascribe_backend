@@ -126,6 +126,14 @@ export class PatientVisitsController {
     return this.visitsService.complete(id, user.facilityId);
   }
 
+  // ── REOPEN VISIT (REVERSE DISCHARGE) ───────────────────────────────────────
+  @Patch(':id/reopen')
+  @Roles('doctor', 'nurse', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Reopen a completed visit (reverse discharge)' })
+  async reopen(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
+    return this.visitsService.reopen(id, user.facilityId);
+  }
+
   // ── CANCEL VISIT ───────────────────────────────────────────────────────────
   @Patch(':id/cancel')
   @Roles('receptionist', 'facility_admin', 'super_admin')

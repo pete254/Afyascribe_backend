@@ -39,6 +39,25 @@ export class InsuranceSchemesController {
     return this.service.findAll(user.facilityId, all !== 'true');
   }
 
+  @Get(':id/ledger')
+  @Roles('facility_admin', 'super_admin', 'accountant', 'cashier')
+  @ApiOperation({ summary: 'Transaction ledger for one insurer (all insurance-funded charges)' })
+  @ApiQuery({ name: 'from', required: false, description: 'ISO date — start of range' })
+  @ApiQuery({ name: 'to', required: false, description: 'ISO date — end of range' })
+  ledger(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: any,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.ledger(
+      id,
+      user.facilityId,
+      from ? new Date(from) : undefined,
+      to ? new Date(to) : undefined,
+    );
+  }
+
   @Patch(':id')
   @Roles('facility_admin', 'super_admin')
   @ApiOperation({ summary: 'Update an insurance scheme' })
