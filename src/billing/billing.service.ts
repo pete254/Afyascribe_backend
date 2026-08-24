@@ -16,8 +16,36 @@ import {
 import { CreateBillingDto } from './dto/create-billing.dto';
 import { CollectPaymentDto } from './dto/mark-paid.dto';
 import { PatientVisit, VisitStatus } from '../patient-visits/entities/patient-visit.entity';
+import { SoapNote } from '../soap-notes/entities/soap-note.entity';
 import { HmisPostingService } from '../accounting/hmis-posting.service';
 import { StockService } from '../inventory/stock.service';
+
+/** One line on a patient's financial statement — a charge, payment or credit. */
+export interface PatientLedgerEntry {
+  date: string | null;
+  type: 'charge' | 'payment' | 'deposit' | 'waiver';
+  description: string;
+  visitId: string | null;
+  method: string | null;
+  charge: number;
+  payment: number;
+  /** Running balance the patient owes after this line. */
+  balance: number;
+}
+
+/** A diagnosis recorded on the patient's record, for statement context. */
+export interface PatientLedgerDiagnosis {
+  date: string | null;
+  codes: string[];
+  text: string;
+}
+
+export interface PatientLedger {
+  patient: { id: string; patientNo: string | null; name: string };
+  summary: { charged: number; paid: number; balance: number };
+  diagnoses: PatientLedgerDiagnosis[];
+  entries: PatientLedgerEntry[];
+}
 
 /** One outstanding bill behind an aging figure — the drill-down unit. */
 export interface AgingDrillBill {
@@ -45,11 +73,152 @@ export class BillingService {
     private readonly billingRepo: Repository<Billing>,
     @InjectRepository(PatientVisit)
     private readonly visitsRepo: Repository<PatientVisit>,
+    @InjectRepository(SoapNote)
+    private readonly soapRepo: Repository<SoapNote>,
     // Posts the matching journal entries; best-effort, never blocks billing.
     private readonly posting: HmisPostingService,
     // Depletes stock + books COGS when a bill line dispenses a stock item.
     private readonly stock: StockService,
   ) {}
+
+  // ── PATIENT LEDGER (STATEMENT) ─────────────────────────────────────────────
+  // A patient's full financial statement: every charge, every payment, deposits
+  // and waivers, in date order, with a running balance of what they owe. Built
+  // from the billing rows (each charge, its partial-payment history, its waiver)
+  // so the numbers always reconcile to the queue and the GL. Diagnoses recorded
+  // on the patient's consultations are surfaced alongside for context.
+  async patientLedger(
+    patientId: string,
+    facilityId: string,
+    from?: Date,
+    to?: Date,
+  ): Promise<PatientLedger> {
+    const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+    const qb = this.billingRepo
+      .createQueryBuilder('b')
+      .leftJoinAndSelect('b.patient', 'patient')
+      .where('b.patient_id = :patientId', { patientId })
+      .andWhere('b.facility_id = :facilityId', { facilityId })
+      .orderBy('b.created_at', 'ASC');
+    if (from) qb.andWhere('b.created_at >= :from', { from });
+    if (to) {
+      const toEnd = new Date(to);
+      toEnd.setHours(23, 59, 59, 999);
+      qb.andWhere('b.created_at <= :to', { to: toEnd });
+    }
+    const bills = await qb.getMany();
+
+    // Flatten bills into dated events: charges, payments, deposits, waivers.
+    type Ev = Omit<PatientLedgerEntry, 'balance'>;
+    const events: Ev[] = [];
+    for (const b of bills) {
+      const amount = Number(b.amount) || 0;
+      const isDeposit = b.isDeposit === true;
+
+      // A deposit isn't a service charge — it only ever appears as money in
+      // (a credit) once collected. Every other bill raises a charge.
+      if (!isDeposit) {
+        events.push({
+          date: b.createdAt ? new Date(b.createdAt).toISOString() : null,
+          type: 'charge',
+          description: b.serviceDescription || 'Service charge',
+          visitId: b.visitId ?? null,
+          method: null,
+          charge: amount,
+          payment: 0,
+        });
+      }
+
+      // Payments — prefer the detailed history; fall back to the paid total.
+      const history = Array.isArray(b.paymentHistory) ? b.paymentHistory : [];
+      if (history.length) {
+        for (const p of history) {
+          events.push({
+            date: p.paidAt ? new Date(p.paidAt).toISOString() : null,
+            type: isDeposit ? 'deposit' : 'payment',
+            description: isDeposit
+              ? 'Deposit received'
+              : `Payment${p.paymentMethod ? ` (${p.paymentMethod})` : ''}`,
+            visitId: b.visitId ?? null,
+            method: p.paymentMethod ?? null,
+            charge: 0,
+            payment: Number(p.amount) || 0,
+          });
+        }
+      } else if (Number(b.amountPaid) > 0) {
+        events.push({
+          date: b.paidAt ? new Date(b.paidAt).toISOString() : (b.createdAt ? new Date(b.createdAt).toISOString() : null),
+          type: isDeposit ? 'deposit' : 'payment',
+          description: isDeposit ? 'Deposit received' : 'Payment',
+          visitId: b.visitId ?? null,
+          method: b.paymentMethod ?? null,
+          charge: 0,
+          payment: Number(b.amountPaid) || 0,
+        });
+      }
+
+      // A waiver writes off the unpaid remainder as a credit.
+      if (b.status === BillingStatus.WAIVED) {
+        const written = amount - (Number(b.amountPaid) || 0);
+        if (written > 0) {
+          events.push({
+            date: b.paidAt ? new Date(b.paidAt).toISOString() : (b.createdAt ? new Date(b.createdAt).toISOString() : null),
+            type: 'waiver',
+            description: b.waiverReason ? `Waived — ${b.waiverReason}` : 'Waived',
+            visitId: b.visitId ?? null,
+            method: null,
+            charge: 0,
+            payment: written,
+          });
+        }
+      }
+    }
+
+    // Chronological order, then compute the running balance.
+    events.sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
+    let balance = 0;
+    let charged = 0;
+    let paid = 0;
+    const entries: PatientLedgerEntry[] = events.map((e) => {
+      charged += e.charge;
+      paid += e.payment;
+      balance += e.charge - e.payment;
+      return { ...e, balance: r2(balance) };
+    });
+
+    // Diagnoses recorded on the patient's consultations, for context.
+    const notes = await this.soapRepo.find({
+      where: { patientId },
+      order: { createdAt: 'ASC' },
+    });
+    const diagnoses: PatientLedgerDiagnosis[] = notes
+      .map((n) => {
+        const codes = Array.isArray(n.icd10Codes)
+          ? n.icd10Codes.map((c) => c.code).filter(Boolean)
+          : n.icd10Code
+            ? [n.icd10Code]
+            : [];
+        return {
+          date: n.createdAt ? new Date(n.createdAt).toISOString() : null,
+          codes,
+          text: (n.diagnosis || n.icd10Description || '').trim(),
+        };
+      })
+      .filter((d) => d.codes.length > 0 || d.text.length > 0);
+
+    const first = bills[0];
+    const p = first?.patient as any;
+    return {
+      patient: {
+        id: patientId,
+        patientNo: p?.patientId ?? null,
+        name: p ? `${p.firstName ?? ''} ${p.lastName ?? ''}`.trim() || '—' : '—',
+      },
+      summary: { charged: r2(charged), paid: r2(paid), balance: r2(charged - paid) },
+      diagnoses,
+      entries,
+    };
+  }
 
   // ── CREATE BILL ──────────────────────────────────────────────────────────
   async create(dto: CreateBillingDto, facilityId: string): Promise<Billing> {

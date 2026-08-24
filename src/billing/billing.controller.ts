@@ -63,6 +63,23 @@ export class BillingController {
     return this.billingService.findUnpaidToday(user.facilityId);
   }
 
+  @Get('patient/:patientId/ledger')
+  @Roles('receptionist', 'cashier', 'accountant', 'facility_admin', 'super_admin', 'doctor', 'nurse')
+  @ApiOperation({ summary: 'Patient statement: charges, payments, deposits, waivers with running balance' })
+  patientLedger(
+    @Param('patientId', ParseUUIDPipe) patientId: string,
+    @CurrentUser() user: any,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.billingService.patientLedger(
+      patientId,
+      user.facilityId,
+      from ? new Date(from) : undefined,
+      to ? new Date(to) : undefined,
+    );
+  }
+
   @Get('outstanding')
   @Roles('receptionist', 'cashier', 'facility_admin', 'super_admin')
   @ApiOperation({ summary: 'Unpaid bills raised before today (uncollected from earlier days)' })
