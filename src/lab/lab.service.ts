@@ -28,6 +28,39 @@ const STAGE: Record<LabStatus, number> = {
   cancelled: 99,
 };
 
+/** One line of the lab ledger — a single test with its workflow milestones. */
+export interface LabLedgerRow {
+  orderId: string;
+  itemId: string;
+  orderNo: string;
+  orderedAt: string | null;
+  patientId: string;
+  patientName: string;
+  patientNo: string | null;
+  testName: string;
+  department: string | null;
+  orderedBy: string | null;
+  collectedAt: string | null;
+  collectedBy: string | null;
+  resultedAt: string | null;
+  resultedBy: string | null;
+  releasedAt: string | null;
+  status: LabStatus;
+  charge: number;
+}
+
+export interface LabLedger {
+  summary: {
+    ordered: number;
+    collected: number;
+    resulted: number;
+    released: number;
+    cancelled: number;
+    charge: number;
+  };
+  rows: LabLedgerRow[];
+}
+
 @Injectable()
 export class LabService {
   constructor(
@@ -426,5 +459,73 @@ export class LabService {
     for (const k of Object.keys(trends)) trends[k].reverse();
 
     return { orders, trends };
+  }
+
+  // ── LAB LEDGER ─────────────────────────────────────────────────────────────
+  // Every test, flattened to one row with its workflow milestones (ordered →
+  // collected → resulted → released/verified) and the charge it raised. Bounded
+  // by an order-date range, optionally narrowed to one patient or one stage.
+  async labLedger(
+    facilityId: string,
+    from?: Date,
+    to?: Date,
+    patientId?: string,
+    status?: LabStatus,
+  ): Promise<LabLedger> {
+    const qb = this.items
+      .createQueryBuilder('i')
+      .innerJoinAndSelect('i.order', 'o')
+      .where('o.facilityId = :facilityId', { facilityId })
+      .orderBy('o.createdAt', 'DESC')
+      .addOrderBy('i.testName', 'ASC');
+
+    if (from) qb.andWhere('o.createdAt >= :from', { from });
+    if (to) {
+      const toEnd = new Date(to);
+      toEnd.setHours(23, 59, 59, 999);
+      qb.andWhere('o.createdAt <= :to', { to: toEnd });
+    }
+    if (patientId) qb.andWhere('o.patientId = :patientId', { patientId });
+    if (status) qb.andWhere('i.status = :status', { status });
+
+    const items = await qb.getMany();
+
+    const iso = (d: Date | null | undefined) => (d ? new Date(d).toISOString() : null);
+    const summary = { ordered: 0, collected: 0, resulted: 0, released: 0, cancelled: 0, charge: 0 };
+
+    const rows: LabLedgerRow[] = items.map((i) => {
+      const o = i.order;
+      const charge = Number(i.price) || 0;
+      if (i.status === 'cancelled') summary.cancelled += 1;
+      else {
+        summary.ordered += 1;
+        summary.charge += charge;
+        if (i.collectedAt) summary.collected += 1;
+        if (i.resultedAt) summary.resulted += 1;
+        if (i.status === 'verified') summary.released += 1;
+      }
+      return {
+        orderId: o.id,
+        itemId: i.id,
+        orderNo: o.orderNo,
+        orderedAt: iso(o.createdAt),
+        patientId: o.patientId,
+        patientName: o.patientName || '—',
+        patientNo: o.patientNo ?? null,
+        testName: i.testName,
+        department: i.department ?? null,
+        orderedBy: o.orderedByName ?? null,
+        collectedAt: iso(i.collectedAt),
+        collectedBy: i.collectedByName ?? null,
+        resultedAt: iso(i.resultedAt),
+        resultedBy: i.resultedByName ?? null,
+        releasedAt: iso(i.verifiedAt ?? i.resultedAt),
+        status: i.status,
+        charge: Math.round(charge * 100) / 100,
+      };
+    });
+
+    summary.charge = Math.round(summary.charge * 100) / 100;
+    return { summary, rows };
   }
 }

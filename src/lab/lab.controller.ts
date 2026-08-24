@@ -94,6 +94,24 @@ export class LabController {
     return this.lab.worklist(facilityOf(user), stage ?? 'ordered');
   }
 
+  @Get('ledger')
+  @ApiOperation({ summary: 'Lab ledger — every test with its workflow milestones and charge' })
+  ledger(
+    @CurrentUser() user: CurrentUserType,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('patientId') patientId?: string,
+    @Query('status') status?: LabStatus,
+  ) {
+    return this.lab.labLedger(
+      facilityOf(user),
+      from ? new Date(from) : undefined,
+      to ? new Date(to) : undefined,
+      patientId,
+      status,
+    );
+  }
+
   @Get('orders/:id')
   getOrder(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
     return this.lab.getOrder(facilityOf(user), id);
