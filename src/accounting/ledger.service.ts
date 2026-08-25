@@ -36,6 +36,33 @@ export interface PostJournalInput {
   lines: JournalLineDto[];
 }
 
+/** One movement on a tax-payable account (VAT or WHT), with a running balance. */
+export interface TaxLedgerLine {
+  date: string;
+  entryNo: string;
+  source: string;
+  memo: string | null;
+  debit: number;
+  credit: number;
+  /** Running payable balance (credit-normal) after this line. */
+  balance: number;
+}
+
+/** A tax-payable account's position for the period. */
+export interface TaxAccountLedger {
+  code: string;
+  name: string;
+  /** Balance owed at the start of the window. */
+  openingPayable: number;
+  /** Credits in the window — output VAT charged / WHT withheld. */
+  credited: number;
+  /** Debits in the window — input VAT reclaimed / WHT remitted. */
+  debited: number;
+  /** Net balance owed to the authority as of the window end. */
+  closingPayable: number;
+  entries: TaxLedgerLine[];
+}
+
 @Injectable()
 export class LedgerService {
   private readonly logger = new Logger(LedgerService.name);
@@ -481,5 +508,111 @@ export class LedgerService {
     });
 
     return { account, opening, entries, closing: balance };
+  }
+
+  // ── TAX LEDGER (VAT & WHT) ───────────────────────────────────────────────────
+  // The facility's tax position read straight from the ledger. VAT Payable
+  // (21010) and Withholding Tax Payable (21011) are liabilities: a credit
+  // increases what is owed to the revenue authority, a debit reduces it. For
+  // VAT, a credit is output VAT (charged on sales) and a debit is input VAT
+  // (reclaimed on purchases); the closing balance is the net VAT due. For WHT, a
+  // credit is tax withheld from a supplier and a debit is a remittance to KRA.
+  // Nothing is estimated — the numbers are exactly what has been posted, so an
+  // account with no tax journals correctly reads as zero.
+  private async taxAccountLedger(
+    facilityId: string,
+    code: string,
+    from?: string,
+    to?: string,
+  ): Promise<TaxAccountLedger> {
+    const account = await this.accounts.findOne({ where: { facilityId, code } });
+    const empty: TaxAccountLedger = {
+      code,
+      name: account?.name ?? code,
+      openingPayable: 0,
+      credited: 0,
+      debited: 0,
+      closingPayable: 0,
+      entries: [],
+    };
+    if (!account) return empty;
+
+    // Opening payable = credits − debits strictly before `from`.
+    let opening = 0;
+    if (from) {
+      const pre = await this.lines
+        .createQueryBuilder('l')
+        .innerJoin(JournalEntry, 'j', 'j.id = l.journal_entry_id')
+        .select('COALESCE(SUM(l.credit),0)', 'credit')
+        .addSelect('COALESCE(SUM(l.debit),0)', 'debit')
+        .where('l.facility_id = :facilityId', { facilityId })
+        .andWhere('l.account_code = :code', { code })
+        .andWhere('j.date < :from', { from })
+        .getRawOne<{ debit: string; credit: string }>();
+      opening = money(Number(pre?.credit) - Number(pre?.debit));
+    }
+
+    const qb = this.lines
+      .createQueryBuilder('l')
+      .innerJoin(JournalEntry, 'j', 'j.id = l.journal_entry_id')
+      .select(['j.date AS date', 'j.entry_no AS "entryNo"', 'j.source AS source', 'j.memo AS memo'])
+      .addSelect('l.debit', 'debit')
+      .addSelect('l.credit', 'credit')
+      .where('l.facility_id = :facilityId', { facilityId })
+      .andWhere('l.account_code = :code', { code });
+    if (from) qb.andWhere('j.date >= :from', { from });
+    if (to) qb.andWhere('j.date <= :to', { to });
+    qb.orderBy('j.date', 'ASC').addOrderBy('j.created_at', 'ASC');
+
+    const raw = await qb.getRawMany<{
+      date: string;
+      entryNo: string;
+      source: string;
+      memo: string | null;
+      debit: string;
+      credit: string;
+    }>();
+
+    let balance = opening;
+    let credited = 0;
+    let debited = 0;
+    const entries: TaxLedgerLine[] = raw.map((r) => {
+      const debit = money(r.debit);
+      const credit = money(r.credit);
+      credited += credit;
+      debited += debit;
+      balance = money(balance + credit - debit);
+      return {
+        date: r.date,
+        entryNo: r.entryNo,
+        source: r.source,
+        memo: r.memo,
+        debit,
+        credit,
+        balance,
+      };
+    });
+
+    return {
+      code,
+      name: account.name,
+      openingPayable: opening,
+      credited: money(credited),
+      debited: money(debited),
+      closingPayable: balance,
+      entries,
+    };
+  }
+
+  async getTaxLedger(
+    facilityId: string,
+    from?: string,
+    to?: string,
+  ): Promise<{ vat: TaxAccountLedger; wht: TaxAccountLedger }> {
+    const [vat, wht] = await Promise.all([
+      this.taxAccountLedger(facilityId, '21010', from, to),
+      this.taxAccountLedger(facilityId, '21011', from, to),
+    ]);
+    return { vat, wht };
   }
 }

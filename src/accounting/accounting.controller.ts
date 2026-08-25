@@ -145,6 +145,16 @@ export class AccountingController {
     return this.ledger.getTrialBalance(this.facility(user), asOf);
   }
 
+  @Get('tax-ledger')
+  @ApiOperation({ summary: 'VAT & WHT tax position (output/input VAT, tax withheld/remitted) from the ledger' })
+  taxLedger(
+    @CurrentUser() user: CurrentUserType,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.ledger.getTaxLedger(this.facility(user), from, to);
+  }
+
   // ── Financial statements ────────────────────────────────────────────────────
 
   @Get('reports/income-statement')
