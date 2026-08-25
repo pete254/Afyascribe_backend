@@ -69,6 +69,7 @@ import { InpatientModule } from './inpatient/inpatient.module';
 import { KardexModule } from './kardex/kardex.module';
 import { AssetsModule } from './assets/assets.module';
 import { AuditModule } from './audit/audit.module';
+import { PettyCashModule } from './petty-cash/petty-cash.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -128,6 +129,7 @@ import { AuditModule } from './audit/audit.module';
     KardexModule,
     AssetsModule,
     AuditModule,
+    PettyCashModule,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],
