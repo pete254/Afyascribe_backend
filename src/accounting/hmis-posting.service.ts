@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { LedgerService } from './ledger.service';
 import { ACCOUNTS } from './data/standard-coa';
+import { InsuranceScheme } from '../insurance-schemes/entities/insurance-scheme.entity';
 
 /**
  * Turns clinical/operational events into balanced journal entries — the bridge
@@ -14,7 +17,11 @@ import { ACCOUNTS } from './data/standard-coa';
 export class HmisPostingService {
   private readonly logger = new Logger(HmisPostingService.name);
 
-  constructor(private readonly ledger: LedgerService) {}
+  constructor(
+    private readonly ledger: LedgerService,
+    @InjectRepository(InsuranceScheme)
+    private readonly schemes: Repository<InsuranceScheme>,
+  ) {}
 
   /** Service type → revenue account. */
   private revenueAccount(serviceType?: string): string {
@@ -34,22 +41,34 @@ export class HmisPostingService {
     }
   }
 
-  /** Which receivable a bill sits in, from its payment mode / scheme. */
-  private receivableAccount(bill: {
+  /**
+   * Which receivable a bill sits in, from its payment mode / payer. Cash/self-pay
+   * → Patient Receivable. On-account payers split by type: a corporate/employer
+   * client → Corporate Debtors (12002); SHA/SHIF → SHA Receivable; any other
+   * insurer → Insurance Receivable. The corporate split needs the payer's type,
+   * which lives on the scheme, so this is a lookup by scheme name.
+   */
+  private async receivableAccount(bill: {
+    facilityId: string;
     paymentMode?: string;
     status?: string;
     insuranceSchemeName?: string | null;
-  }): string {
+  }): Promise<string> {
     const insured =
       bill.paymentMode === 'insurance' ||
       bill.paymentMode === 'split' ||
       bill.status === 'insurance_pending';
-    if (insured) {
-      const scheme = (bill.insuranceSchemeName ?? '').toLowerCase();
-      if (/\bsha\b|shif/.test(scheme)) return ACCOUNTS.SHA_RECEIVABLE; // 12004
-      return ACCOUNTS.INSURANCE_RECEIVABLE; // 12003
+    if (!insured) return ACCOUNTS.PATIENT_RECEIVABLE; // 12001
+
+    const name = (bill.insuranceSchemeName ?? '').trim();
+    if (name) {
+      const scheme = await this.schemes.findOne({
+        where: { facilityId: bill.facilityId, name },
+      });
+      if (scheme?.payerType === 'corporate') return '12002'; // Corporate Debtors
     }
-    return ACCOUNTS.PATIENT_RECEIVABLE; // 12001
+    if (/\bsha\b|shif/.test(name.toLowerCase())) return ACCOUNTS.SHA_RECEIVABLE; // 12004
+    return ACCOUNTS.INSURANCE_RECEIVABLE; // 12003
   }
 
   /** Payment method → the asset/receivable account the money lands in. */
@@ -88,7 +107,7 @@ export class HmisPostingService {
     await this.safe(bill.facilityId, 'bill', bill.id, async () => {
       const amount = Number(bill.amount);
       if (!(amount > 0)) return;
-      const receivable = this.receivableAccount(bill);
+      const receivable = await this.receivableAccount(bill);
       const revenue = this.revenueAccount(bill.serviceType);
       const desc = bill.serviceDescription || bill.serviceType || 'Service';
       await this.ledger.post({
@@ -148,7 +167,7 @@ export class HmisPostingService {
       const amount = Number(payment.amount);
       if (!(amount > 0)) return;
       const cash = this.paymentAccount(payment.method);
-      const receivable = this.receivableAccount(bill);
+      const receivable = await this.receivableAccount(bill);
       await this.ledger.post({
         facilityId: bill.facilityId,
         source: 'billing',
@@ -212,6 +231,7 @@ export class HmisPostingService {
   ): Promise<void> {
     const value = Number(amount);
     if (!(value > 0)) return;
+    const receivable = await this.receivableAccount(bill);
     await this.postWithDepositAccount(bill.facilityId, () =>
       this.ledger.post({
         facilityId: bill.facilityId,
@@ -221,7 +241,7 @@ export class HmisPostingService {
         memo: 'Charge settled from deposit',
         lines: [
           { accountCode: ACCOUNTS.PATIENT_DEPOSITS, debit: value, costCenter: bill.serviceType },
-          { accountCode: this.receivableAccount(bill), credit: value, costCenter: bill.serviceType },
+          { accountCode: receivable, credit: value, costCenter: bill.serviceType },
         ],
       }),
     );
@@ -291,6 +311,7 @@ export class HmisPostingService {
     await this.safe(bill.facilityId, 'bill_waiver', bill.id, async () => {
       const outstanding = Number(bill.amount) - Number(bill.amountPaid ?? 0);
       if (!(outstanding > 0)) return;
+      const receivable = await this.receivableAccount(bill);
       await this.ledger.post({
         facilityId: bill.facilityId,
         source: 'billing',
@@ -299,7 +320,7 @@ export class HmisPostingService {
         memo: 'Bill waived (write-off)',
         lines: [
           { accountCode: '81002', debit: outstanding, costCenter: bill.serviceType }, // Bad Debts
-          { accountCode: this.receivableAccount(bill), credit: outstanding, costCenter: bill.serviceType },
+          { accountCode: receivable, credit: outstanding, costCenter: bill.serviceType },
         ],
       });
     });
