@@ -68,6 +68,22 @@ export class PayrollController {
     return this.payroll.updateEmployee(facilityOf(user), id, dto);
   }
 
+  // ── Payroll ledger ────────────────────────────────────────────────────────
+  @Get('ledger')
+  ledger(
+    @CurrentUser() user: CurrentUserType,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('status') status?: 'draft' | 'approved' | 'paid',
+  ) {
+    return this.payroll.payrollLedger(
+      facilityOf(user),
+      from,
+      to,
+      status === 'draft' || status === 'approved' || status === 'paid' ? status : undefined,
+    );
+  }
+
   // ── Payroll runs ──────────────────────────────────────────────────────────
   @Get('runs')
   listRuns(@CurrentUser() user: CurrentUserType) {

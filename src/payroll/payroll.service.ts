@@ -18,6 +18,72 @@ const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
 const today = () => new Date().toISOString().slice(0, 10);
 const sum = (xs: (number | string)[]) => r2(xs.map(Number).reduce((s, x) => s + x, 0));
 
+/** One payslip as a line on the payroll ledger. */
+export interface PayrollLedgerEntry {
+  payslipId: string;
+  runId: string;
+  runNo: string;
+  period: string;
+  payDate: string | null;
+  status: 'draft' | 'approved' | 'paid';
+  employeeId: string;
+  employeeName: string;
+  gross: number;
+  paye: number;
+  nssfEmployee: number;
+  shif: number;
+  housingEmployee: number;
+  otherDeductions: number;
+  totalDeductions: number;
+  net: number;
+  employerCost: number;
+}
+
+/** One payroll run rolled up — the payroll cost register line. */
+export interface PayrollLedgerRun {
+  id: string;
+  runNo: string;
+  period: string;
+  payDate: string | null;
+  status: 'draft' | 'approved' | 'paid';
+  employees: number;
+  gross: number;
+  paye: number;
+  statutory: number;
+  net: number;
+  employerCost: number;
+}
+
+/** One employee's earnings across the period — their pay record. */
+export interface PayrollLedgerEmployee {
+  employeeId: string;
+  employeeName: string;
+  periods: number;
+  gross: number;
+  paye: number;
+  statutory: number;
+  totalDeductions: number;
+  net: number;
+}
+
+export interface PayrollLedger {
+  summary: {
+    runs: number;
+    employees: number;
+    gross: number;
+    paye: number;
+    nssf: number;
+    shif: number;
+    housing: number;
+    otherDeductions: number;
+    net: number;
+    employerCost: number;
+  };
+  byPeriod: PayrollLedgerRun[];
+  byEmployee: PayrollLedgerEmployee[];
+  entries: PayrollLedgerEntry[];
+}
+
 @Injectable()
 export class PayrollService {
   constructor(
@@ -219,6 +285,139 @@ export class PayrollService {
     const run = await this.runs.findOne({ where: { id, facilityId }, relations: ['payslips'] });
     if (!run) throw new NotFoundException('Payroll run not found');
     return run;
+  }
+
+  // ── PAYROLL LEDGER ──────────────────────────────────────────────────────────
+  // The payroll cost record: every run and every payslip, three ways. `byPeriod`
+  // is the payroll register (one line per run — gross, PAYE, statutory, net,
+  // employer cost); `byEmployee` is each person's earnings record over the
+  // period; `entries` is every payslip so the web can drill into one employee's
+  // history with no extra calls. Statutory here = employee-side deductions the
+  // facility remits (PAYE + NSSF + SHIF + Housing + other), which reconcile to
+  // the payroll accrual journals. Bounded by pay-period month.
+  async payrollLedger(
+    facilityId: string,
+    from?: string,
+    to?: string,
+    status?: 'draft' | 'approved' | 'paid',
+  ): Promise<PayrollLedger> {
+    const runs = await this.runs.find({
+      where: { facilityId },
+      relations: ['payslips'],
+      order: { periodMonth: 'ASC', createdAt: 'ASC' },
+    });
+
+    const fromM = from ? from.slice(0, 7) : null;
+    const toM = to ? to.slice(0, 7) : null;
+
+    const inWindow = runs.filter((r) => {
+      if (status && r.status !== status) return false;
+      if (fromM && r.periodMonth < fromM) return false;
+      if (toM && r.periodMonth > toM) return false;
+      return true;
+    });
+
+    const entries: PayrollLedgerEntry[] = [];
+    const byPeriod: PayrollLedgerRun[] = [];
+    const empMap = new Map<string, PayrollLedgerEmployee>();
+
+    for (const run of inWindow) {
+      const slips = run.payslips ?? [];
+      let runGross = 0, runPaye = 0, runStatutory = 0, runNet = 0, runEmployerCost = 0;
+
+      for (const s of slips) {
+        const gross = Number(s.grossPay) || 0;
+        const paye = Number(s.paye) || 0;
+        const nssfEmployee = Number(s.nssfEmployee) || 0;
+        const shif = Number(s.shif) || 0;
+        const housingEmployee = Number(s.housingEmployee) || 0;
+        const otherDeductions = (s.otherDeductions ?? []).reduce((t, d) => t + (Number(d.amount) || 0), 0);
+        const totalDeductions = Number(s.totalDeductions) || 0;
+        const net = Number(s.netPay) || 0;
+        const employerCost = (Number(s.nssfEmployer) || 0) + (Number(s.housingEmployer) || 0);
+        const statutory = paye + nssfEmployee + shif + housingEmployee + otherDeductions;
+
+        entries.push({
+          payslipId: s.id,
+          runId: run.id,
+          runNo: run.runNo,
+          period: run.periodMonth,
+          payDate: run.payDate,
+          status: run.status,
+          employeeId: s.employeeId,
+          employeeName: s.employeeName,
+          gross: r2(gross),
+          paye: r2(paye),
+          nssfEmployee: r2(nssfEmployee),
+          shif: r2(shif),
+          housingEmployee: r2(housingEmployee),
+          otherDeductions: r2(otherDeductions),
+          totalDeductions: r2(totalDeductions),
+          net: r2(net),
+          employerCost: r2(employerCost),
+        });
+
+        runGross += gross;
+        runPaye += paye;
+        runStatutory += statutory;
+        runNet += net;
+        runEmployerCost += employerCost;
+
+        const agg =
+          empMap.get(s.employeeId) ??
+          { employeeId: s.employeeId, employeeName: s.employeeName, periods: 0, gross: 0, paye: 0, statutory: 0, totalDeductions: 0, net: 0 };
+        agg.periods += 1;
+        agg.gross += gross;
+        agg.paye += paye;
+        agg.statutory += statutory;
+        agg.totalDeductions += totalDeductions;
+        agg.net += net;
+        empMap.set(s.employeeId, agg);
+      }
+
+      byPeriod.push({
+        id: run.id,
+        runNo: run.runNo,
+        period: run.periodMonth,
+        payDate: run.payDate,
+        status: run.status,
+        employees: slips.length,
+        gross: r2(runGross),
+        paye: r2(runPaye),
+        statutory: r2(runStatutory),
+        net: r2(runNet),
+        employerCost: r2(runEmployerCost),
+      });
+    }
+
+    // Newest period first for the register; biggest earners first for the roster.
+    byPeriod.sort((a, b) => b.period.localeCompare(a.period));
+    entries.sort((a, b) => b.period.localeCompare(a.period) || a.employeeName.localeCompare(b.employeeName));
+    const byEmployee = [...empMap.values()]
+      .map((e) => ({
+        ...e,
+        gross: r2(e.gross),
+        paye: r2(e.paye),
+        statutory: r2(e.statutory),
+        totalDeductions: r2(e.totalDeductions),
+        net: r2(e.net),
+      }))
+      .sort((a, b) => b.gross - a.gross);
+
+    const summary = {
+      runs: byPeriod.length,
+      employees: empMap.size,
+      gross: sum(entries.map((e) => e.gross)),
+      paye: sum(entries.map((e) => e.paye)),
+      nssf: sum(entries.map((e) => e.nssfEmployee)),
+      shif: sum(entries.map((e) => e.shif)),
+      housing: sum(entries.map((e) => e.housingEmployee)),
+      otherDeductions: sum(entries.map((e) => e.otherDeductions)),
+      net: sum(entries.map((e) => e.net)),
+      employerCost: sum(entries.map((e) => e.employerCost)),
+    };
+
+    return { summary, byPeriod, byEmployee, entries };
   }
 
   /** Approve → post the accrual journal (expense + payables). */
