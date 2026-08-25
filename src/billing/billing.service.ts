@@ -103,6 +103,42 @@ export interface Cashbook {
   entries: CashbookEntry[];
 }
 
+/** One movement on the patient-deposits (liability) ledger. */
+export interface DepositLedgerEntry {
+  billId: string;
+  visitId: string | null;
+  date: string | null;
+  patientId: string;
+  patientName: string;
+  patientNo: string | null;
+  type: 'received' | 'applied';
+  /** How the deposit was received (cash/mpesa/…); null for an application. */
+  method: string | null;
+  description: string;
+  received: number;
+  applied: number;
+  /** The patient's running held-deposit balance after this movement. */
+  balance: number;
+}
+
+/** One patient's current held-deposit position — the liability we owe them. */
+export interface DepositPatientBalance {
+  patientId: string;
+  patientName: string;
+  patientNo: string | null;
+  received: number;
+  applied: number;
+  held: number;
+  lastActivity: string | null;
+}
+
+/** The patient-deposits liability ledger for a period. */
+export interface DepositLedger {
+  summary: { received: number; applied: number; held: number; patients: number };
+  byPatient: DepositPatientBalance[];
+  entries: DepositLedgerEntry[];
+}
+
 /** One outstanding bill behind an aging figure — the drill-down unit. */
 export interface AgingDrillBill {
   id: string;
@@ -446,6 +482,169 @@ export class BillingService {
       byCashier: [...cashierMap.values()]
         .map((c) => round(c, ['total', 'cash', 'mpesa', 'card', 'other']))
         .sort((a, b) => b.total - a.total),
+      entries,
+    };
+  }
+
+  // ── PATIENT DEPOSITS LEDGER (LIABILITY) ────────────────────────────────────
+  // Deposits are prepaid credit the facility holds on a patient's behalf — a
+  // liability, not revenue. Every deposit BILL (isDeposit) records money in when
+  // paid; every 'deposit' entry in a normal bill's payment history records that
+  // held credit being drawn down against a charge. This ledger reconstructs each
+  // patient's deposit account (received − applied = still held) and rolls the
+  // held balances up to the facility's outstanding deposit liability, which ties
+  // back to the Patient Deposits GL account.
+  //
+  // `to` is a hard cut-off for balances; `from` only trims which movements are
+  // listed — earlier movements still sit in the opening balance each row carries.
+  async depositLedger(
+    facilityId: string,
+    from?: Date,
+    to?: Date,
+    patientId?: string,
+  ): Promise<DepositLedger> {
+    const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+
+    // Deposit bills, plus any bill that drew a deposit down (a 'deposit' entry
+    // in its payment history). The text match is a coarse pre-filter; each
+    // movement is classified precisely below.
+    const qb = this.billingRepo
+      .createQueryBuilder('b')
+      .leftJoinAndSelect('b.patient', 'patient')
+      .where('b.facility_id = :facilityId', { facilityId })
+      .andWhere("(b.is_deposit = true OR CAST(b.payment_history AS text) ILIKE :dep)", {
+        dep: '%deposit%',
+      });
+    if (patientId) qb.andWhere('b.patient_id = :patientId', { patientId });
+    const bills = await qb.getMany();
+
+    type Mv = Omit<DepositLedgerEntry, 'balance'>;
+    const movements: Mv[] = [];
+
+    for (const b of bills) {
+      const p = b.patient as any;
+      const patientName = p ? `${p.firstName ?? ''} ${p.lastName ?? ''}`.trim() || '—' : '—';
+      const patientNo = p?.patientId ?? null;
+      const history = Array.isArray(b.paymentHistory) ? b.paymentHistory : [];
+
+      if (b.isDeposit === true) {
+        // Money received into the deposit liability.
+        if (history.length) {
+          for (const pay of history) {
+            movements.push({
+              billId: b.id,
+              visitId: b.visitId ?? null,
+              date: pay.paidAt ? new Date(pay.paidAt).toISOString() : null,
+              patientId: b.patientId,
+              patientName,
+              patientNo,
+              type: 'received',
+              method: pay.paymentMethod ?? null,
+              description: `Deposit received${pay.paymentMethod ? ` (${pay.paymentMethod})` : ''}`,
+              received: Number(pay.amount) || 0,
+              applied: 0,
+            });
+          }
+        } else if (Number(b.amountPaid) > 0) {
+          movements.push({
+            billId: b.id,
+            visitId: b.visitId ?? null,
+            date: b.paidAt ? new Date(b.paidAt).toISOString() : (b.createdAt ? new Date(b.createdAt).toISOString() : null),
+            patientId: b.patientId,
+            patientName,
+            patientNo,
+            type: 'received',
+            method: b.paymentMethod ?? null,
+            description: 'Deposit received',
+            received: Number(b.amountPaid) || 0,
+            applied: 0,
+          });
+        }
+      } else {
+        // A normal charge partly/fully settled from the held deposit.
+        for (const pay of history) {
+          if ((pay.paymentMethod ?? '').toLowerCase() !== 'deposit') continue;
+          movements.push({
+            billId: b.id,
+            visitId: b.visitId ?? null,
+            date: pay.paidAt ? new Date(pay.paidAt).toISOString() : null,
+            patientId: b.patientId,
+            patientName,
+            patientNo,
+            type: 'applied',
+            method: null,
+            description: `Applied to ${b.serviceDescription || b.serviceType}`,
+            received: 0,
+            applied: Number(pay.amount) || 0,
+          });
+        }
+      }
+    }
+
+    movements.sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
+
+    const fromT = from ? new Date(from).getTime() : null;
+    let toT: number | null = null;
+    if (to) {
+      const toEnd = new Date(to);
+      toEnd.setHours(23, 59, 59, 999);
+      toT = toEnd.getTime();
+    }
+
+    // Walk chronologically, carrying each patient's running held balance. `to`
+    // stops the walk; `from` only gates what we list.
+    const bal = new Map<string, number>();
+    const totals = new Map<
+      string,
+      { patientId: string; patientName: string; patientNo: string | null; received: number; applied: number; lastActivity: string | null }
+    >();
+    const entries: DepositLedgerEntry[] = [];
+
+    for (const m of movements) {
+      const t = m.date ? new Date(m.date).getTime() : null;
+      if (toT !== null && (t === null || t > toT)) continue;
+
+      const running = (bal.get(m.patientId) ?? 0) + m.received - m.applied;
+      bal.set(m.patientId, running);
+
+      const agg =
+        totals.get(m.patientId) ??
+        { patientId: m.patientId, patientName: m.patientName, patientNo: m.patientNo, received: 0, applied: 0, lastActivity: null };
+      agg.received += m.received;
+      agg.applied += m.applied;
+      if (m.date && (!agg.lastActivity || m.date > agg.lastActivity)) agg.lastActivity = m.date;
+      totals.set(m.patientId, agg);
+
+      if (fromT === null || (t !== null && t >= fromT)) {
+        entries.push({ ...m, balance: r2(running) });
+      }
+    }
+
+    const byPatient: DepositPatientBalance[] = [...totals.values()]
+      .map((a) => ({
+        patientId: a.patientId,
+        patientName: a.patientName,
+        patientNo: a.patientNo,
+        received: r2(a.received),
+        applied: r2(a.applied),
+        held: r2((bal.get(a.patientId) ?? 0)),
+        lastActivity: a.lastActivity,
+      }))
+      .sort((a, b) => b.held - a.held || b.received - a.received);
+
+    const summary = byPatient.reduce(
+      (s, p) => ({
+        received: s.received + p.received,
+        applied: s.applied + p.applied,
+        held: s.held + p.held,
+        patients: s.patients + (p.held > 0 ? 1 : 0),
+      }),
+      { received: 0, applied: 0, held: 0, patients: 0 },
+    );
+
+    return {
+      summary: { received: r2(summary.received), applied: r2(summary.applied), held: r2(summary.held), patients: summary.patients },
+      byPatient,
       entries,
     };
   }

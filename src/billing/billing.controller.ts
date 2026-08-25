@@ -97,6 +97,23 @@ export class BillingController {
     );
   }
 
+  @Get('deposits-ledger')
+  @Roles('cashier', 'accountant', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Patient-deposits liability ledger: held balances per patient, received vs applied' })
+  depositLedger(
+    @CurrentUser() user: any,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('patientId') patientId?: string,
+  ) {
+    return this.billingService.depositLedger(
+      user.facilityId,
+      from ? new Date(from) : undefined,
+      to ? new Date(to) : undefined,
+      patientId || undefined,
+    );
+  }
+
   @Get('outstanding')
   @Roles('receptionist', 'cashier', 'facility_admin', 'super_admin')
   @ApiOperation({ summary: 'Unpaid bills raised before today (uncollected from earlier days)' })
