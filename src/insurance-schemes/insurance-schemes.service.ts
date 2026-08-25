@@ -6,6 +6,25 @@ import { CreateInsuranceSchemeDto, UpdateInsuranceSchemeDto } from './dto/insura
 import { KENYA_INSURERS } from './data/kenya-insurers';
 import { Billing, BillingStatus, PaymentMode } from '../billing/entities/billing.entity';
 
+/** One corporate/employer client's position on the corporate AR register. */
+export interface CorporateReceivableRow {
+  id: string;
+  name: string;
+  code: string;
+  contactEmail: string | null;
+  billed: number;
+  settled: number;
+  outstanding: number;
+  claims: number;
+  lastActivity: string | null;
+}
+
+/** The corporate accounts-receivable register across all corporate payers. */
+export interface CorporateReceivables {
+  summary: { billed: number; settled: number; outstanding: number; corporates: number };
+  rows: CorporateReceivableRow[];
+}
+
 /** One line on an insurer's ledger — a single insurance-funded charge. */
 export interface SchemeLedgerRow {
   id: string;
@@ -65,7 +84,11 @@ export class InsuranceSchemesService {
     return this.repo.save(scheme);
   }
 
-  async findAll(facilityId: string, activeOnly = true): Promise<InsuranceScheme[]> {
+  async findAll(
+    facilityId: string,
+    activeOnly = true,
+    payerType?: 'insurer' | 'corporate',
+  ): Promise<InsuranceScheme[]> {
     // Auto-seed the Kenyan insurers the first time a facility has none, so a new
     // clinic starts with the list already populated. (Removing individual
     // insurers persists; only an entirely empty list re-seeds.)
@@ -74,6 +97,7 @@ export class InsuranceSchemesService {
 
     const where: any = { facilityId };
     if (activeOnly) where.isActive = true;
+    if (payerType) where.payerType = payerType;
     return this.repo.find({ where, order: { name: 'ASC' } });
   }
 
@@ -166,6 +190,100 @@ export class InsuranceSchemesService {
         settled: r2(settled),
         outstanding: r2(charged - settled),
         count: rows.length,
+      },
+      rows,
+    };
+  }
+
+  /**
+   * The corporate accounts-receivable register: every corporate/employer payer
+   * with what it has been billed on account, settled and still owes. Corporates
+   * bill on account exactly like insurers (payment mode insurance/split), so the
+   * figures come from the same claim bills — grouped here across all corporate
+   * payers. Each corporate's own transaction statement is the existing `ledger`.
+   */
+  async corporateReceivables(
+    facilityId: string,
+    from?: Date,
+    to?: Date,
+  ): Promise<CorporateReceivables> {
+    const corporates = await this.repo.find({
+      where: { facilityId, payerType: 'corporate' },
+      order: { name: 'ASC' },
+    });
+
+    // Index each corporate by name so a bill can be matched to its payer.
+    const byName = new Map<string, CorporateReceivableRow>();
+    for (const c of corporates) {
+      byName.set(c.name, {
+        id: c.id,
+        name: c.name,
+        code: c.code,
+        contactEmail: c.contactEmail ?? null,
+        billed: 0,
+        settled: 0,
+        outstanding: 0,
+        claims: 0,
+        lastActivity: null,
+      });
+    }
+
+    if (corporates.length) {
+      const qb = this.billingRepo
+        .createQueryBuilder('b')
+        .where('b.facility_id = :facilityId', { facilityId })
+        .andWhere('b.payment_mode IN (:...modes)', {
+          modes: [PaymentMode.INSURANCE, PaymentMode.SPLIT],
+        })
+        .andWhere('(b.insurance_scheme_name IN (:...names) OR b.insurer_name IN (:...names))', {
+          names: corporates.map((c) => c.name),
+        });
+      if (from) qb.andWhere('b.created_at >= :from', { from });
+      if (to) {
+        const toEnd = new Date(to);
+        toEnd.setHours(23, 59, 59, 999);
+        qb.andWhere('b.created_at <= :to', { to: toEnd });
+      }
+      const bills = await qb.getMany();
+
+      for (const b of bills) {
+        const row = byName.get(b.insuranceSchemeName ?? '') ?? byName.get(b.insurerName ?? '');
+        if (!row) continue;
+        const amount = Number(b.amount) || 0;
+        const paid = b.status === BillingStatus.PAID ? amount : Number(b.amountPaid) || 0;
+        row.billed += amount;
+        row.settled += paid;
+        row.claims += 1;
+        const at = b.createdAt ? new Date(b.createdAt).toISOString() : null;
+        if (at && (!row.lastActivity || at > row.lastActivity)) row.lastActivity = at;
+      }
+    }
+
+    const rows = [...byName.values()]
+      .map((r) => ({
+        ...r,
+        billed: r2(r.billed),
+        settled: r2(r.settled),
+        outstanding: r2(r.billed - r.settled),
+      }))
+      .sort((a, b) => b.outstanding - a.outstanding || b.billed - a.billed);
+
+    const summary = rows.reduce(
+      (s, r) => ({
+        billed: s.billed + r.billed,
+        settled: s.settled + r.settled,
+        outstanding: s.outstanding + r.outstanding,
+        corporates: s.corporates + (r.outstanding > 0 ? 1 : 0),
+      }),
+      { billed: 0, settled: 0, outstanding: 0, corporates: 0 },
+    );
+
+    return {
+      summary: {
+        billed: r2(summary.billed),
+        settled: r2(summary.settled),
+        outstanding: r2(summary.outstanding),
+        corporates: summary.corporates,
       },
       rows,
     };

@@ -35,8 +35,34 @@ export class InsuranceSchemesController {
   @Roles('receptionist', 'facility_admin', 'super_admin', 'doctor', 'nurse', 'cashier', 'accountant')
   @ApiOperation({ summary: 'Get all insurance schemes for the facility' })
   @ApiQuery({ name: 'all', required: false, description: 'Pass true to include inactive schemes' })
-  findAll(@CurrentUser() user: any, @Query('all') all?: string) {
-    return this.service.findAll(user.facilityId, all !== 'true');
+  @ApiQuery({ name: 'type', required: false, enum: ['insurer', 'corporate'], description: 'Filter by payer type' })
+  findAll(
+    @CurrentUser() user: any,
+    @Query('all') all?: string,
+    @Query('type') type?: 'insurer' | 'corporate',
+  ) {
+    return this.service.findAll(
+      user.facilityId,
+      all !== 'true',
+      type === 'insurer' || type === 'corporate' ? type : undefined,
+    );
+  }
+
+  @Get('corporate-receivables')
+  @Roles('facility_admin', 'super_admin', 'accountant', 'cashier')
+  @ApiOperation({ summary: 'Corporate AR register: every corporate payer with billed, settled and outstanding' })
+  @ApiQuery({ name: 'from', required: false, description: 'ISO date — start of range' })
+  @ApiQuery({ name: 'to', required: false, description: 'ISO date — end of range' })
+  corporateReceivables(
+    @CurrentUser() user: any,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.corporateReceivables(
+      user.facilityId,
+      from ? new Date(from) : undefined,
+      to ? new Date(to) : undefined,
+    );
   }
 
   @Get(':id/ledger')

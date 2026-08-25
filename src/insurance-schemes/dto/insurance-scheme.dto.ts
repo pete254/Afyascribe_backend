@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsEmail, IsOptional, IsString, Length } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, Length } from 'class-validator';
 
 export class CreateInsuranceSchemeDto {
   @ApiProperty({ example: 'AAR Healthcare' })
@@ -11,6 +11,11 @@ export class CreateInsuranceSchemeDto {
   @IsString()
   @Length(2, 20)
   code: string;
+
+  @ApiPropertyOptional({ enum: ['insurer', 'corporate'], default: 'insurer' })
+  @IsOptional()
+  @IsIn(['insurer', 'corporate'])
+  payerType?: 'insurer' | 'corporate';
 
   @ApiPropertyOptional({ example: 'claims@aar.co.ke' })
   @IsOptional()
@@ -24,6 +29,11 @@ export class UpdateInsuranceSchemeDto {
   @IsString()
   @Length(2, 200)
   name?: string;
+
+  @ApiPropertyOptional({ enum: ['insurer', 'corporate'] })
+  @IsOptional()
+  @IsIn(['insurer', 'corporate'])
+  payerType?: 'insurer' | 'corporate';
 
   @ApiPropertyOptional()
   @IsOptional()
