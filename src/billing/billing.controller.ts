@@ -80,6 +80,23 @@ export class BillingController {
     );
   }
 
+  @Get('cashbook')
+  @Roles('cashier', 'accountant', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Cashbook / till ledger: money collected by method and cashier, for reconciliation' })
+  cashbook(
+    @CurrentUser() user: any,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('cashierId') cashierId?: string,
+  ) {
+    return this.billingService.cashbook(
+      user.facilityId,
+      from ? new Date(from) : undefined,
+      to ? new Date(to) : undefined,
+      cashierId || undefined,
+    );
+  }
+
   @Get('outstanding')
   @Roles('receptionist', 'cashier', 'facility_admin', 'super_admin')
   @ApiOperation({ summary: 'Unpaid bills raised before today (uncollected from earlier days)' })

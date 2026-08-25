@@ -17,6 +17,7 @@ import { CreateBillingDto } from './dto/create-billing.dto';
 import { CollectPaymentDto } from './dto/mark-paid.dto';
 import { PatientVisit, VisitStatus } from '../patient-visits/entities/patient-visit.entity';
 import { SoapNote } from '../soap-notes/entities/soap-note.entity';
+import { User } from '../users/entities/user.entity';
 import { HmisPostingService } from '../accounting/hmis-posting.service';
 import { StockService } from '../inventory/stock.service';
 
@@ -47,6 +48,61 @@ export interface PatientLedger {
   entries: PatientLedgerEntry[];
 }
 
+/** One money-in line in the cashbook — a single payment as it hit the till. */
+export interface CashbookEntry {
+  billId: string;
+  visitId: string | null;
+  paidAt: string | null;
+  patientName: string;
+  patientNo: string | null;
+  serviceType: string;
+  isDeposit: boolean;
+  /** cash | mpesa | card | insurance_claim */
+  method: string;
+  reference: string | null;
+  cashierId: string | null;
+  cashierName: string;
+  amount: number;
+  /** Running total of money taken in across the filtered period. */
+  balance: number;
+}
+
+/** A payment-method subtotal for the cashbook summary. */
+export interface CashbookMethodTotal {
+  method: string;
+  count: number;
+  amount: number;
+}
+
+/** One cashier's till for the period — what they should be able to hand over. */
+export interface CashbookCashierTotal {
+  cashierId: string | null;
+  cashierName: string;
+  count: number;
+  total: number;
+  /** Physical cash they collected — the figure to count at the drawer. */
+  cash: number;
+  mpesa: number;
+  card: number;
+  /** Insurance claim receipts and anything else that isn't cash/mpesa/card. */
+  other: number;
+}
+
+/** The facility cashbook / till ledger for a period. */
+export interface Cashbook {
+  summary: {
+    total: number;
+    count: number;
+    cash: number;
+    mpesa: number;
+    card: number;
+    other: number;
+  };
+  byMethod: CashbookMethodTotal[];
+  byCashier: CashbookCashierTotal[];
+  entries: CashbookEntry[];
+}
+
 /** One outstanding bill behind an aging figure — the drill-down unit. */
 export interface AgingDrillBill {
   id: string;
@@ -75,6 +131,8 @@ export class BillingService {
     private readonly visitsRepo: Repository<PatientVisit>,
     @InjectRepository(SoapNote)
     private readonly soapRepo: Repository<SoapNote>,
+    @InjectRepository(User)
+    private readonly usersRepo: Repository<User>,
     // Posts the matching journal entries; best-effort, never blocks billing.
     private readonly posting: HmisPostingService,
     // Depletes stock + books COGS when a bill line dispenses a stock item.
@@ -216,6 +274,178 @@ export class BillingService {
       },
       summary: { charged: r2(charged), paid: r2(paid), balance: r2(charged - paid) },
       diagnoses,
+      entries,
+    };
+  }
+
+  // ── CASHBOOK / TILL LEDGER ─────────────────────────────────────────────────
+  // Every payment as it actually hit the till, in time order, with a running
+  // total of money taken in. Built from each bill's payment history (the atomic
+  // record of who collected what, by which method, when) so it reconciles to
+  // the queue and the GL. Broken down by method and by cashier so a till can be
+  // counted and handed over at shift end: the `cash` column per cashier is the
+  // physical money to reconcile against the drawer.
+  async cashbook(
+    facilityId: string,
+    from?: Date,
+    to?: Date,
+    cashierId?: string,
+  ): Promise<Cashbook> {
+    const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+
+    // All bills that took any money, newest activity is irrelevant here — we
+    // flatten every payment event then filter by its own date.
+    const bills = await this.billingRepo
+      .createQueryBuilder('b')
+      .leftJoinAndSelect('b.patient', 'patient')
+      .where('b.facility_id = :facilityId', { facilityId })
+      .andWhere('b.amount_paid > 0')
+      .getMany();
+
+    // Resolve cashier names once.
+    const users = await this.usersRepo.find({ where: { facilityId } });
+    const nameById = new Map<string, string>();
+    for (const u of users) {
+      nameById.set(u.id, `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.email);
+    }
+
+    const fromT = from ? new Date(from).getTime() : null;
+    let toT: number | null = null;
+    if (to) {
+      const toEnd = new Date(to);
+      toEnd.setHours(23, 59, 59, 999);
+      toT = toEnd.getTime();
+    }
+
+    type Ev = Omit<CashbookEntry, 'balance'>;
+    const events: Ev[] = [];
+
+    for (const b of bills) {
+      const p = b.patient as any;
+      const patientName = p
+        ? `${p.firstName ?? ''} ${p.lastName ?? ''}`.trim() || '—'
+        : '—';
+      const patientNo = p?.patientId ?? null;
+      const isDeposit = b.isDeposit === true;
+
+      const push = (
+        method: string | null,
+        reference: string | null,
+        cId: string | null,
+        amount: number,
+        paidAt: string | null,
+      ) => {
+        events.push({
+          billId: b.id,
+          visitId: b.visitId ?? null,
+          paidAt,
+          patientName,
+          patientNo,
+          serviceType: b.serviceType,
+          isDeposit,
+          method: (method ?? 'cash').toLowerCase(),
+          reference: reference ?? null,
+          cashierId: cId,
+          cashierName: cId ? nameById.get(cId) ?? '—' : '—',
+          amount: Number(amount) || 0,
+        });
+      };
+
+      const history = Array.isArray(b.paymentHistory) ? b.paymentHistory : [];
+      if (history.length) {
+        for (const pay of history) {
+          push(
+            pay.paymentMethod ?? null,
+            pay.mpesaReference ?? null,
+            pay.collectedById || b.collectedById || null,
+            Number(pay.amount) || 0,
+            pay.paidAt ? new Date(pay.paidAt).toISOString() : null,
+          );
+        }
+      } else if (Number(b.amountPaid) > 0) {
+        // Older bills paid before payment history was tracked.
+        push(
+          b.paymentMethod ?? null,
+          b.mpesaReference ?? null,
+          b.collectedById || null,
+          Number(b.amountPaid) || 0,
+          b.paidAt
+            ? new Date(b.paidAt).toISOString()
+            : b.createdAt
+              ? new Date(b.createdAt).toISOString()
+              : null,
+        );
+      }
+    }
+
+    // Filter by the payment's own date and (optionally) the cashier.
+    const filtered = events.filter((e) => {
+      if (cashierId && e.cashierId !== cashierId) return false;
+      const t = e.paidAt ? new Date(e.paidAt).getTime() : null;
+      if (fromT !== null && (t === null || t < fromT)) return false;
+      if (toT !== null && (t === null || t > toT)) return false;
+      return true;
+    });
+
+    filtered.sort((a, b) => (a.paidAt ?? '').localeCompare(b.paidAt ?? ''));
+
+    // Money-in bucket for a method.
+    const bucket = (m: string): 'cash' | 'mpesa' | 'card' | 'other' =>
+      m === 'cash' ? 'cash' : m === 'mpesa' ? 'mpesa' : m === 'card' ? 'card' : 'other';
+
+    let running = 0;
+    const entries: CashbookEntry[] = filtered.map((e) => {
+      running += e.amount;
+      return { ...e, balance: r2(running) };
+    });
+
+    // Summary + per-method + per-cashier rollups.
+    const summary = { total: 0, count: 0, cash: 0, mpesa: 0, card: 0, other: 0 };
+    const methodMap = new Map<string, CashbookMethodTotal>();
+    const cashierMap = new Map<string, CashbookCashierTotal>();
+
+    for (const e of entries) {
+      summary.total += e.amount;
+      summary.count += 1;
+      summary[bucket(e.method)] += e.amount;
+
+      const m = methodMap.get(e.method) ?? { method: e.method, count: 0, amount: 0 };
+      m.count += 1;
+      m.amount += e.amount;
+      methodMap.set(e.method, m);
+
+      const key = e.cashierId ?? '—';
+      const c =
+        cashierMap.get(key) ??
+        {
+          cashierId: e.cashierId,
+          cashierName: e.cashierName,
+          count: 0,
+          total: 0,
+          cash: 0,
+          mpesa: 0,
+          card: 0,
+          other: 0,
+        };
+      c.count += 1;
+      c.total += e.amount;
+      c[bucket(e.method)] += e.amount;
+      cashierMap.set(key, c);
+    }
+
+    const round = <T extends Record<string, any>>(o: T, keys: (keyof T)[]): T => {
+      for (const k of keys) o[k] = r2(Number(o[k])) as any;
+      return o;
+    };
+
+    return {
+      summary: round(summary, ['total', 'cash', 'mpesa', 'card', 'other']),
+      byMethod: [...methodMap.values()]
+        .map((m) => ({ ...m, amount: r2(m.amount) }))
+        .sort((a, b) => b.amount - a.amount),
+      byCashier: [...cashierMap.values()]
+        .map((c) => round(c, ['total', 'cash', 'mpesa', 'card', 'other']))
+        .sort((a, b) => b.total - a.total),
       entries,
     };
   }
