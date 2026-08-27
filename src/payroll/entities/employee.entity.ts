@@ -7,6 +7,13 @@ import {
   Index,
 } from 'typeorm';
 
+/** A next-of-kin / emergency contact on an employee's profile. */
+export interface NextOfKin {
+  name: string;
+  relationship?: string;
+  phone?: string;
+}
+
 /**
  * A payroll employee. May be linked to a login User (userId) but need not be —
  * cleaners, drivers and other staff are paid without app accounts.
@@ -89,6 +96,10 @@ export class Employee {
 
   @Column({ name: 'hire_date', type: 'date', nullable: true })
   hireDate: string | null;
+
+  /** Next of kin / emergency contacts. */
+  @Column({ name: 'next_of_kin', type: 'jsonb', nullable: true })
+  nextOfKin: NextOfKin[] | null;
 
   /** Optional link to a login account. */
   @Column({ name: 'user_id', type: 'uuid', nullable: true })

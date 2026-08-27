@@ -75,6 +75,11 @@ export class ProcurementService {
       email: dto.email ?? null,
       phone: dto.phone ?? null,
       taxPin: dto.taxPin ?? null,
+      physicalAddress: dto.physicalAddress ?? null,
+      postalAddress: dto.postalAddress ?? null,
+      bankName: dto.bankName ?? null,
+      bankAccount: dto.bankAccount ?? null,
+      bankBranch: dto.bankBranch ?? null,
       payableAccountCode: dto.payableAccountCode ?? '21001',
     });
     return this.suppliers.save(supplier);

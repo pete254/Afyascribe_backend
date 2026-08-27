@@ -18,6 +18,12 @@ export class PayComponentDto {
   @ApiProperty() @IsNumber() @Min(0) amount: number;
 }
 
+export class NextOfKinDto {
+  @ApiProperty() @IsString() name: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() relationship?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() phone?: string;
+}
+
 export class CreateEmployeeDto {
   @ApiProperty() @IsString() firstName: string;
   @ApiProperty() @IsString() lastName: string;
@@ -50,6 +56,10 @@ export class CreateEmployeeDto {
   @ApiPropertyOptional({ type: [PayComponentDto] })
   @IsArray() @IsOptional() @ValidateNested({ each: true }) @Type(() => PayComponentDto)
   deductions?: PayComponentDto[];
+
+  @ApiPropertyOptional({ type: [NextOfKinDto] })
+  @IsArray() @IsOptional() @ValidateNested({ each: true }) @Type(() => NextOfKinDto)
+  nextOfKin?: NextOfKinDto[];
 }
 
 export class UpdateEmployeeDto {
@@ -67,7 +77,12 @@ export class UpdateEmployeeDto {
   @ApiPropertyOptional() @IsString() @IsOptional() phone?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() email?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() employmentType?: string;
+  @ApiPropertyOptional() @IsDateString() @IsOptional() hireDate?: string;
   @ApiPropertyOptional() @IsBoolean() @IsOptional() isActive?: boolean;
+
+  @ApiPropertyOptional({ type: [NextOfKinDto] })
+  @IsArray() @IsOptional() @ValidateNested({ each: true }) @Type(() => NextOfKinDto)
+  nextOfKin?: NextOfKinDto[];
 
   @ApiPropertyOptional() @IsBoolean() @IsOptional() applyPaye?: boolean;
   @ApiPropertyOptional() @IsBoolean() @IsOptional() applyNssf?: boolean;

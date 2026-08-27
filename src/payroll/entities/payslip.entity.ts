@@ -52,6 +52,10 @@ export class Payslip {
   @Column({ type: 'numeric', precision: 14, scale: 2, default: 0 })
   paye: string;
 
+  /** Withholding tax (contracted staff): 5% of gross, in lieu of PAYE/statutory. */
+  @Column({ type: 'numeric', precision: 14, scale: 2, default: 0 })
+  wht: string;
+
   @Column({ name: 'nssf_employee', type: 'numeric', precision: 14, scale: 2, default: 0 })
   nssfEmployee: string;
 

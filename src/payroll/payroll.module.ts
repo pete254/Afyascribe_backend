@@ -7,8 +7,11 @@ import { Employee } from './entities/employee.entity';
 import { PayrollRun } from './entities/payroll-run.entity';
 import { Payslip } from './entities/payslip.entity';
 import { PayrollSettings } from './entities/payroll-settings.entity';
+import { EmployeeDocument } from './entities/employee-document.entity';
 import { PayrollService } from './payroll.service';
 import { PayrollController } from './payroll.controller';
+import { EmployeeDocumentsService } from './employee-documents.service';
+import { EmployeeDocumentsController } from './employee-documents.controller';
 import { AccountingModule } from '../accounting/accounting.module';
 
 /**
@@ -17,7 +20,7 @@ import { AccountingModule } from '../accounting/accounting.module';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Employee, PayrollRun, Payslip, PayrollSettings]),
+    TypeOrmModule.forFeature([Employee, PayrollRun, Payslip, PayrollSettings, EmployeeDocument]),
     AccountingModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -28,8 +31,8 @@ import { AccountingModule } from '../accounting/accounting.module';
       }),
     }),
   ],
-  controllers: [PayrollController],
-  providers: [PayrollService],
+  controllers: [PayrollController, EmployeeDocumentsController],
+  providers: [PayrollService, EmployeeDocumentsService],
   exports: [PayrollService],
 })
 export class PayrollModule {}

@@ -36,6 +36,23 @@ export class Supplier {
   @Column({ name: 'tax_pin', type: 'varchar', length: 40, nullable: true })
   taxPin: string | null;
 
+  // ── Address ────────────────────────────────────────────────────────────────
+  @Column({ name: 'physical_address', type: 'varchar', nullable: true })
+  physicalAddress: string | null;
+
+  @Column({ name: 'postal_address', type: 'varchar', nullable: true })
+  postalAddress: string | null;
+
+  // ── Bank details (for remittances) ──────────────────────────────────────────
+  @Column({ name: 'bank_name', type: 'varchar', nullable: true })
+  bankName: string | null;
+
+  @Column({ name: 'bank_account', type: 'varchar', nullable: true })
+  bankAccount: string | null;
+
+  @Column({ name: 'bank_branch', type: 'varchar', nullable: true })
+  bankBranch: string | null;
+
   @Column({ name: 'payable_account_code', type: 'varchar', length: 20, default: '21001' })
   payableAccountCode: string;
 

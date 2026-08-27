@@ -18,6 +18,12 @@ const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
 const today = () => new Date().toISOString().slice(0, 10);
 const sum = (xs: (number | string)[]) => r2(xs.map(Number).reduce((s, x) => s + x, 0));
 
+/** Withholding-tax rate for contracted staff (in lieu of PAYE/statutory). */
+const WHT_RATE = 0.05;
+/** Employment types that are on withholding tax rather than PAYE. */
+const isContracted = (type?: string | null): boolean =>
+  ['contracted', 'contract', 'consultant'].includes((type ?? '').toLowerCase());
+
 /** One payslip as a line on the payroll ledger. */
 export interface PayrollLedgerEntry {
   payslipId: string;
@@ -171,6 +177,7 @@ export class PayrollService {
       applyHousing: dto.applyHousing ?? true,
       allowances: dto.allowances?.length ? dto.allowances : null,
       deductions: dto.deductions?.length ? dto.deductions : null,
+      nextOfKin: dto.nextOfKin?.length ? dto.nextOfKin : null,
     });
     return this.employees.save(employee);
   }
@@ -224,9 +231,17 @@ export class PayrollService {
       const basic = Number(emp.basicSalary);
       const gross = r2(basic + sum(allowances.map((a) => a.amount)));
 
-      const s = computeStatutory(gross, this.configFor(settings, emp));
+      // Contracted staff aren't on PAYE/NSSF/SHIF/housing — instead a flat 5%
+      // withholding tax is deducted from their gross and remitted to KRA.
+      const contracted = isContracted(emp.employmentType);
+      const s = contracted
+        ? { paye: 0, nssfEmployee: 0, nssfEmployer: 0, shif: 0, housingEmployee: 0, housingEmployer: 0 }
+        : computeStatutory(gross, this.configFor(settings, emp));
+      const wht = contracted ? r2(gross * WHT_RATE) : 0;
       const otherTotal = sum(otherDeds.map((d) => d.amount));
-      const totalDeductions = r2(s.paye + s.nssfEmployee + s.shif + s.housingEmployee + otherTotal);
+      const totalDeductions = r2(
+        s.paye + wht + s.nssfEmployee + s.shif + s.housingEmployee + otherTotal,
+      );
       const netPay = r2(gross - totalDeductions);
 
       slips.push(
@@ -238,6 +253,7 @@ export class PayrollService {
           allowances: allowances.length ? allowances : null,
           grossPay: gross.toFixed(2),
           paye: s.paye.toFixed(2),
+          wht: wht.toFixed(2),
           nssfEmployee: s.nssfEmployee.toFixed(2),
           nssfEmployer: s.nssfEmployer.toFixed(2),
           shif: s.shif.toFixed(2),
@@ -254,7 +270,10 @@ export class PayrollService {
     const totalPaye = sum(slips.map((s) => s.paye));
     const totalNet = sum(slips.map((s) => s.netPay));
     const totalStatutory = sum(
-      slips.map((s) => Number(s.paye) + Number(s.nssfEmployee) + Number(s.shif) + Number(s.housingEmployee)),
+      slips.map(
+        (s) =>
+          Number(s.paye) + Number(s.wht) + Number(s.nssfEmployee) + Number(s.shif) + Number(s.housingEmployee),
+      ),
     );
     const totalEmployerCost = sum(slips.map((s) => Number(s.nssfEmployer) + Number(s.housingEmployer)));
 
@@ -433,6 +452,7 @@ export class PayrollService {
       date: run.payDate ?? today(),
       gross: Number(run.totalGross),
       paye: Number(run.totalPaye),
+      wht: sum(slips.map((s) => s.wht)),
       nssfTotal: sum(slips.map((s) => Number(s.nssfEmployee) + Number(s.nssfEmployer))),
       shif: sum(slips.map((s) => s.shif)),
       housingTotal: sum(slips.map((s) => Number(s.housingEmployee) + Number(s.housingEmployer))),

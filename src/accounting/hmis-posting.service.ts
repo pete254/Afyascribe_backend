@@ -469,6 +469,7 @@ export class HmisPostingService {
     date: string;
     gross: number;
     paye: number;
+    wht?: number;
     nssfTotal: number;
     shif: number;
     housingTotal: number;
@@ -480,6 +481,7 @@ export class HmisPostingService {
     const memo = `Payroll ${i.runNo}`;
     const credits: { accountCode: string; credit: number; description?: string }[] = [
       { accountCode: '21006', credit: i.paye, description: 'PAYE' },
+      { accountCode: '21011', credit: i.wht ?? 0, description: 'Withholding tax' },
       { accountCode: '21007', credit: i.nssfTotal, description: 'NSSF' },
       { accountCode: '21008', credit: i.shif, description: 'SHIF' },
       { accountCode: '21009', credit: i.housingTotal, description: 'Housing Levy' },

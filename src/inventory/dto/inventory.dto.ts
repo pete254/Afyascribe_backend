@@ -151,6 +151,11 @@ export class CreateSupplierDto {
   @ApiPropertyOptional() @IsString() @IsOptional() email?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() phone?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() taxPin?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() physicalAddress?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() postalAddress?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() bankName?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() bankAccount?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() bankBranch?: string;
   @ApiPropertyOptional({ example: '21001' }) @IsString() @IsOptional() payableAccountCode?: string;
 }
 
@@ -160,6 +165,11 @@ export class UpdateSupplierDto {
   @ApiPropertyOptional() @IsString() @IsOptional() email?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() phone?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() taxPin?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() physicalAddress?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() postalAddress?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() bankName?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() bankAccount?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() bankBranch?: string;
   @ApiPropertyOptional() @IsBoolean() @IsOptional() isActive?: boolean;
 }
 
