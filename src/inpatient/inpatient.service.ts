@@ -253,6 +253,11 @@ export class InpatientService {
     adm.dischargedAt = dto.dischargedAt ? new Date(dto.dischargedAt) : new Date();
     adm.outcome = dto.outcome;
     adm.dischargeNotes = dto.dischargeNotes ?? null;
+    adm.dischargeDiagnosis = dto.dischargeDiagnosis?.trim() || null;
+    adm.courseInHospital = dto.courseInHospital?.trim() || null;
+    adm.conditionAtDischarge = dto.conditionAtDischarge?.trim() || null;
+    adm.dischargeMedications = dto.dischargeMedications?.trim() || null;
+    adm.followUpPlan = dto.followUpPlan?.trim() || null;
     await this.admRepo.save(adm);
     if (adm.bedId) {
       await this.bedRepo.update({ id: adm.bedId, facilityId }, { status: 'available' });

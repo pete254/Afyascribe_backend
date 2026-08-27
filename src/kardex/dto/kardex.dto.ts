@@ -232,3 +232,27 @@ export class UpdateCarePlanDto {
   @IsIn(CARE_PLAN_STATUSES as unknown as string[])
   status?: string;
 }
+
+/** Author roles a progress note can be filed under. */
+export const PROGRESS_NOTE_ROLES = ['doctor', 'nurse'] as const;
+
+/** File a free-text clinical progress note (doctor ward-round or nurse note). */
+export class CreateProgressNoteDto {
+  @ApiProperty({ description: 'Patient the note is about' })
+  @IsUUID()
+  patientId: string;
+
+  @ApiPropertyOptional({ description: 'Admission this note belongs to' })
+  @IsOptional()
+  @IsUUID()
+  admissionId?: string;
+
+  @ApiProperty({ enum: PROGRESS_NOTE_ROLES, description: 'Whose note this is' })
+  @IsIn(PROGRESS_NOTE_ROLES as unknown as string[])
+  authorRole: 'doctor' | 'nurse';
+
+  @ApiProperty({ description: 'The note text' })
+  @IsString()
+  @MaxLength(8000)
+  body: string;
+}

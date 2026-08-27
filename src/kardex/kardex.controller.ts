@@ -19,6 +19,7 @@ import {
   RecordVitalDto,
   CreateCarePlanDto,
   UpdateCarePlanDto,
+  CreateProgressNoteDto,
 } from './dto/kardex.dto';
 
 function facilityOf(user: CurrentUserType): string {
@@ -86,5 +87,19 @@ export class KardexController {
     @Body() dto: UpdateCarePlanDto,
   ) {
     return this.svc.updateCarePlan(facilityOf(user), id, dto);
+  }
+
+  // ── Progress notes ──────────────────────────────────────────────────────────
+  @Get('progress-notes/:patientId')
+  @ApiOperation({ summary: "A patient's progress notes (doctor + nurse)" })
+  progressNotes(@CurrentUser() user: CurrentUserType, @Param('patientId') patientId: string) {
+    return this.svc.listProgressNotes(facilityOf(user), patientId);
+  }
+
+  @Post('progress-notes')
+  @ApiOperation({ summary: 'File a doctor or nurse progress note' })
+  createProgressNote(@CurrentUser() user: CurrentUserType, @Body() dto: CreateProgressNoteDto) {
+    const name = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
+    return this.svc.createProgressNote(facilityOf(user), dto, user, name);
   }
 }

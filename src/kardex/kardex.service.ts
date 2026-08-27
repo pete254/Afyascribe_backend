@@ -1,9 +1,15 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, Not } from 'typeorm';
 import { MedicationAdministration } from './entities/medication-administration.entity';
 import { NursingVital } from './entities/nursing-vital.entity';
 import { CarePlanEntry } from './entities/care-plan-entry.entity';
+import { ProgressNote } from './entities/progress-note.entity';
 import { Prescription } from '../prescriptions/entities/prescription.entity';
 import { Admission } from '../inpatient/entities/admission.entity';
 import { Patient } from '../patients/entities/patient.entity';
@@ -12,6 +18,7 @@ import {
   RecordVitalDto,
   CreateCarePlanDto,
   UpdateCarePlanDto,
+  CreateProgressNoteDto,
 } from './dto/kardex.dto';
 
 /** A single drug order on the kardex, distilled from the doctor's prescriptions. */
@@ -49,6 +56,8 @@ export class KardexService {
     private readonly vitalRepo: Repository<NursingVital>,
     @InjectRepository(CarePlanEntry)
     private readonly carePlanRepo: Repository<CarePlanEntry>,
+    @InjectRepository(ProgressNote)
+    private readonly progressNoteRepo: Repository<ProgressNote>,
     @InjectRepository(Prescription)
     private readonly rxRepo: Repository<Prescription>,
     @InjectRepository(Admission)
@@ -130,7 +139,7 @@ export class KardexService {
     const admission = await this.admRepo.findOne({ where: { id: admissionId, facilityId } });
     if (!admission) throw new NotFoundException('Admission not found');
     const kardex = await this.patientKardex(facilityId, admission.patientId);
-    const [vitals, carePlan] = await Promise.all([
+    const [vitals, carePlan, progressNotes] = await Promise.all([
       this.vitalRepo.find({
         where: { facilityId, admissionId },
         order: { recordedAt: 'DESC' },
@@ -139,8 +148,61 @@ export class KardexService {
         where: { facilityId, admissionId },
         order: { createdAt: 'ASC' },
       }),
+      this.progressNoteRepo.find({
+        where: { facilityId, admissionId },
+        order: { createdAt: 'DESC' },
+      }),
     ]);
-    return { admission, ...kardex, vitals, carePlan };
+    return { admission, ...kardex, vitals, carePlan, progressNotes };
+  }
+
+  // ── Progress notes (doctor / nurse) ──────────────────────────────────────────
+  /**
+   * File a free-text progress note. The note's author role must match a role the
+   * user actually holds — a nurse files nurse notes, a doctor files ward-round
+   * notes — while facility admins/owners (who hold every role) may file either.
+   */
+  async createProgressNote(
+    facilityId: string,
+    dto: CreateProgressNoteDto,
+    user: { id: string; role: string; roles?: string[] },
+    userName: string,
+  ) {
+    const patient = await this.patientRepo.findOne({ where: { id: dto.patientId } });
+    if (!patient || (patient.facilityId && patient.facilityId !== facilityId)) {
+      throw new NotFoundException('Patient not found');
+    }
+    await this.assertAdmission(facilityId, dto.admissionId);
+
+    const roles = user.roles?.length ? user.roles : [user.role];
+    const isAdmin = roles.some((r) => r === 'facility_admin' || r === 'super_admin');
+    if (!isAdmin && !roles.includes(dto.authorRole)) {
+      throw new ForbiddenException(
+        `Only a ${dto.authorRole} (or a facility admin) can file a ${dto.authorRole}'s note.`,
+      );
+    }
+
+    const body = dto.body.trim();
+    if (!body) throw new BadRequestException('A progress note cannot be empty');
+
+    const note = this.progressNoteRepo.create({
+      facilityId,
+      patientId: dto.patientId,
+      admissionId: dto.admissionId ?? null,
+      authorRole: dto.authorRole,
+      body,
+      createdById: user.id,
+      createdByName: userName || null,
+    });
+    return this.progressNoteRepo.save(note);
+  }
+
+  /** Every progress note for a patient, newest first (both doctor and nurse). */
+  async listProgressNotes(facilityId: string, patientId: string) {
+    return this.progressNoteRepo.find({
+      where: { facilityId, patientId },
+      order: { createdAt: 'DESC' },
+    });
   }
 
   // ── Vitals ─────────────────────────────────────────────────────────────────

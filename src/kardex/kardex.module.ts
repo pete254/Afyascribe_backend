@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { MedicationAdministration } from './entities/medication-administration.entity';
 import { NursingVital } from './entities/nursing-vital.entity';
 import { CarePlanEntry } from './entities/care-plan-entry.entity';
+import { ProgressNote } from './entities/progress-note.entity';
 import { Prescription } from '../prescriptions/entities/prescription.entity';
 import { Admission } from '../inpatient/entities/admission.entity';
 import { Patient } from '../patients/entities/patient.entity';
@@ -16,6 +17,7 @@ import { KardexController } from './kardex.controller';
       MedicationAdministration,
       NursingVital,
       CarePlanEntry,
+      ProgressNote,
       Prescription,
       Admission,
       Patient,

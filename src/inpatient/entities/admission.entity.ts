@@ -79,6 +79,27 @@ export class Admission {
   @Column({ name: 'discharge_notes', type: 'text', nullable: true })
   dischargeNotes: string | null;
 
+  // ── Discharge summary (structured) ─────────────────────────────────────────
+  /** Final/discharge diagnosis. */
+  @Column({ name: 'discharge_diagnosis', type: 'text', nullable: true })
+  dischargeDiagnosis: string | null;
+
+  /** Narrative of the patient's course/progress during the stay. */
+  @Column({ name: 'course_in_hospital', type: 'text', nullable: true })
+  courseInHospital: string | null;
+
+  /** Condition at discharge (e.g. stable, improved). */
+  @Column({ name: 'condition_at_discharge', type: 'varchar', length: 120, nullable: true })
+  conditionAtDischarge: string | null;
+
+  /** Take-home / discharge medications, free text. */
+  @Column({ name: 'discharge_medications', type: 'text', nullable: true })
+  dischargeMedications: string | null;
+
+  /** Follow-up instructions and plan. */
+  @Column({ name: 'follow_up_plan', type: 'text', nullable: true })
+  followUpPlan: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

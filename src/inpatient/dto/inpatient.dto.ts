@@ -143,6 +143,27 @@ export class DischargeAdmissionDto {
   @IsString()
   dischargeNotes?: string;
 
+  // ── Discharge summary (structured) ─────────────────────────────────────────
+  @IsOptional()
+  @IsString()
+  dischargeDiagnosis?: string;
+
+  @IsOptional()
+  @IsString()
+  courseInHospital?: string;
+
+  @IsOptional()
+  @IsString()
+  conditionAtDischarge?: string;
+
+  @IsOptional()
+  @IsString()
+  dischargeMedications?: string;
+
+  @IsOptional()
+  @IsString()
+  followUpPlan?: string;
+
   /** Override the unpaid-balance block (documented admin decision). */
   @IsOptional()
   @IsBoolean()
