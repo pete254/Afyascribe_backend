@@ -23,6 +23,10 @@ export class PayrollSettings {
   @Column({ name: 'facility_id', type: 'uuid' })
   facilityId: string;
 
+  /** The employer's KRA PIN — printed on the P9A tax deduction cards. */
+  @Column({ name: 'employer_pin', type: 'varchar', length: 20, nullable: true })
+  employerPin: string | null;
+
   // Master switches — turn a whole statutory item off for the facility.
   @Column({ name: 'paye_enabled', type: 'boolean', default: true })
   payeEnabled: boolean;

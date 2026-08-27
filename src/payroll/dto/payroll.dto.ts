@@ -89,6 +89,7 @@ class PayeBandDto {
 }
 
 export class UpdatePayrollSettingsDto {
+  @ApiPropertyOptional() @IsString() @IsOptional() employerPin?: string;
   @ApiPropertyOptional() @IsBoolean() @IsOptional() payeEnabled?: boolean;
   @ApiPropertyOptional() @IsBoolean() @IsOptional() nssfEnabled?: boolean;
   @ApiPropertyOptional() @IsBoolean() @IsOptional() shifEnabled?: boolean;
