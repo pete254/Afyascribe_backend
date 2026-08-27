@@ -619,12 +619,18 @@ export class ReportsService {
     const emps = empIds.length ? await this.employeeRepo.find({ where: { id: In(empIds) } }) : [];
     const empById = new Map(emps.map((e) => [e.id, e]));
 
+    // One month's P9 figures: the real payslip components we store, so a full
+    // P9A (tax deduction card) can be assembled month by month per employee.
+    type P9Month = {
+      basic: number; gross: number; nssf: number; shif: number; housing: number; paye: number;
+    };
     const map = new Map<
       string,
       {
         employeeNo: string; name: string; kraPin: string | null;
+        basic: number;
         gross: number; paye: number; nssf: number; shif: number; housing: number; net: number;
-        months: Record<string, { gross: number; paye: number }>;
+        months: Record<string, P9Month>;
       }
     >();
     const monthlyTotals: Record<string, { gross: number; paye: number; net: number }> = {};
@@ -636,18 +642,28 @@ export class ReportsService {
         map.get(s.employeeId) ??
         {
           employeeNo: e?.employeeNo ?? '', name: s.employeeName, kraPin: e?.kraPin ?? null,
-          gross: 0, paye: 0, nssf: 0, shif: 0, housing: 0, net: 0, months: {} as Record<string, { gross: number; paye: number }>,
+          basic: 0,
+          gross: 0, paye: 0, nssf: 0, shif: 0, housing: 0, net: 0, months: {} as Record<string, P9Month>,
         };
+      const basic = Number(s.basic);
       const gross = Number(s.grossPay);
       const paye = Number(s.paye);
+      const nssf = Number(s.nssfEmployee);
+      const shif = Number(s.shif);
+      const housing = Number(s.housingEmployee);
+      g.basic = r2(g.basic + basic);
       g.gross = r2(g.gross + gross);
       g.paye = r2(g.paye + paye);
-      g.nssf = r2(g.nssf + Number(s.nssfEmployee));
-      g.shif = r2(g.shif + Number(s.shif));
-      g.housing = r2(g.housing + Number(s.housingEmployee));
+      g.nssf = r2(g.nssf + nssf);
+      g.shif = r2(g.shif + shif);
+      g.housing = r2(g.housing + housing);
       g.net = r2(g.net + Number(s.netPay));
-      const m = g.months[mm] ?? { gross: 0, paye: 0 };
+      const m = g.months[mm] ?? { basic: 0, gross: 0, nssf: 0, shif: 0, housing: 0, paye: 0 };
+      m.basic = r2(m.basic + basic);
       m.gross = r2(m.gross + gross);
+      m.nssf = r2(m.nssf + nssf);
+      m.shif = r2(m.shif + shif);
+      m.housing = r2(m.housing + housing);
       m.paye = r2(m.paye + paye);
       g.months[mm] = m;
       map.set(s.employeeId, g);
