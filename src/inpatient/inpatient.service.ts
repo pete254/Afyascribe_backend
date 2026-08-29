@@ -221,6 +221,22 @@ export class InpatientService {
       }),
     );
 
+    // Admitting a patient moves them off the OUTPATIENT doctor queue and into
+    // inpatient care — they're still in the hospital, so the visit is NOT
+    // completed or cancelled. We only re-tag the reused visit as 'inpatient';
+    // the outpatient queues filter that type out, while lab, pharmacy and the
+    // dashboard continue to see the visit (now flagged inpatient).
+    await this.visitRepo
+      .createQueryBuilder()
+      .update(PatientVisit)
+      .set({ visitType: 'inpatient' })
+      .where('facility_id = :facilityId', { facilityId })
+      .andWhere('patient_id = :patientId', { patientId: dto.patientId })
+      .andWhere('status NOT IN (:...done)', {
+        done: [VisitStatus.COMPLETED, VisitStatus.CANCELLED],
+      })
+      .execute();
+
     // Raise the admission deposit as a billing-queue line for the cashier to
     // collect (best-effort; never blocks the admit).
     if (dto.depositAmount && dto.depositAmount > 0) {

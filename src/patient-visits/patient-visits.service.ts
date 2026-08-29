@@ -123,6 +123,8 @@ export class PatientVisitsService {
       .andWhere('visit.status NOT IN (:...statuses)', {
         statuses: [VisitStatus.COMPLETED, VisitStatus.CANCELLED],
       })
+      // Admitted (inpatient) visits belong to the ward, not the outpatient queue.
+      .andWhere(`(visit.visitType IS NULL OR visit.visitType != :inpatient)`, { inpatient: 'inpatient' })
       .orderBy('visit.created_at', 'ASC')
       .getMany();
   }
@@ -145,8 +147,10 @@ export class PatientVisitsService {
       .leftJoinAndSelect('visit.triagedBy', 'triagedBy')
       .where('visit.assignedDoctorId = :doctorId', { doctorId })
       .andWhere('visit.facilityId = :facilityId', { facilityId })
+      // Inpatients are cared for on the ward, not the outpatient doctor queue.
+      .andWhere(`(visit.visitType IS NULL OR visit.visitType != :inpatient)`, { inpatient: 'inpatient' })
       .andWhere(
-        '(visit.status IN (:...statuses) OR (visit.status = :completed AND visit.created_at >= :weekStart))',
+        `(visit.status IN (:...statuses) OR (visit.status = :completed AND visit.created_at >= :weekStart))`,
         { statuses: ACTIVE_DOCTOR_STATUSES, completed: VisitStatus.COMPLETED, weekStart },
       )
       .orderBy('visit.created_at', 'ASC')
@@ -313,9 +317,12 @@ export class PatientVisitsService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    // Outpatient counters exclude admitted (inpatient) visits — those are
+    // tracked by the inpatient census, not the outpatient desk.
     const base = this.visitsRepository
       .createQueryBuilder('visit')
-      .where('visit.facilityId = :facilityId', { facilityId });
+      .where('visit.facilityId = :facilityId', { facilityId })
+      .andWhere(`(visit.visitType IS NULL OR visit.visitType != :inpatient)`, { inpatient: 'inpatient' });
 
     const [checkedIn, waitingForDoctor, withDoctor] = await Promise.all([
       base.clone().andWhere('visit.status = :s', { s: VisitStatus.CHECKED_IN }).getCount(),
@@ -331,6 +338,7 @@ export class PatientVisitsService {
         .createQueryBuilder('visit')
         .where('visit.facilityId = :facilityId', { facilityId })
         .andWhere('visit.assignedDoctorId = :doctorId', { doctorId })
+        .andWhere(`(visit.visitType IS NULL OR visit.visitType != :inpatient)`, { inpatient: 'inpatient' })
         .andWhere('visit.status IN (:...statuses)', { statuses: ACTIVE_DOCTOR_STATUSES })
         .getCount();
     }
