@@ -152,11 +152,16 @@ export class InpatientService {
     });
   }
 
-  async listAdmissions(facilityId: string, status?: string) {
+  async listAdmissions(facilityId: string, status?: string, patientId?: string) {
+    const where: Record<string, unknown> = { facilityId };
+    if (status) where.status = status;
+    if (patientId) where.patientId = patientId;
     const admissions = await this.admRepo.find({
-      where: status ? { facilityId, status } : { facilityId },
+      where,
       order: { admittedAt: 'DESC' },
-      take: status === 'admitted' ? undefined : 500,
+      // A single patient's whole admission history is small; only cap the
+      // facility-wide list.
+      take: patientId || status === 'admitted' ? undefined : 500,
     });
     return this.enrich(admissions);
   }

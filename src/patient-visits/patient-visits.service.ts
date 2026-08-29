@@ -128,13 +128,15 @@ export class PatientVisitsService {
   }
 
   // ── GET DOCTOR'S QUEUE ─────────────────────────────────────────────────────
-  // Returns the doctor's active patients PLUS the ones they've already completed
-  // (discharged) today, so a doctor can find someone they just sent off and
-  // reopen the visit to keep working with them. Older completed visits drop off
-  // at day's end; the active list is unbounded by date as before.
+  // Returns the doctor's active patients PLUS the ones they've discharged this
+  // week, so a doctor can find someone they saw earlier in the week and reopen
+  // the visit, review history or book a follow-up. Completed visits older than
+  // the start of this week drop off; the active list is unbounded by date.
   async getDoctorQueue(doctorId: string, facilityId: string): Promise<PatientVisit[]> {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const weekStart = new Date();
+    weekStart.setHours(0, 0, 0, 0);
+    // Rewind to Monday (start of the current week).
+    weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
 
     return this.visitsRepository
       .createQueryBuilder('visit')
@@ -144,8 +146,8 @@ export class PatientVisitsService {
       .where('visit.assignedDoctorId = :doctorId', { doctorId })
       .andWhere('visit.facilityId = :facilityId', { facilityId })
       .andWhere(
-        '(visit.status IN (:...statuses) OR (visit.status = :completed AND visit.created_at >= :today))',
-        { statuses: ACTIVE_DOCTOR_STATUSES, completed: VisitStatus.COMPLETED, today },
+        '(visit.status IN (:...statuses) OR (visit.status = :completed AND visit.created_at >= :weekStart))',
+        { statuses: ACTIVE_DOCTOR_STATUSES, completed: VisitStatus.COMPLETED, weekStart },
       )
       .orderBy('visit.created_at', 'ASC')
       .getMany();

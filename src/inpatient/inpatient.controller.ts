@@ -102,8 +102,12 @@ export class InpatientController {
 
   // ── Admissions ────────────────────────────────────────────────────────────
   @Get('admissions')
-  listAdmissions(@CurrentUser() user: CurrentUserType, @Query('status') status?: string) {
-    return this.svc.listAdmissions(facilityOf(user), status);
+  listAdmissions(
+    @CurrentUser() user: CurrentUserType,
+    @Query('status') status?: string,
+    @Query('patientId') patientId?: string,
+  ) {
+    return this.svc.listAdmissions(facilityOf(user), status, patientId);
   }
 
   @Post('admissions')
