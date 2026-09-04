@@ -1,0 +1,7 @@
+export enum RadiologyType {
+  MRI = 'MRI',
+  CT = 'CT',
+  ULTRASOUND = 'ULTRASOUND',
+  MAMMOGRAPHY = 'MAMMOGRAPHY',
+  FLUOROSCOPY = 'FLUOROSCOPY',
+}
