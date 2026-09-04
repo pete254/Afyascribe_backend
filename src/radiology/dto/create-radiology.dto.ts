@@ -1,9 +1,9 @@
 import { IsEnum, IsNotEmpty, IsOptional, IsUUID, IsString, IsISO8601 } from 'class-validator';
-import { RadiologyType } from '../radiology-type.enum';
 
 export class CreateRadiologyDto {
-  @IsEnum(RadiologyType)
-  type: RadiologyType;
+  @IsEnum(['MRI', 'CT', 'ULTRASOUND', 'MAMMOGRAPHY', 'FLUOROSCOPY'])
+  @IsNotEmpty()
+  type: string;
 
   @IsUUID()
   @IsNotEmpty()
