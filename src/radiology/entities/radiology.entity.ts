@@ -1,11 +1,11 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn, JoinColumn } from 'typeorm';
 import { Patient } from '../../patients/entities/patient.entity';
 import { User } from '../../users/entities/user.entity';
 import { Facility } from '../../facilities/entities/facility.entity';
 import { RadiologyType } from '../radiology-type.enum';
 import { RadiologyStatus } from '../radiology-status.enum';
 
-@Entity()
+@Entity('radiology')
 export class Radiology {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -14,18 +14,22 @@ export class Radiology {
   type: RadiologyType;
 
   @ManyToOne(() => Patient, { eager: true })
+  @JoinColumn({ name: 'patient_id' })
   patient: Patient;
 
   @ManyToOne(() => Facility, { eager: true })
+  @JoinColumn({ name: 'facility_id' })
   facility: Facility;
 
   @ManyToOne(() => User, { nullable: true, eager: true })
+  @JoinColumn({ name: 'requested_by_id' })
   requestedBy?: User;
 
   @ManyToOne(() => User, { nullable: true, eager: true })
+  @JoinColumn({ name: 'performed_by_id' })
   performedBy?: User;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ name: 'scheduled_at', type: 'timestamp', nullable: true })
   scheduledAt?: Date;
 
   @Column({ type: 'enum', enum: RadiologyStatus, default: RadiologyStatus.REQUESTED })
@@ -37,9 +41,9 @@ export class Radiology {
   @Column({ type: 'text', nullable: true })
   report?: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 }
