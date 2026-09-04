@@ -1,9 +1,9 @@
-import { IsEnum, IsOptional, IsISO8601, IsString } from 'class-validator';
+import { IsIn, IsOptional, IsISO8601, IsString } from 'class-validator';
 import { RadiologyStatus } from '../radiology-status.enum';
 
 export class UpdateRadiologyDto {
   @IsOptional()
-  @IsEnum(['MRI', 'CT', 'ULTRASOUND', 'MAMMOGRAPHY', 'FLUOROSCOPY'])
+  @IsIn(['MRI', 'CT', 'ULTRASOUND', 'MAMMOGRAPHY', 'FLUOROSCOPY'])
   type?: string;
 
   @IsOptional()
@@ -11,8 +11,8 @@ export class UpdateRadiologyDto {
   scheduledAt?: string;
 
   @IsOptional()
-  @IsEnum(RadiologyStatus)
-  status?: RadiologyStatus;
+  @IsIn(['REQUESTED', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'])
+  status?: string;
 
   @IsOptional()
   @IsString()

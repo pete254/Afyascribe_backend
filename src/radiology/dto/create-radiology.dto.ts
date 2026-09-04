@@ -1,7 +1,7 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsUUID, IsString, IsISO8601 } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsUUID, IsString, IsISO8601 } from 'class-validator';
 
 export class CreateRadiologyDto {
-  @IsEnum(['MRI', 'CT', 'ULTRASOUND', 'MAMMOGRAPHY', 'FLUOROSCOPY'])
+  @IsIn(['MRI', 'CT', 'ULTRASOUND', 'MAMMOGRAPHY', 'FLUOROSCOPY'])
   @IsNotEmpty()
   type: string;
 

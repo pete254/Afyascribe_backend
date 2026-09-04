@@ -7,6 +7,7 @@ import { UpdateRadiologyDto } from './dto/update-radiology.dto';
 import { Patient } from '../patients/entities/patient.entity';
 import { Facility } from '../facilities/entities/facility.entity';
 import { RadiologyType } from './radiology-type.enum';
+import { RadiologyStatus } from './radiology-status.enum';
 
 @Injectable()
 export class RadiologyService {
@@ -50,7 +51,7 @@ export class RadiologyService {
     Object.assign(r, {
       ...(dto.type && { type: dto.type as RadiologyType }),
       ...(dto.scheduledAt && { scheduledAt: new Date(dto.scheduledAt) }),
-      ...(dto.status && { status: dto.status }),
+      ...(dto.status && { status: dto.status as RadiologyStatus }),
       ...(dto.notes && { notes: dto.notes }),
       ...(dto.report && { report: dto.report }),
     });
