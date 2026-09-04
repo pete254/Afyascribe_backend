@@ -1,11 +1,10 @@
 import { IsEnum, IsOptional, IsISO8601, IsString } from 'class-validator';
 import { RadiologyStatus } from '../radiology-status.enum';
-import { RadiologyType } from '../radiology-type.enum';
 
 export class UpdateRadiologyDto {
   @IsOptional()
-  @IsEnum(RadiologyType)
-  type?: RadiologyType;
+  @IsEnum(['MRI', 'CT', 'ULTRASOUND', 'MAMMOGRAPHY', 'FLUOROSCOPY'])
+  type?: string;
 
   @IsOptional()
   @IsISO8601()

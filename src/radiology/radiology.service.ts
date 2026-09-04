@@ -6,6 +6,7 @@ import { CreateRadiologyDto } from './dto/create-radiology.dto';
 import { UpdateRadiologyDto } from './dto/update-radiology.dto';
 import { Patient } from '../patients/entities/patient.entity';
 import { Facility } from '../facilities/entities/facility.entity';
+import { RadiologyType } from './radiology-type.enum';
 
 @Injectable()
 export class RadiologyService {
@@ -25,7 +26,7 @@ export class RadiologyService {
     if (!facility) throw new NotFoundException('Facility not found');
 
     const r = this.radiologyRepo.create({
-      type: dto.type,
+      type: dto.type as RadiologyType,
       patient,
       facility,
       scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
@@ -47,7 +48,7 @@ export class RadiologyService {
   async update(id: string, dto: UpdateRadiologyDto) {
     const r = await this.findOne(id);
     Object.assign(r, {
-      ...(dto.type && { type: dto.type }),
+      ...(dto.type && { type: dto.type as RadiologyType }),
       ...(dto.scheduledAt && { scheduledAt: new Date(dto.scheduledAt) }),
       ...(dto.status && { status: dto.status }),
       ...(dto.notes && { notes: dto.notes }),
