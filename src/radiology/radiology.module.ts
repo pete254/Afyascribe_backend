@@ -6,11 +6,12 @@ import { Radiology } from './entities/radiology.entity';
 import { Patient } from '../patients/entities/patient.entity';
 import { Facility } from '../facilities/entities/facility.entity';
 import { User } from '../users/entities/user.entity';
+import { PatientVisit } from '../patient-visits/entities/patient-visit.entity';
 import { BillingModule } from '../billing/billing.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Radiology, Patient, Facility, User]),
+    TypeOrmModule.forFeature([Radiology, Patient, Facility, User, PatientVisit]),
     BillingModule,
   ],
   controllers: [RadiologyController],

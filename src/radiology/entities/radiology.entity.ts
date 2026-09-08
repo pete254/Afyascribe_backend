@@ -10,7 +10,9 @@ export class Radiology {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'enum', enum: RadiologyType })
+  // Stored as varchar to match the migration (see 1717400000000-AddRadiology);
+  // the enum stays the TS type for compile-time safety.
+  @Column({ type: 'varchar', length: 30 })
   type: RadiologyType;
 
   @ManyToOne(() => Patient, { eager: true })
@@ -32,7 +34,7 @@ export class Radiology {
   @Column({ name: 'scheduled_at', type: 'timestamp', nullable: true })
   scheduledAt?: Date;
 
-  @Column({ type: 'enum', enum: RadiologyStatus, default: RadiologyStatus.REQUESTED })
+  @Column({ type: 'varchar', length: 20, default: RadiologyStatus.REQUESTED })
   status: RadiologyStatus;
 
   @Column({ type: 'text', nullable: true })
@@ -40,6 +42,17 @@ export class Radiology {
 
   @Column({ type: 'text', nullable: true })
   report?: string;
+
+  // Billing: the price charged, the visit the charge hangs on, and the raised
+  // bill's id. Set when the study is requested with a price.
+  @Column({ name: 'price', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  price?: string | null;
+
+  @Column({ name: 'visit_id', type: 'uuid', nullable: true })
+  visitId?: string | null;
+
+  @Column({ name: 'billing_id', type: 'uuid', nullable: true })
+  billingId?: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

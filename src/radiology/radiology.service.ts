@@ -1,13 +1,24 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Radiology } from './entities/radiology.entity';
 import { CreateRadiologyDto } from './dto/create-radiology.dto';
 import { UpdateRadiologyDto } from './dto/update-radiology.dto';
 import { Patient } from '../patients/entities/patient.entity';
 import { Facility } from '../facilities/entities/facility.entity';
+import { User } from '../users/entities/user.entity';
+import { PatientVisit, VisitStatus } from '../patient-visits/entities/patient-visit.entity';
+import { BillingService } from '../billing/billing.service';
+import { ServiceType } from '../billing/entities/billing.entity';
 import { RadiologyType } from './radiology-type.enum';
 import { RadiologyStatus } from './radiology-status.enum';
+
+const ACTIVE_VISIT_STATUSES = [
+  VisitStatus.CHECKED_IN,
+  VisitStatus.TRIAGE,
+  VisitStatus.WAITING_FOR_DOCTOR,
+  VisitStatus.WITH_DOCTOR,
+];
 
 @Injectable()
 export class RadiologyService {
@@ -18,48 +29,132 @@ export class RadiologyService {
     private patientRepo: Repository<Patient>,
     @InjectRepository(Facility)
     private facilityRepo: Repository<Facility>,
+    @InjectRepository(PatientVisit)
+    private visitRepo: Repository<PatientVisit>,
+    private billing: BillingService,
   ) {}
 
-  async create(dto: CreateRadiologyDto) {
-    const patient = await this.patientRepo.findOneBy({ id: dto.patientId });
+  async create(facilityId: string, dto: CreateRadiologyDto, userId?: string) {
+    // Patient must belong to this facility — never trust an id across tenants.
+    const patient = await this.patientRepo.findOneBy({ id: dto.patientId, facilityId });
     if (!patient) throw new NotFoundException('Patient not found');
-    const facility = await this.facilityRepo.findOneBy({ id: dto.facilityId });
+    const facility = await this.facilityRepo.findOneBy({ id: facilityId });
     if (!facility) throw new NotFoundException('Facility not found');
+
+    const price = Number(dto.price) || 0;
+
+    // Resolve a visit to bill against when a price is set: an explicit one, the
+    // patient's active visit, or a lightweight anchor visit (as inpatient does).
+    let visitId = await this.resolveVisit(facilityId, dto, price, userId);
 
     const r = this.radiologyRepo.create({
       type: dto.type as RadiologyType,
       patient,
       facility,
+      requestedBy: userId ? ({ id: userId } as User) : undefined,
       scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
       notes: dto.notes,
+      price: price > 0 ? price.toFixed(2) : null,
+      visitId,
     });
-    return this.radiologyRepo.save(r);
+    const saved = await this.radiologyRepo.save(r);
+
+    // Raise the imaging charge (revenue + a line for the cashier to collect).
+    // Best-effort: a billing hiccup must never lose the imaging request itself.
+    if (price > 0 && visitId) {
+      try {
+        const bill = await this.billing.create(
+          {
+            visitId,
+            serviceType: ServiceType.IMAGING,
+            serviceDescription: `Imaging: ${dto.type}`,
+            amount: price,
+          },
+          facilityId,
+        );
+        saved.billingId = bill.id;
+        await this.radiologyRepo.save(saved);
+      } catch (e) {
+        console.error(`Radiology bill for "${dto.type}" failed: ${(e as Error).message}`);
+      }
+    }
+    return saved;
   }
 
-  findAll() {
-    return this.radiologyRepo.find();
+  /**
+   * Pick the visit an imaging charge hangs on. Only needed when a price is set.
+   * Prefers an explicit visitId, then the patient's active visit, otherwise
+   * opens a completed anchor visit so the bill has somewhere to live (the same
+   * pattern inpatient admission uses) without touching the outpatient queue.
+   */
+  private async resolveVisit(
+    facilityId: string,
+    dto: CreateRadiologyDto,
+    price: number,
+    userId?: string,
+  ): Promise<string | null> {
+    if (dto.visitId) {
+      const v = await this.visitRepo.findOne({ where: { id: dto.visitId, facilityId } });
+      if (!v) throw new NotFoundException('Visit not found');
+      return v.id;
+    }
+    if (price <= 0) return null;
+
+    const active = await this.visitRepo.findOne({
+      where: { facilityId, patientId: dto.patientId, status: In(ACTIVE_VISIT_STATUSES) },
+      order: { createdAt: 'DESC' },
+    });
+    if (active) return active.id;
+
+    const anchor = await this.visitRepo.save(
+      this.visitRepo.create({
+        facilityId,
+        patientId: dto.patientId,
+        reasonForVisit: `Imaging: ${dto.type}`,
+        visitType: 'radiology',
+        // Completed anchor: exists only to carry the bill, stays out of the queue.
+        status: VisitStatus.COMPLETED,
+        checkedInById: userId ?? null,
+        checkedInAt: new Date(),
+      }),
+    );
+    return anchor.id;
   }
 
-  async findOne(id: string) {
-    const r = await this.radiologyRepo.findOneBy({ id });
+  findAll(facilityId: string, filter: { patientId?: string; status?: string } = {}) {
+    return this.radiologyRepo.find({
+      where: {
+        facility: { id: facilityId },
+        ...(filter.patientId ? { patient: { id: filter.patientId } } : {}),
+        ...(filter.status ? { status: filter.status as RadiologyStatus } : {}),
+      },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async findOne(facilityId: string, id: string) {
+    const r = await this.radiologyRepo.findOne({ where: { id, facility: { id: facilityId } } });
     if (!r) throw new NotFoundException('Radiology not found');
     return r;
   }
 
-  async update(id: string, dto: UpdateRadiologyDto) {
-    const r = await this.findOne(id);
+  async update(facilityId: string, id: string, dto: UpdateRadiologyDto, userId?: string) {
+    const r = await this.findOne(facilityId, id);
+    const advancing = dto.status === RadiologyStatus.IN_PROGRESS || dto.status === RadiologyStatus.COMPLETED;
     Object.assign(r, {
       ...(dto.type && { type: dto.type as RadiologyType }),
       ...(dto.scheduledAt && { scheduledAt: new Date(dto.scheduledAt) }),
       ...(dto.status && { status: dto.status as RadiologyStatus }),
-      ...(dto.notes && { notes: dto.notes }),
-      ...(dto.report && { report: dto.report }),
+      ...(dto.notes !== undefined && { notes: dto.notes }),
+      ...(dto.report !== undefined && { report: dto.report }),
+      // Record who performed the study the first time it advances past request.
+      ...(advancing && userId && !r.performedBy && { performedBy: { id: userId } as User }),
     });
     return this.radiologyRepo.save(r);
   }
 
-  async remove(id: string) {
-    const r = await this.findOne(id);
+  async remove(facilityId: string, id: string) {
+    const r = await this.findOne(facilityId, id);
     return this.radiologyRepo.remove(r);
   }
 }
