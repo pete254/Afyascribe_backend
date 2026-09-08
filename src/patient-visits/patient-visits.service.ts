@@ -23,6 +23,14 @@ const ACTIVE_DOCTOR_STATUSES = [
   VisitStatus.WITH_DOCTOR,
 ];
 
+// A patient who is currently admitted (an active inpatient admission) is cared
+// for on the ward, so none of their visits belong in the outpatient queue —
+// even a fresh check-in. State-based, so it holds regardless of how/when they
+// were admitted.
+const NOT_CURRENTLY_ADMITTED =
+  `NOT EXISTS (SELECT 1 FROM admissions adm WHERE adm.patient_id = visit.patient_id ` +
+  `AND adm.facility_id = visit.facility_id AND adm.status = 'admitted')`;
+
 @Injectable()
 export class PatientVisitsService {
   constructor(
@@ -125,6 +133,7 @@ export class PatientVisitsService {
       })
       // Admitted (inpatient) visits belong to the ward, not the outpatient queue.
       .andWhere(`(visit.visitType IS NULL OR visit.visitType != :inpatient)`, { inpatient: 'inpatient' })
+      .andWhere(NOT_CURRENTLY_ADMITTED)
       .orderBy('visit.created_at', 'ASC')
       .getMany();
   }
@@ -149,6 +158,7 @@ export class PatientVisitsService {
       .andWhere('visit.facilityId = :facilityId', { facilityId })
       // Inpatients are cared for on the ward, not the outpatient doctor queue.
       .andWhere(`(visit.visitType IS NULL OR visit.visitType != :inpatient)`, { inpatient: 'inpatient' })
+      .andWhere(NOT_CURRENTLY_ADMITTED)
       .andWhere(
         `(visit.status IN (:...statuses) OR (visit.status = :completed AND visit.created_at >= :weekStart))`,
         { statuses: ACTIVE_DOCTOR_STATUSES, completed: VisitStatus.COMPLETED, weekStart },
@@ -322,7 +332,8 @@ export class PatientVisitsService {
     const base = this.visitsRepository
       .createQueryBuilder('visit')
       .where('visit.facilityId = :facilityId', { facilityId })
-      .andWhere(`(visit.visitType IS NULL OR visit.visitType != :inpatient)`, { inpatient: 'inpatient' });
+      .andWhere(`(visit.visitType IS NULL OR visit.visitType != :inpatient)`, { inpatient: 'inpatient' })
+      .andWhere(NOT_CURRENTLY_ADMITTED);
 
     const [checkedIn, waitingForDoctor, withDoctor] = await Promise.all([
       base.clone().andWhere('visit.status = :s', { s: VisitStatus.CHECKED_IN }).getCount(),
@@ -339,6 +350,7 @@ export class PatientVisitsService {
         .where('visit.facilityId = :facilityId', { facilityId })
         .andWhere('visit.assignedDoctorId = :doctorId', { doctorId })
         .andWhere(`(visit.visitType IS NULL OR visit.visitType != :inpatient)`, { inpatient: 'inpatient' })
+        .andWhere(NOT_CURRENTLY_ADMITTED)
         .andWhere('visit.status IN (:...statuses)', { statuses: ACTIVE_DOCTOR_STATUSES })
         .getCount();
     }
