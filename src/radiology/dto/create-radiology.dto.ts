@@ -1,13 +1,21 @@
 import { IsIn, IsNotEmpty, IsOptional, IsUUID, IsString, IsISO8601, IsNumber, Min } from 'class-validator';
 
 export class CreateRadiologyDto {
-  @IsIn(['MRI', 'CT', 'ULTRASOUND', 'MAMMOGRAPHY', 'FLUOROSCOPY'])
+  @IsIn(['X-RAY', 'ULTRASOUND', 'CT', 'MRI', 'MAMMOGRAPHY', 'FLUOROSCOPY'])
   @IsNotEmpty()
   type: string;
 
   @IsUUID()
   @IsNotEmpty()
   patientId: string;
+
+  @IsOptional()
+  @IsString()
+  bodyPart?: string;
+
+  @IsOptional()
+  @IsIn(['ROUTINE', 'URGENT', 'STAT'])
+  priority?: string;
 
   /** Optional visit to bill against; if omitted, the patient's active visit is
    *  used (or a lightweight one is opened) when a price is given. */

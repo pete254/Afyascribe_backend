@@ -49,10 +49,13 @@ export class RadiologyService {
 
     const r = this.radiologyRepo.create({
       type: dto.type as RadiologyType,
+      bodyPart: dto.bodyPart ?? null,
+      priority: dto.priority ?? 'ROUTINE',
       patient,
       facility,
       requestedBy: userId ? ({ id: userId } as User) : undefined,
       scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
+      status: dto.scheduledAt ? RadiologyStatus.SCHEDULED : RadiologyStatus.REQUESTED,
       notes: dto.notes,
       price: price > 0 ? price.toFixed(2) : null,
       visitId,
@@ -140,17 +143,47 @@ export class RadiologyService {
 
   async update(facilityId: string, id: string, dto: UpdateRadiologyDto, userId?: string) {
     const r = await this.findOne(facilityId, id);
-    const advancing = dto.status === RadiologyStatus.IN_PROGRESS || dto.status === RadiologyStatus.COMPLETED;
+    const nowCancelling = dto.status === RadiologyStatus.CANCELLED && r.status !== RadiologyStatus.CANCELLED;
+
     Object.assign(r, {
       ...(dto.type && { type: dto.type as RadiologyType }),
+      ...(dto.bodyPart !== undefined && { bodyPart: dto.bodyPart || null }),
+      ...(dto.priority && { priority: dto.priority }),
       ...(dto.scheduledAt && { scheduledAt: new Date(dto.scheduledAt) }),
       ...(dto.status && { status: dto.status as RadiologyStatus }),
       ...(dto.notes !== undefined && { notes: dto.notes }),
       ...(dto.report !== undefined && { report: dto.report }),
-      // Record who performed the study the first time it advances past request.
-      ...(advancing && userId && !r.performedBy && { performedBy: { id: userId } as User }),
+      ...(dto.findings !== undefined && { findings: dto.findings || null }),
+      ...(dto.impression !== undefined && { impression: dto.impression || null }),
     });
-    return this.radiologyRepo.save(r);
+
+    // Stamp who performed the study, the first time it starts.
+    if (dto.status === RadiologyStatus.IN_PROGRESS) {
+      if (!r.performedBy && userId) r.performedBy = { id: userId } as User;
+      if (!r.performedAt) r.performedAt = new Date();
+    }
+
+    // A report was written (or the study completed): record the reporter + time.
+    const reportTouched = dto.findings !== undefined || dto.impression !== undefined || dto.report !== undefined;
+    if (reportTouched || dto.status === RadiologyStatus.COMPLETED) {
+      if (userId) r.reportedBy = { id: userId } as User;
+      r.reportedAt = new Date();
+    }
+
+    const saved = await this.radiologyRepo.save(r);
+
+    // Cancelling a billed study voids its charge: waive the bill (which reverses
+    // the receivable) so the patient no longer owes it. A paid bill is left as
+    // is — a refund is a deliberate finance action. Best-effort.
+    if (nowCancelling && saved.billingId && userId) {
+      try {
+        await this.billing.waive(saved.billingId, 'Radiology study cancelled', userId, facilityId);
+      } catch (e) {
+        console.error(`Voiding radiology bill ${saved.billingId} failed: ${(e as Error).message}`);
+      }
+    }
+
+    return saved;
   }
 
   async remove(facilityId: string, id: string) {

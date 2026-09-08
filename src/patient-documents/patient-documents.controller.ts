@@ -110,6 +110,48 @@ export class PatientDocumentsController {
     });
   }
 
+  // ── UPLOAD: radiology study-level (images / films) ────────────────────────
+  @Post('radiology')
+  @ApiOperation({ summary: 'Upload an image/film tied to a specific radiology study' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(fileInterceptor)
+  async uploadRadiologyDoc(
+    @UploadedFile() file: UploadedMulterFile,
+    @Body('patientId') patientId: string,
+    @Body('radiologyId') radiologyId: string,
+    @Body('documentName') documentName: string,
+    @Body('notes') notes: string,
+    @CurrentUser() user: any,
+  ) {
+    if (!file)         throw new BadRequestException('No file provided');
+    if (!patientId)    throw new BadRequestException('patientId is required');
+    if (!radiologyId)  throw new BadRequestException('radiologyId is required');
+    if (!documentName) throw new BadRequestException('documentName is required');
+
+    return this.service.uploadRadiologyDocument({
+      patientId,
+      radiologyId,
+      facilityId:   user.facilityId,
+      uploadedById: user.id,
+      buffer:       file.buffer,
+      originalName: file.originalname,
+      mimeType:     file.mimetype,
+      fileSize:     file.size,
+      documentName,
+      notes,
+    });
+  }
+
+  // ── GET: radiology study docs ─────────────────────────────────────────────
+  @Get('radiology/:radiologyId')
+  @ApiOperation({ summary: 'Get images/films attached to a specific radiology study' })
+  findRadiologyDocs(
+    @Param('radiologyId', ParseUUIDPipe) radiologyId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.service.findRadiologyDocs(radiologyId, user.facilityId);
+  }
+
   // ── GET: patient-level docs only ──────────────────────────────────────────
   @Get('patient/:patientId')
   @ApiOperation({ summary: 'Get permanent patient-level documents' })

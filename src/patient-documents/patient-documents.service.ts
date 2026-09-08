@@ -189,6 +189,60 @@ export class PatientDocumentsService {
     });
   }
 
+  // ── UPLOAD: radiology study document (images / films) ──────────────────────
+  async uploadRadiologyDocument(params: {
+    patientId: string;
+    radiologyId: string;
+    facilityId: string;
+    uploadedById: string;
+    buffer: Buffer;
+    originalName: string;
+    mimeType: string;
+    fileSize: number;
+    documentName: string;
+    notes?: string;
+  }): Promise<PatientDocument> {
+    this.validateFile(params.mimeType, params.fileSize);
+
+    const exists = await this.patientsService.patientExists(params.patientId, params.facilityId);
+    if (!exists) throw new BadRequestException(`Patient not found in your facility`);
+
+    this.logger.log(`📤 Uploading radiology doc: ${params.documentName} for study ${params.radiologyId}`);
+
+    const { url, publicId } = await this.uploadToCloudinary(
+      params.buffer,
+      params.mimeType,
+      `afyascribe/${params.facilityId}/patients/${params.patientId}/radiology/${params.radiologyId}`,
+    );
+
+    const doc = this.repo.create({
+      patientId:    params.patientId,
+      facilityId:   params.facilityId,
+      uploadedById: params.uploadedById,
+      radiologyId:  params.radiologyId,
+      scope:        DocumentScope.RADIOLOGY,
+      documentName: params.documentName,
+      category:     DocumentCategory.RADIOLOGY,
+      notes:        params.notes ?? null,
+      fileUrl:      url,
+      publicId,
+      fileName:     params.originalName,
+      fileType:     params.mimeType,
+      fileSize:     params.fileSize,
+    });
+
+    return this.repo.save(doc);
+  }
+
+  // ── GET: all documents for a specific radiology study ──────────────────────
+  async findRadiologyDocs(radiologyId: string, facilityId: string): Promise<PatientDocument[]> {
+    return this.repo.find({
+      where: { radiologyId, facilityId, scope: DocumentScope.RADIOLOGY },
+      relations: ['uploadedBy'],
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   // ── GET: all documents for a patient (both scopes) for "All Documents" tab ─
   async findAllForPatient(patientId: string, facilityId: string): Promise<PatientDocument[]> {
     return this.repo

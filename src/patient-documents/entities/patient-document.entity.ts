@@ -25,6 +25,7 @@ export enum DocumentCategory {
 export enum DocumentScope {
   PATIENT   = 'patient',    // permanent patient-level
   SOAP_NOTE = 'soap_note',  // tied to a specific SOAP note
+  RADIOLOGY = 'radiology',  // tied to a specific radiology study (images / films)
 }
 
 @Entity('patient_documents')
@@ -55,6 +56,10 @@ export class PatientDocument {
   @ManyToOne(() => SoapNote, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'soap_note_id' })
   soapNote: SoapNote | null;
+
+  // ── Radiology study (nullable — only for scope = radiology) ────────────────
+  @Column({ name: 'radiology_id', type: 'uuid', nullable: true })
+  radiologyId: string | null;
 
   // ── Uploader ───────────────────────────────────────────────────────────────
   @Column({ name: 'uploaded_by_id', type: 'uuid', nullable: true })
