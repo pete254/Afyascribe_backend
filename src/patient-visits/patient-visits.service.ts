@@ -152,6 +152,7 @@ export class PatientVisitsService {
     return this.visitsRepository
       .createQueryBuilder('visit')
       .leftJoinAndSelect('visit.patient', 'patient')
+      .leftJoinAndSelect('visit.assignedDoctor', 'assignedDoctor')
       .leftJoinAndSelect('visit.checkedInBy', 'checkedInBy')
       .leftJoinAndSelect('visit.triagedBy', 'triagedBy')
       .where('visit.assignedDoctorId = :doctorId', { doctorId })
