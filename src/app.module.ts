@@ -66,6 +66,8 @@ import { Payslip } from './payroll/entities/payslip.entity';
 import { LabModule } from './lab/lab.module';
 import { RadiologyModule } from './radiology/radiology.module';
 import { Radiology } from './radiology/entities/radiology.entity';
+import { DentalModule } from './dental/dental.module';
+import { DentalTreatment } from './dental/entities/dental-treatment.entity';
 import { PrescriptionsModule } from './prescriptions/prescriptions.module';
 import { InpatientModule } from './inpatient/inpatient.module';
 import { KardexModule } from './kardex/kardex.module';
@@ -90,7 +92,7 @@ import { PettyCashModule } from './petty-cash/petty-cash.module';
           username: configService.get('DB_USERNAME'),
           password: configService.get('DB_PASSWORD'),
           database: configService.get('DB_DATABASE'),
-          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit, Billing, InsuranceScheme, PatientDocument, ServiceCatalogItem, SelfRegistration, FacilityCreationCode, SupportRequest, LedgerAccount, JournalEntry, JournalLine, InventoryItem, Supplier, StockMovement, GoodsReceipt, GoodsReceiptLine, SupplierPayment, PurchaseOrder, PurchaseOrderLine, PurchaseRequisition, PurchaseRequisitionLine, Quotation, QuotationLine, SupplierInvoice, Employee, PayrollRun, Payslip, Radiology],
+          entities: [User, SoapNote, Patient, Facility, FacilityInviteCode, PatientVisit, Billing, InsuranceScheme, PatientDocument, ServiceCatalogItem, SelfRegistration, FacilityCreationCode, SupportRequest, LedgerAccount, JournalEntry, JournalLine, InventoryItem, Supplier, StockMovement, GoodsReceipt, GoodsReceiptLine, SupplierPayment, PurchaseOrder, PurchaseOrderLine, PurchaseRequisition, PurchaseRequisitionLine, Quotation, QuotationLine, SupplierInvoice, Employee, PayrollRun, Payslip, Radiology, DentalTreatment],
           autoLoadEntities: true,
           synchronize: !isProduction,
           logging: !isProduction,
@@ -127,6 +129,7 @@ import { PettyCashModule } from './petty-cash/petty-cash.module';
     PayrollModule,
     LabModule,
     RadiologyModule,
+    DentalModule,
     PrescriptionsModule,
     InpatientModule,
     KardexModule,

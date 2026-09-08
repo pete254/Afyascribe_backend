@@ -17,6 +17,8 @@ export const CAPABILITY_DEFAULTS: Record<string, string[]> = {
   manage_lab_catalog: ['lab_technician'],
   run_radiology: ['doctor', 'nurse', 'radiographer'],
   order_radiology: ['doctor', 'nurse'],
+  run_dental: ['doctor', 'nurse', 'dentist'],
+  order_dental: ['doctor', 'nurse', 'dentist'],
   dispense_drugs: ['pharmacist'],
   triage: ['doctor', 'nurse'],
   complete_visit: ['doctor', 'nurse'],
