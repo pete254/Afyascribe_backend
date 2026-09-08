@@ -60,7 +60,7 @@ export class OpticalService {
     });
     for (const f of RX_FIELDS) {
       const v = dto[f];
-      if (v !== undefined) (rx as Record<string, unknown>)[f] = v || null;
+      if (v !== undefined) (rx as unknown as Record<string, unknown>)[f] = v || null;
     }
     const saved = await this.opticalRepo.save(rx);
 
@@ -138,7 +138,7 @@ export class OpticalService {
     if (dto.status) rx.status = dto.status as OpticalStatus;
     for (const f of RX_FIELDS) {
       const v = dto[f];
-      if (v !== undefined) (rx as Record<string, unknown>)[f] = v || null;
+      if (v !== undefined) (rx as unknown as Record<string, unknown>)[f] = v || null;
     }
     if (dto.status === OpticalStatus.DISPENSED && !rx.dispensedAt) rx.dispensedAt = new Date();
     if (userId) rx.optometrist = { id: userId } as User;
