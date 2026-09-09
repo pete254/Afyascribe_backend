@@ -39,7 +39,7 @@ function facilityOf(user: CurrentUserType): string {
 @ApiBearerAuth('JWT-auth')
 @Controller('inpatient')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('facility_admin', 'super_admin', 'doctor', 'nurse', 'receptionist')
+@Roles('facility_admin', 'super_admin', 'doctor', 'nurse', 'receptionist', 'pharmacist')
 export class InpatientController {
   constructor(
     private readonly svc: InpatientService,
@@ -153,7 +153,7 @@ export class InpatientController {
   }
 
   @Post('admissions/:id/charges')
-  @Roles('facility_admin', 'super_admin', 'doctor', 'nurse')
+  @Roles('facility_admin', 'super_admin', 'doctor', 'nurse', 'pharmacist')
   addCharge(
     @CurrentUser() user: CurrentUserType,
     @Param('id') id: string,

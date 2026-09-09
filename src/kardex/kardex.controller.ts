@@ -36,7 +36,7 @@ function facilityOf(user: CurrentUserType): string {
 @ApiBearerAuth('JWT-auth')
 @Controller('kardex')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('facility_admin', 'super_admin', 'doctor', 'nurse')
+@Roles('facility_admin', 'super_admin', 'doctor', 'nurse', 'pharmacist')
 export class KardexController {
   constructor(private readonly svc: KardexService) {}
 

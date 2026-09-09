@@ -119,10 +119,11 @@ export class PrescriptionsService {
       const patient = rx.patientId
         ? await this.patients.findOne({ where: { id: rx.patientId, facilityId } })
         : null;
-      (rx as Record<string, unknown>).vitals = visit?.triageData ?? null;
-      (rx as Record<string, unknown>).patientDob = patient?.dateOfBirth ?? null;
-      (rx as Record<string, unknown>).patientAge = ageFrom(patient?.dateOfBirth);
-      (rx as Record<string, unknown>).patientSex = patient?.gender ?? null;
+      const extra = rx as unknown as Record<string, unknown>;
+      extra.vitals = visit?.triageData ?? null;
+      extra.patientDob = patient?.dateOfBirth ?? null;
+      extra.patientAge = ageFrom(patient?.dateOfBirth);
+      extra.patientSex = patient?.gender ?? null;
     } catch {
       /* vitals are a convenience — never fail the fetch over them */
     }

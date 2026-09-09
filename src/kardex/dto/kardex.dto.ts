@@ -234,9 +234,9 @@ export class UpdateCarePlanDto {
 }
 
 /** Author roles a progress note can be filed under. */
-export const PROGRESS_NOTE_ROLES = ['doctor', 'nurse'] as const;
+export const PROGRESS_NOTE_ROLES = ['doctor', 'nurse', 'pharmacist'] as const;
 
-/** File a free-text clinical progress note (doctor ward-round or nurse note). */
+/** File a free-text clinical progress note (doctor ward-round, nurse or pharmacist note). */
 export class CreateProgressNoteDto {
   @ApiProperty({ description: 'Patient the note is about' })
   @IsUUID()
@@ -249,7 +249,7 @@ export class CreateProgressNoteDto {
 
   @ApiProperty({ enum: PROGRESS_NOTE_ROLES, description: 'Whose note this is' })
   @IsIn(PROGRESS_NOTE_ROLES as unknown as string[])
-  authorRole: 'doctor' | 'nurse';
+  authorRole: 'doctor' | 'nurse' | 'pharmacist';
 
   @ApiProperty({ description: 'The note text' })
   @IsString()

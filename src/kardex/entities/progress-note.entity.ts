@@ -28,9 +28,9 @@ export class ProgressNote {
   @Column({ name: 'admission_id', type: 'uuid', nullable: true })
   admissionId: string | null;
 
-  // doctor | nurse
-  @Column({ name: 'author_role', type: 'varchar', length: 10 })
-  authorRole: 'doctor' | 'nurse';
+  // doctor | nurse | pharmacist
+  @Column({ name: 'author_role', type: 'varchar', length: 12 })
+  authorRole: 'doctor' | 'nurse' | 'pharmacist';
 
   @Column({ type: 'text' })
   body: string;
