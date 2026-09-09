@@ -21,6 +21,9 @@ export class PrescriptionItemDto {
   frequency?: string;
 
   @IsOptional() @IsString()
+  form?: string;
+
+  @IsOptional() @IsString()
   duration?: string;
 
   @IsOptional() @IsString()
@@ -72,6 +75,9 @@ export class PharmacyItemDto {
 
   @IsOptional() @IsString()
   frequency?: string;
+
+  @IsOptional() @IsString()
+  form?: string;
 
   @IsOptional() @IsString()
   duration?: string;

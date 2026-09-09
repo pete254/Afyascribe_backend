@@ -12,12 +12,28 @@ import { CurrentUserType } from '../common/decorators/current-user.decorator';
 import { BillingService } from '../billing/billing.service';
 import { StockService } from '../inventory/stock.service';
 import { ServiceType } from '../billing/entities/billing.entity';
+import { PatientVisit } from '../patient-visits/entities/patient-visit.entity';
+import { Patient } from '../patients/entities/patient.entity';
+
+/** Age in whole years from a date-of-birth string, or null. */
+function ageFrom(dob?: string | null): number | null {
+  if (!dob) return null;
+  const d = new Date(dob);
+  if (isNaN(d.getTime())) return null;
+  const now = new Date();
+  let a = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) a--;
+  return a >= 0 ? a : null;
+}
 
 @Injectable()
 export class PrescriptionsService {
   constructor(
     @InjectRepository(Prescription) private readonly rx: Repository<Prescription>,
     @InjectRepository(PrescriptionItem) private readonly lines: Repository<PrescriptionItem>,
+    @InjectRepository(PatientVisit) private readonly visits: Repository<PatientVisit>,
+    @InjectRepository(Patient) private readonly patients: Repository<Patient>,
     private readonly billing: BillingService,
     private readonly stock: StockService,
   ) {}
@@ -54,6 +70,7 @@ export class PrescriptionsService {
         line.medication = i.medication.trim();
         line.dosage = i.dosage ?? null;
         line.frequency = i.frequency ?? null;
+        line.form = i.form ?? null;
         line.duration = i.duration ?? null;
         line.quantityText = i.quantityText ?? null;
         line.instructions = i.instructions ?? null;
@@ -91,6 +108,24 @@ export class PrescriptionsService {
     const rx = await this.rx.findOne({ where: { id, facilityId } });
     if (!rx) throw new NotFoundException('Prescription not found');
     (rx.items ?? []).sort((a, b) => a.sortOrder - b.sortOrder);
+
+    // Attach the patient's vitals (from this visit's triage) and age so the
+    // pharmacist can do weight/age-based dosage calculations. Non-persisted
+    // fields on the returned instance; best-effort.
+    try {
+      const visit = rx.visitId
+        ? await this.visits.findOne({ where: { id: rx.visitId, facilityId } })
+        : null;
+      const patient = rx.patientId
+        ? await this.patients.findOne({ where: { id: rx.patientId, facilityId } })
+        : null;
+      (rx as Record<string, unknown>).vitals = visit?.triageData ?? null;
+      (rx as Record<string, unknown>).patientDob = patient?.dateOfBirth ?? null;
+      (rx as Record<string, unknown>).patientAge = ageFrom(patient?.dateOfBirth);
+      (rx as Record<string, unknown>).patientSex = patient?.gender ?? null;
+    } catch {
+      /* vitals are a convenience — never fail the fetch over them */
+    }
     return rx;
   }
 
@@ -112,6 +147,7 @@ export class PrescriptionsService {
       line.medication = d.medication.trim();
       line.dosage = d.dosage ?? null;
       line.frequency = d.frequency ?? null;
+      line.form = d.form ?? null;
       line.duration = d.duration ?? null;
       line.quantityText = d.quantityText ?? null;
       line.instructions = d.instructions ?? null;

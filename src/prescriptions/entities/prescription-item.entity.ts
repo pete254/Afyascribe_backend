@@ -36,6 +36,10 @@ export class PrescriptionItem {
   @Column({ type: 'varchar', nullable: true })
   frequency: string | null;
 
+  /** Dosage form — tablet, syrup, capsule, injection, etc. */
+  @Column({ type: 'varchar', length: 40, nullable: true })
+  form: string | null;
+
   @Column({ type: 'varchar', nullable: true })
   duration: string | null;
 
