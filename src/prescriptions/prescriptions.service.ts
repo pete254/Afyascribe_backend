@@ -12,8 +12,16 @@ import { CurrentUserType } from '../common/decorators/current-user.decorator';
 import { BillingService } from '../billing/billing.service';
 import { StockService } from '../inventory/stock.service';
 import { ServiceType } from '../billing/entities/billing.entity';
-import { PatientVisit } from '../patient-visits/entities/patient-visit.entity';
+import { PatientVisit, VisitStatus } from '../patient-visits/entities/patient-visit.entity';
 import { Patient } from '../patients/entities/patient.entity';
+
+// A visit still open somewhere in the outpatient flow (not finished/cancelled).
+const OPEN_VISIT_STATUSES = [
+  VisitStatus.CHECKED_IN,
+  VisitStatus.TRIAGE,
+  VisitStatus.WAITING_FOR_DOCTOR,
+  VisitStatus.WITH_DOCTOR,
+];
 
 /** Age in whole years from a date-of-birth string, or null. */
 function ageFrom(dob?: string | null): number | null {
@@ -80,7 +88,43 @@ export class PrescriptionsService {
       }),
     });
     const saved = await this.rx.save(rx);
+
+    // The patient isn't done until their medicine is dispensed: if writing the
+    // note already completed the visit, reopen it so it stays open ("at
+    // pharmacy") until the pharmacy dispenses. Best-effort.
+    if (saved.visitId) await this.reopenVisitForPharmacy(facilityId, saved.visitId);
+
     return this.getOne(facilityId, saved.id);
+  }
+
+  /** Reopen a just-completed visit that now has medicine waiting at the pharmacy. */
+  private async reopenVisitForPharmacy(facilityId: string, visitId: string): Promise<void> {
+    try {
+      const visit = await this.visits.findOne({ where: { id: visitId, facilityId } });
+      if (visit && visit.status === VisitStatus.COMPLETED && visit.visitType !== 'inpatient') {
+        visit.status = VisitStatus.WITH_DOCTOR;
+        await this.visits.save(visit);
+      }
+    } catch {
+      /* visit lifecycle is best-effort — never fail the prescription over it */
+    }
+  }
+
+  /** Close the visit once the pharmacy is done (dispensed, or nothing left to give). */
+  private async closeVisitAfterPharmacy(facilityId: string, visitId: string | null): Promise<void> {
+    if (!visitId) return;
+    try {
+      // Still-pending prescriptions on this visit keep it open.
+      const pending = await this.rx.count({ where: { facilityId, visitId, status: 'pending' } });
+      if (pending > 0) return;
+      const visit = await this.visits.findOne({ where: { id: visitId, facilityId } });
+      if (visit && OPEN_VISIT_STATUSES.includes(visit.status) && visit.visitType !== 'inpatient') {
+        visit.status = VisitStatus.COMPLETED;
+        await this.visits.save(visit);
+      }
+    } catch {
+      /* best-effort */
+    }
   }
 
   // ── Queue / lists ───────────────────────────────────────────────────────────
@@ -267,6 +311,11 @@ export class PrescriptionsService {
     rx.dispensedByName = this.fullName(user);
     rx.dispensedAt = new Date();
     await this.rx.save(rx);
+
+    // Medicine handed over — the patient is done. Discharge (complete) the visit
+    // unless it still has another pending prescription.
+    await this.closeVisitAfterPharmacy(facilityId, rx.visitId);
+
     return this.getOne(facilityId, id);
   }
 
@@ -287,6 +336,11 @@ export class PrescriptionsService {
     }
     rx.status = 'cancelled';
     await this.rx.save(rx);
+
+    // Nothing left to dispense from this Rx — if no other pending Rx is holding
+    // the visit open, complete it so the patient isn't stuck "at pharmacy".
+    await this.closeVisitAfterPharmacy(facilityId, rx.visitId);
+
     return this.getOne(facilityId, id);
   }
 }

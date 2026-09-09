@@ -10,6 +10,7 @@ import { Repository } from 'typeorm';
 import { PatientVisit, VisitStatus } from './entities/patient-visit.entity';
 import { Billing, BillingStatus } from '../billing/entities/billing.entity';
 import { Facility } from '../facilities/entities/facility.entity';
+import { Prescription } from '../prescriptions/entities/prescription.entity';
 import { CheckInDto } from './dto/check-in.dto';
 import { TriageDto } from './dto/triage.dto';
 import { ReassignDto } from './dto/reassign.dto';
@@ -40,6 +41,8 @@ export class PatientVisitsService {
     private readonly billingRepository: Repository<Billing>,
     @InjectRepository(Facility)
     private readonly facilitiesRepository: Repository<Facility>,
+    @InjectRepository(Prescription)
+    private readonly prescriptionsRepository: Repository<Prescription>,
   ) {}
 
   /**
@@ -300,6 +303,15 @@ export class PatientVisitsService {
       .getOne();
 
     if (visit) {
+      // Don't discharge yet if the doctor prescribed medicine — the patient is
+      // "at pharmacy" until it's dispensed, which then completes the visit.
+      const pendingRx = await this.prescriptionsRepository.count({
+        where: { facilityId, patientId, status: 'pending' },
+      });
+      if (pendingRx > 0) {
+        console.log(`⏳ Visit ${visit.id} left open — ${pendingRx} prescription(s) awaiting the pharmacy.`);
+        return;
+      }
       visit.status = VisitStatus.COMPLETED;
       await this.visitsRepository.save(visit);
       console.log(`✅ Visit ${visit.id} auto-completed after SOAP note saved for patient ${patientId}`);
