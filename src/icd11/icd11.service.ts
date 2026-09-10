@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Icd11Code } from './entities/icd11-code.entity';
+import { COMMON_ICD11_CODES } from './seeds/common-icd11-codes.seed';
 
 @Injectable()
 export class Icd11Service {
@@ -285,71 +286,9 @@ export class Icd11Service {
   async seedCommonCodes(): Promise<void> {
     this.logger.log('🌱 Seeding common ICD-11 codes...');
     
-    // NOTE: Curated ICD-11 MMS stem codes for offline use, compiled for common
-    // East-African primary-care presentations. Verify each code against the
-    // official WHO ICD-11 MMS (https://icd.who.int/browse11) before clinical rollout.
-    const commonCodes: { code: string; shortDesc: string; chapterCode: string; searchTerms: string[] }[] = [
-      // ── Infectious or parasitic diseases (Chapter 01) ──
-      { code: '1A00', shortDesc: 'Cholera', chapterCode: '01', searchTerms: ['cholera', 'vibrio'] },
-      { code: '1A07', shortDesc: 'Typhoid fever', chapterCode: '01', searchTerms: ['typhoid', 'enteric fever', 'salmonella typhi'] },
-      { code: '1A40', shortDesc: 'Gastroenteritis or colitis of infectious origin', chapterCode: '01', searchTerms: ['gastroenteritis', 'diarrhoea', 'diarrhea', 'stomach infection', 'colitis'] },
-      { code: '1B10', shortDesc: 'Respiratory tuberculosis', chapterCode: '01', searchTerms: ['tb', 'tuberculosis', 'pulmonary tb', 'lung tb'] },
-      { code: '1B1Z', shortDesc: 'Tuberculosis, unspecified', chapterCode: '01', searchTerms: ['tb', 'tuberculosis'] },
-      { code: '1C62', shortDesc: 'Human immunodeficiency virus disease', chapterCode: '01', searchTerms: ['hiv', 'aids', 'immunodeficiency'] },
-      { code: '1F40', shortDesc: 'Plasmodium falciparum malaria', chapterCode: '01', searchTerms: ['malaria', 'falciparum'] },
-      { code: '1F41', shortDesc: 'Plasmodium vivax malaria', chapterCode: '01', searchTerms: ['malaria', 'vivax'] },
-      { code: '1F42', shortDesc: 'Plasmodium malariae malaria', chapterCode: '01', searchTerms: ['malaria', 'malariae'] },
-      { code: '1F4Z', shortDesc: 'Malaria, unspecified', chapterCode: '01', searchTerms: ['malaria'] },
-
-      // ── Blood or blood-forming organs (Chapter 03) ──
-      { code: '3A00', shortDesc: 'Iron deficiency anaemia', chapterCode: '03', searchTerms: ['anaemia', 'anemia', 'iron deficiency'] },
-      { code: '3A9Z', shortDesc: 'Anaemia, unspecified', chapterCode: '03', searchTerms: ['anaemia', 'anemia'] },
-
-      // ── Endocrine, nutritional or metabolic (Chapter 05) ──
-      { code: '5A10', shortDesc: 'Type 1 diabetes mellitus', chapterCode: '05', searchTerms: ['diabetes', 'type 1', 't1dm', 'insulin dependent'] },
-      { code: '5A11', shortDesc: 'Type 2 diabetes mellitus', chapterCode: '05', searchTerms: ['diabetes', 'type 2', 't2dm', 'sugar'] },
-
-      // ── Mental, behavioural or neurodevelopmental (Chapter 06) ──
-      { code: '6A70', shortDesc: 'Single episode depressive disorder', chapterCode: '06', searchTerms: ['depression', 'depressive', 'low mood'] },
-      { code: '6A71', shortDesc: 'Recurrent depressive disorder', chapterCode: '06', searchTerms: ['depression', 'recurrent depression'] },
-      { code: '6B00', shortDesc: 'Generalised anxiety disorder', chapterCode: '06', searchTerms: ['anxiety', 'gad', 'worry'] },
-
-      // ── Nervous system (Chapter 08) ──
-      { code: '8A80', shortDesc: 'Migraine', chapterCode: '08', searchTerms: ['migraine', 'headache'] },
-
-      // ── Visual system (Chapter 09) ──
-      { code: '9A60', shortDesc: 'Conjunctivitis', chapterCode: '09', searchTerms: ['conjunctivitis', 'red eye', 'pink eye'] },
-
-      // ── Circulatory system (Chapter 11) ──
-      { code: 'BA00', shortDesc: 'Essential hypertension', chapterCode: '11', searchTerms: ['hypertension', 'high blood pressure', 'hbp', 'bp'] },
-      { code: 'BA01', shortDesc: 'Hypertensive heart disease', chapterCode: '11', searchTerms: ['hypertensive heart disease', 'hypertension'] },
-
-      // ── Respiratory system (Chapter 12) ──
-      { code: 'CA00', shortDesc: 'Acute nasopharyngitis', chapterCode: '12', searchTerms: ['common cold', 'cold', 'coryza', 'runny nose'] },
-      { code: 'CA07', shortDesc: 'Acute upper respiratory infection', chapterCode: '12', searchTerms: ['uri', 'upper respiratory infection', 'flu', 'cough'] },
-      { code: 'CA20', shortDesc: 'Acute bronchitis', chapterCode: '12', searchTerms: ['bronchitis', 'chest infection'] },
-      { code: 'CA22', shortDesc: 'Chronic obstructive pulmonary disease', chapterCode: '12', searchTerms: ['copd', 'chronic bronchitis', 'emphysema'] },
-      { code: 'CA23', shortDesc: 'Asthma', chapterCode: '12', searchTerms: ['asthma', 'wheezing', 'bronchial'] },
-      { code: 'CA40', shortDesc: 'Pneumonia', chapterCode: '12', searchTerms: ['pneumonia', 'lung infection', 'chest infection'] },
-
-      // ── Digestive system (Chapter 13) ──
-      { code: 'DA42', shortDesc: 'Gastritis', chapterCode: '13', searchTerms: ['gastritis', 'stomach inflammation'] },
-      { code: 'DA63', shortDesc: 'Peptic ulcer, site unspecified', chapterCode: '13', searchTerms: ['peptic ulcer', 'ulcer', 'stomach ulcer'] },
-
-      // ── Musculoskeletal system (Chapter 15) ──
-      { code: 'FA0Z', shortDesc: 'Osteoarthritis, unspecified', chapterCode: '15', searchTerms: ['osteoarthritis', 'arthritis', 'joint pain'] },
-
-      // ── Genitourinary system (Chapter 16) ──
-      { code: 'GC08', shortDesc: 'Urinary tract infection, site not specified', chapterCode: '16', searchTerms: ['uti', 'urinary tract infection', 'bladder infection'] },
-
-      // ── Symptoms, signs or clinical findings (Chapter 21) ──
-      { code: 'MG26', shortDesc: 'Fever', chapterCode: '21', searchTerms: ['fever', 'pyrexia', 'high temperature'] },
-      { code: 'ME84.2', shortDesc: 'Low back pain', chapterCode: '21', searchTerms: ['low back pain', 'lumbago', 'back pain'] },
-
-      // ── Codes for special purposes (Chapter 22) ──
-      { code: 'RA01.0', shortDesc: 'COVID-19, virus identified', chapterCode: '22', searchTerms: ['covid', 'coronavirus', 'covid-19', 'sars-cov-2'] },
-      { code: 'RA01.1', shortDesc: 'COVID-19, virus not identified', chapterCode: '22', searchTerms: ['covid', 'suspected covid', 'covid-19'] },
-    ];
+    // Authoritative ICD-11 MMS codes pulled from the official WHO ICD API
+    // (see scripts/fetch-icd11-codes.ts). Regenerate that seed file to refresh.
+    const commonCodes = COMMON_ICD11_CODES;
 
     let seededCount = 0;
     for (const item of commonCodes) {
@@ -360,15 +299,14 @@ export class Icd11Service {
       if (!existing) {
         await this.icd11Repository.save({
           code: item.code,
-          short_description: item.shortDesc,
-          long_description: item.shortDesc,
-          chapter_code: item.chapterCode,
+          short_description: item.short_description,
+          long_description: item.short_description,
           billable: true,
           is_active: true,
-          search_terms: item.searchTerms || [item.shortDesc.toLowerCase()],
+          search_terms: item.search_terms || [item.short_description.toLowerCase()],
         });
         seededCount++;
-        this.logger.log(`✅ Seeded: ${item.code} - ${item.shortDesc}`);
+        this.logger.log(`✅ Seeded: ${item.code} - ${item.short_description}`);
       }
     }
     
