@@ -43,10 +43,11 @@ export class MigrateIcd10ToIcd111757500000000 implements MigrationInterface {
       `CREATE INDEX IF NOT EXISTS "IDX_icd11_codes_usage" ON "icd11_codes" ("usage_count", "last_used_at")`,
     );
 
-    // 2. Retire the ICD-10 reference dictionary
-    await queryRunner.query(`DROP TABLE IF EXISTS "icd10_codes"`);
-
-    // 3. Swap the soap_notes diagnosis columns (old values are cleared)
+    // 2. Swap the soap_notes diagnosis columns (old values are cleared).
+    //    Do this BEFORE dropping icd10_codes: the production DB has a foreign
+    //    key (fk_icd10_code) from soap_notes.icd10_code to icd10_codes, so the
+    //    dependent column must go first. Dropping the column removes the FK,
+    //    but we also drop it explicitly in case it was named on the table.
     await queryRunner.query(
       `ALTER TABLE "soap_notes" ADD COLUMN IF NOT EXISTS "icd11_code" character varying(10)`,
     );
@@ -56,9 +57,16 @@ export class MigrateIcd10ToIcd111757500000000 implements MigrationInterface {
     await queryRunner.query(
       `ALTER TABLE "soap_notes" ADD COLUMN IF NOT EXISTS "icd11_codes" jsonb`,
     );
+    await queryRunner.query(
+      `ALTER TABLE "soap_notes" DROP CONSTRAINT IF EXISTS "fk_icd10_code"`,
+    );
     await queryRunner.query(`ALTER TABLE "soap_notes" DROP COLUMN IF EXISTS "icd10_code"`);
     await queryRunner.query(`ALTER TABLE "soap_notes" DROP COLUMN IF EXISTS "icd10_description"`);
     await queryRunner.query(`ALTER TABLE "soap_notes" DROP COLUMN IF EXISTS "icd10_codes"`);
+
+    // 3. Retire the ICD-10 reference dictionary (CASCADE clears any remaining
+    //    dependent objects — the only one is the FK dropped above).
+    await queryRunner.query(`DROP TABLE IF EXISTS "icd10_codes" CASCADE`);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
