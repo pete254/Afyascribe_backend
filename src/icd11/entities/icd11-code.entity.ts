@@ -1,9 +1,9 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 
-@Entity('icd10_codes')
+@Entity('icd11_codes')
 @Index(['code'], { unique: true })
 @Index(['usage_count', 'last_used_at'])
-export class Icd10Code {
+export class Icd11Code {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 

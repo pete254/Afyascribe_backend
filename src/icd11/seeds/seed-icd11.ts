@@ -1,21 +1,21 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../app.module';
-import { Icd10Service } from '../icd10.service';
+import { Icd11Service } from '../icd11.service';
 
 /**
- * Seed script to populate ICD-10 codes
+ * Seed script to populate ICD-11 codes
  * 
- * Run with: npm run seed:icd10
- * Or: ts-node src/seed-icd10.ts
+ * Run with: npm run seed:icd11
+ * Or: ts-node src/seed-icd11.ts
  */
 async function bootstrap() {
   const app = await NestFactory.createApplicationContext(AppModule);
-  const icd10Service = app.get(Icd10Service);
+  const icd11Service = app.get(Icd11Service);
 
-  console.log('🌱 Starting ICD-10 database seeding...');
+  console.log('🌱 Starting ICD-11 database seeding...');
   
   try {
-    await icd10Service.seedCommonCodes();
+    await icd11Service.seedCommonCodes();
     console.log('✅ Seeding completed successfully!');
   } catch (error) {
     console.error('❌ Seeding failed:', error);

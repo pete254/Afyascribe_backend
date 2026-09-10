@@ -14,7 +14,7 @@
     "start:prod": "node --max-old-space-size=460 dist/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
-    "seed:icd10": "ts-node src/seed-icd10.ts",
+    "seed:icd11": "ts-node src/icd11/seeds/seed-icd11.ts",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",

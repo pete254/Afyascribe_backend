@@ -10,7 +10,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { Icd10CodeDto } from './icd10-code.dto';
+import { Icd11CodeDto } from './icd11-code.dto';
 
 export class UpdateSoapNoteDto {
   @ApiPropertyOptional({
@@ -62,35 +62,35 @@ export class UpdateSoapNoteDto {
   imaging?: string;
 
   @ApiPropertyOptional({
-    description: 'ICD-10 diagnosis code (3-7 alphanumeric characters)',
+    description: 'ICD-11 diagnosis code (3-7 alphanumeric characters)',
     example: 'E11.9'
   })
   @IsString()
   @IsOptional()
   @Matches(/^[A-Z][0-9]{2}(\.[0-9]{1,4})?$/, { 
-    message: 'ICD-10 code must be in format: A00 or A00.0 or A00.00' 
+    message: 'ICD-11 code must be in format: A00 or A00.0 or A00.00' 
   })
   @MaxLength(10)
-  icd10Code?: string;
+  icd11Code?: string;
 
   @ApiPropertyOptional({
-    description: 'ICD-10 code description',
+    description: 'ICD-11 code description',
     example: 'Type 2 diabetes mellitus without complications'
   })
   @IsString()
   @IsOptional()
   @MaxLength(200)
-  icd10Description?: string;
+  icd11Description?: string;
 
   @ApiPropertyOptional({
-    type: [Icd10CodeDto],
-    description: 'Full set of ICD-10 diagnosis codes on the note',
+    type: [Icd11CodeDto],
+    description: 'Full set of ICD-11 diagnosis codes on the note',
   })
   @IsArray()
   @IsOptional()
   @ValidateNested({ each: true })
-  @Type(() => Icd10CodeDto)
-  icd10Codes?: Icd10CodeDto[];
+  @Type(() => Icd11CodeDto)
+  icd11Codes?: Icd11CodeDto[];
 
   @ApiPropertyOptional({
     description: 'Mark if the note was manually edited',

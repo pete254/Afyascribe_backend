@@ -25,18 +25,18 @@ export class SoapNotesService {
 
   // ── CREATE ─────────────────────────────────────────────────────────────────
   /**
-   * When a note carries multiple ICD-10 codes, mirror the first onto the legacy
+   * When a note carries multiple ICD-11 codes, mirror the first onto the legacy
    * single-code columns so older clients, receipts and reports keep working.
    * Mutates the dto in place.
    */
   private syncPrimaryIcd(dto: {
-    icd10Codes?: { code: string; description?: string }[];
-    icd10Code?: string;
-    icd10Description?: string;
+    icd11Codes?: { code: string; description?: string }[];
+    icd11Code?: string;
+    icd11Description?: string;
   }): void {
-    if (dto.icd10Codes && dto.icd10Codes.length > 0) {
-      dto.icd10Code = dto.icd10Codes[0].code;
-      dto.icd10Description = dto.icd10Codes[0].description ?? '';
+    if (dto.icd11Codes && dto.icd11Codes.length > 0) {
+      dto.icd11Code = dto.icd11Codes[0].code;
+      dto.icd11Description = dto.icd11Codes[0].description ?? '';
     }
   }
 
@@ -205,8 +205,8 @@ export class SoapNotesService {
       labInvestigations?: string;
       imaging?: string;
       diagnosis?: string;
-      icd10Code?: string;
-      icd10Description?: string;
+      icd11Code?: string;
+      icd11Description?: string;
       management?: string;
     },
     userId: string,
@@ -312,9 +312,9 @@ export class SoapNotesService {
         labInvestigations: dto.labInvestigations ?? existing.labInvestigations,
         imaging: dto.imaging ?? existing.imaging,
         diagnosis: dto.diagnosis ?? existing.diagnosis,
-        icd10Code: dto.icd10Code ?? existing.icd10Code,
-        icd10Description: dto.icd10Description ?? existing.icd10Description,
-        icd10Codes: dto.icd10Codes ?? existing.icd10Codes,
+        icd11Code: dto.icd11Code ?? existing.icd11Code,
+        icd11Description: dto.icd11Description ?? existing.icd11Description,
+        icd11Codes: dto.icd11Codes ?? existing.icd11Codes,
         management: dto.management ?? existing.management,
       });
 
@@ -397,9 +397,9 @@ export class SoapNotesService {
       labInvestigations: dto.labInvestigations ?? draft.labInvestigations ?? '',
       imaging: dto.imaging ?? draft.imaging ?? '',
       diagnosis: dto.diagnosis ?? draft.diagnosis ?? '',
-      icd10Code: dto.icd10Code ?? draft.icd10Code,
-      icd10Description: dto.icd10Description ?? draft.icd10Description,
-      icd10Codes: dto.icd10Codes ?? draft.icd10Codes,
+      icd11Code: dto.icd11Code ?? draft.icd11Code,
+      icd11Description: dto.icd11Description ?? draft.icd11Description,
+      icd11Codes: dto.icd11Codes ?? draft.icd11Codes,
       management: dto.management ?? draft.management ?? '',
       status: SoapNoteStatus.PENDING,
     });
@@ -466,9 +466,9 @@ export class SoapNotesService {
       note.labInvestigations && { label: 'Lab Investigations', value: note.labInvestigations },
       note.imaging && { label: 'Imaging', value: note.imaging },
       note.diagnosis && { label: 'Diagnosis', value: note.diagnosis },
-      note.icd10Code && {
-        label: 'ICD-10',
-        value: `${note.icd10Code} — ${note.icd10Description || ''}`,
+      note.icd11Code && {
+        label: 'ICD-11',
+        value: `${note.icd11Code} — ${note.icd11Description || ''}`,
       },
       note.management && { label: 'Management Plan', value: note.management },
     ].filter(Boolean);

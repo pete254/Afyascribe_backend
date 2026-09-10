@@ -210,8 +210,8 @@ export class SoapNotesController {
       labInvestigations?: string;
       imaging?: string;
       diagnosis?: string;
-      icd10Code?: string;
-      icd10Description?: string;
+      icd11Code?: string;
+      icd11Description?: string;
       management?: string;
     },
     @CurrentUser() user: CurrentUserType,

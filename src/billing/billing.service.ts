@@ -287,15 +287,15 @@ export class BillingService {
     });
     const diagnoses: PatientLedgerDiagnosis[] = notes
       .map((n) => {
-        const codes = Array.isArray(n.icd10Codes)
-          ? n.icd10Codes.map((c) => c.code).filter(Boolean)
-          : n.icd10Code
-            ? [n.icd10Code]
+        const codes = Array.isArray(n.icd11Codes)
+          ? n.icd11Codes.map((c) => c.code).filter(Boolean)
+          : n.icd11Code
+            ? [n.icd11Code]
             : [];
         return {
           date: n.createdAt ? new Date(n.createdAt).toISOString() : null,
           codes,
-          text: (n.diagnosis || n.icd10Description || '').trim(),
+          text: (n.diagnosis || n.icd11Description || '').trim(),
         };
       })
       .filter((d) => d.codes.length > 0 || d.text.length > 0);

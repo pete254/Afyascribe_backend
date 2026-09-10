@@ -21,7 +21,7 @@ import { Payslip } from '../payroll/entities/payslip.entity';
 /** One disease line on an MOH 705A/705B outpatient morbidity summary. */
 export interface MorbidityRow {
   diagnosis: string;
-  icd10: string | null;
+  icd11: string | null;
   total: number;
   male: number;
   female: number;
@@ -42,7 +42,7 @@ export interface OutpatientRegisterRow {
   attendance: 'new' | 'revisit';
   visitType: string | null;
   diagnosis: string | null;
-  icd10: string | null;
+  icd11: string | null;
   treatment: string | null;
   referredIn: boolean;
   fee: number;
@@ -964,12 +964,12 @@ export class ReportsService {
     const icdMap = new Map<string, { code: string; description: string; count: number }>();
     let withDiagnosis = 0;
     for (const n of notes) {
-      // Stats key on the structured ICD-10 codes, not the free-text diagnosis.
+      // Stats key on the structured ICD-11 codes, not the free-text diagnosis.
       const codes =
-        n.icd10Codes && n.icd10Codes.length
-          ? n.icd10Codes
-          : n.icd10Code?.trim()
-            ? [{ code: n.icd10Code.trim(), description: n.icd10Description?.trim() || '' }]
+        n.icd11Codes && n.icd11Codes.length
+          ? n.icd11Codes
+          : n.icd11Code?.trim()
+            ? [{ code: n.icd11Code.trim(), description: n.icd11Description?.trim() || '' }]
             : [];
       if (codes.length === 0) continue;
       withDiagnosis += 1;
@@ -1066,7 +1066,7 @@ export class ReportsService {
           withDiagnosis: 0,
         };
       g.count += 1;
-      if ((n.icd10Codes && n.icd10Codes.length) || n.icd10Code?.trim()) g.withDiagnosis += 1;
+      if ((n.icd11Codes && n.icd11Codes.length) || n.icd11Code?.trim()) g.withDiagnosis += 1;
       byDoctor.set(key, g);
     }
 
@@ -1076,8 +1076,8 @@ export class ReportsService {
         ? `${n.patient.firstName ?? ''} ${n.patient.lastName ?? ''}`.trim() || 'Patient'
         : 'Patient',
       patientNo: n.patient?.patientId ?? null,
-      diagnosis: n.icd10Description?.trim() || n.diagnosis?.trim() || null,
-      icd10: n.icd10Code?.trim() || null,
+      diagnosis: n.icd11Description?.trim() || n.diagnosis?.trim() || null,
+      icd11: n.icd11Code?.trim() || null,
       doctor: n.createdBy ? `${n.createdBy.firstName ?? ''} ${n.createdBy.lastName ?? ''}`.trim() : null,
       createdAt: n.createdAt ? new Date(n.createdAt).toISOString() : null,
     }));
@@ -1085,7 +1085,7 @@ export class ReportsService {
     return {
       period: { from: fromStart, to: toEnd },
       total: notes.length,
-      withDiagnosis: notes.filter((n) => (n.icd10Codes && n.icd10Codes.length) || n.icd10Code?.trim()).length,
+      withDiagnosis: notes.filter((n) => (n.icd11Codes && n.icd11Codes.length) || n.icd11Code?.trim()).length,
       byDoctor: [...byDoctor.values()].sort((a, b) => b.count - a.count),
       recent,
     };
@@ -1135,8 +1135,8 @@ export class ReportsService {
       const when = v.checkedInAt ?? v.createdAt;
       const age = this.ageAt(p?.dateOfBirth, when, p?.age);
       const note = noteByPatientDay.get(`${v.patientId}:${dayKey(when)}`);
-      const icd10 = note?.icd10Code
-        ? `${note.icd10Code}${note.icd10Description ? ` ${note.icd10Description}` : ''}`
+      const icd11 = note?.icd11Code
+        ? `${note.icd11Code}${note.icd11Description ? ` ${note.icd11Description}` : ''}`
         : null;
       return {
         visitId: v.id,
@@ -1150,7 +1150,7 @@ export class ReportsService {
         attendance: v.visitType && REVISIT.has(v.visitType) ? 'revisit' : 'new',
         visitType: v.visitType ?? null,
         diagnosis: note?.diagnosis?.trim() || null,
-        icd10,
+        icd11,
         treatment: note?.management?.trim() || null,
         referredIn: v.visitType === 'referral',
         fee: feeByVisit.get(v.id) ?? 0,
@@ -1180,19 +1180,19 @@ export class ReportsService {
   // ── MOH 705A / 705B OUTPATIENT MORBIDITY SUMMARY ───────────────────────────
   // Compiled from the 204 register: the period's diagnoses ranked by frequency,
   // split under-5 (705A) / over-5 (705B), each with sex and new/revisit counts.
-  // Grouped by ICD-10 code where recorded, otherwise by the diagnosis text.
+  // Grouped by ICD-11 code where recorded, otherwise by the diagnosis text.
   async outpatientMorbidity(facilityId: string, from: Date, to: Date) {
     const reg = await this.outpatientRegister(facilityId, from, to);
 
     const build = (rows: OutpatientRegisterRow[]): MorbidityRow[] => {
       const map = new Map<string, MorbidityRow>();
       for (const r of rows) {
-        const code = r.icd10 ? r.icd10.split(' ')[0] : null;
-        const label = r.diagnosis || r.icd10 || 'Not recorded';
+        const code = r.icd11 ? r.icd11.split(' ')[0] : null;
+        const label = r.diagnosis || r.icd11 || 'Not recorded';
         const key = (code || label).toLowerCase();
         const g =
           map.get(key) ??
-          { diagnosis: r.diagnosis || r.icd10 || 'Not recorded', icd10: code, total: 0, male: 0, female: 0, new: 0, revisit: 0 };
+          { diagnosis: r.diagnosis || r.icd11 || 'Not recorded', icd11: code, total: 0, male: 0, female: 0, new: 0, revisit: 0 };
         g.total += 1;
         const sex = (r.sex ?? '').toLowerCase();
         if (sex.startsWith('m')) g.male += 1;
