@@ -66,7 +66,7 @@ export class CreateSoapNoteDto {
   })
   @IsString()
   @IsOptional()
-  @MaxLength(200)
+  @MaxLength(300)
   icd11Description?: string;
 
   @ApiProperty({

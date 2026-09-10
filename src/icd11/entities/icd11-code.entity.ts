@@ -10,7 +10,7 @@ export class Icd11Code {
   @Column({ length: 10, unique: true })
   code: string;
 
-  @Column({ length: 200 })
+  @Column({ type: 'text' })
   short_description: string;
 
   @Column({ type: 'text', nullable: true })

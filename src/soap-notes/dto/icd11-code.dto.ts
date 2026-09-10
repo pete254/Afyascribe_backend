@@ -16,6 +16,6 @@ export class Icd11CodeDto {
   @ApiProperty({ example: 'Type 2 diabetes mellitus' })
   @IsString()
   @IsOptional()
-  @MaxLength(200)
+  @MaxLength(300)
   description?: string;
 }

@@ -12,6 +12,11 @@ export class SeedIcd11AllCodes1757600000000 implements MigrationInterface {
   name = 'SeedIcd11AllCodes1757600000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // A few WHO titles exceed 200 chars (longest is 212), so widen the column
+    // to text before loading. Also widen the note's copy of the description.
+    await queryRunner.query(`ALTER TABLE "icd11_codes" ALTER COLUMN "short_description" TYPE text`);
+    await queryRunner.query(`ALTER TABLE "soap_notes" ALTER COLUMN "icd11_description" TYPE varchar(300)`);
+
     const CHUNK = 1000;
     let inserted = 0;
     for (let i = 0; i < ICD11_MMS.length; i += CHUNK) {

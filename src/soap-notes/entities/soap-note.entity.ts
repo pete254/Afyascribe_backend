@@ -59,7 +59,7 @@ export class SoapNote {
   @Column({ length: 10, nullable: true, name: 'icd11_code' })
   icd11Code: string;
 
-  @Column({ length: 200, nullable: true, name: 'icd11_description' })
+  @Column({ length: 300, nullable: true, name: 'icd11_description' })
   icd11Description: string;
 
   // Full set of diagnosis codes on the note — a consultation can carry more
