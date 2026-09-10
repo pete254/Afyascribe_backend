@@ -273,10 +273,9 @@ export class Icd11Service {
    * Validate ICD-11 code format
    */
   validateCodeFormat(code: string): boolean {
-    // ICD-11 MMS stem-code format: an alphanumeric first character, a letter,
-    // then two alphanumerics, with an optional dotted extension.
-    // Examples: 1A00, BA00, 5A11, 1F4Z, CA40, RA01.0, ME84.2, 8A8Z
-    const regex = /^[0-9A-Z][A-Z][0-9A-Z]{2}(\.[0-9A-Z]{1,3})?$/;
+    // ICD-11 MMS codes: stem codes (1A00, BA00, 5A11), dotted leaves
+    // (RA01.0, ME84.2Z, 1C61.30) and extension codes (XA0060).
+    const regex = /^[0-9A-Z]{2,}(\.[0-9A-Z]+)?$/;
     return regex.test(code.toUpperCase().trim());
   }
 

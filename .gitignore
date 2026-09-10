@@ -58,3 +58,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 docker-compose.override.yml
 .docker/
 node_modules
+
+# ICD-11 crawl artifacts (regenerable; data.ts is committed)
+src/icd11/data/icd11-mms.json
+src/icd11/data/icd11-mms.checkpoint.json
