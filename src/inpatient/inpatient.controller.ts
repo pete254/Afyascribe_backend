@@ -39,7 +39,9 @@ function facilityOf(user: CurrentUserType): string {
 @ApiBearerAuth('JWT-auth')
 @Controller('inpatient')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('facility_admin', 'super_admin', 'doctor', 'nurse', 'receptionist', 'pharmacist')
+// lab_technician gets read access to the census/admissions/running bill so the
+// lab module can show an inpatient queue; write routes below keep stricter roles.
+@Roles('facility_admin', 'super_admin', 'doctor', 'nurse', 'receptionist', 'pharmacist', 'lab_technician')
 export class InpatientController {
   constructor(
     private readonly svc: InpatientService,
