@@ -14,6 +14,7 @@ import { SoapNotesModule } from './soap-notes/soap-notes.module';
 import { PatientsModule } from './patients/patients.module';
 import { TranscriptionModule } from './transcription/transcription.module';
 import { Icd11Module } from './icd11/icd11.module';
+import { TerminologyModule } from './terminology/terminology.module';
 import { FacilitiesModule } from './facilities/facilities.module';
 import { PatientVisitsModule } from './patient-visits/patient-visits.module';
 import { AdminModule } from './admin/admin.module';
@@ -115,6 +116,7 @@ import { PettyCashModule } from './petty-cash/petty-cash.module';
     PatientsModule,
     TranscriptionModule,
     Icd11Module,
+    TerminologyModule,
     FacilitiesModule,
     PatientVisitsModule,
     AdminModule,
