@@ -112,6 +112,9 @@ export class LabService {
       facilityId,
       code: dto.code ?? null,
       name: dto.name.trim(),
+      knhtsCode: dto.knhtsCode ?? null,
+      loincCode: dto.loincCode ?? null,
+      loincName: dto.loincName ?? null,
       specimen: dto.specimen ?? 'blood',
       department: dto.department ?? null,
       price: String(dto.price ?? 0),
@@ -137,6 +140,9 @@ export class LabService {
     if (!test) throw new NotFoundException('Test not found');
     if (dto.code !== undefined) test.code = dto.code;
     if (dto.name !== undefined) test.name = dto.name.trim();
+    if (dto.knhtsCode !== undefined) test.knhtsCode = dto.knhtsCode;
+    if (dto.loincCode !== undefined) test.loincCode = dto.loincCode;
+    if (dto.loincName !== undefined) test.loincName = dto.loincName;
     if (dto.specimen !== undefined) test.specimen = dto.specimen;
     if (dto.department !== undefined) test.department = dto.department;
     if (dto.price !== undefined) test.price = String(dto.price);

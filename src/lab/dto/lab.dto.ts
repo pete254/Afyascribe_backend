@@ -29,6 +29,10 @@ export class LabAnalyteDto {
 export class CreateLabTestDto {
   @ApiPropertyOptional() @IsString() @IsOptional() code?: string;
   @ApiProperty() @IsString() name: string;
+  @ApiPropertyOptional({ description: 'KNHTS Investigation concept code' })
+  @IsString() @IsOptional() knhtsCode?: string;
+  @ApiPropertyOptional({ description: 'LOINC code' }) @IsString() @IsOptional() loincCode?: string;
+  @ApiPropertyOptional({ description: 'LOINC long common name' }) @IsString() @IsOptional() loincName?: string;
   @ApiPropertyOptional({ example: 'blood' }) @IsString() @IsOptional() specimen?: string;
   @ApiPropertyOptional({ example: 'haematology' }) @IsString() @IsOptional() department?: string;
   @ApiPropertyOptional() @IsNumber() @Min(0) @IsOptional() price?: number;
@@ -44,6 +48,9 @@ export class CreateLabTestDto {
 export class UpdateLabTestDto {
   @ApiPropertyOptional() @IsString() @IsOptional() code?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() name?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() knhtsCode?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() loincCode?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() loincName?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() specimen?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() department?: string;
   @ApiPropertyOptional() @IsNumber() @Min(0) @IsOptional() price?: number;
