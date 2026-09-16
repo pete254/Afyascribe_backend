@@ -29,6 +29,14 @@ export class InventoryItem {
   @Column()
   name: string;
 
+  /** KNHTS Health Products & Technologies (MOH-PPB/HPT) concept code. */
+  @Column({ name: 'knhts_code', type: 'varchar', length: 64, nullable: true })
+  knhtsCode: string | null;
+
+  /** KNHTS concept display name, kept for reference and FHIR export. */
+  @Column({ name: 'knhts_name', type: 'text', nullable: true })
+  knhtsName: string | null;
+
   /** drug | reagent | consumable | surgical | vaccine | radiology | other */
   @Column({ type: 'varchar', length: 40, default: 'drug' })
   category: string;

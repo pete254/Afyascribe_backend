@@ -18,6 +18,16 @@ export class CreateItemDto {
   @IsString()
   name: string;
 
+  @ApiPropertyOptional({ description: 'KNHTS HPT concept code' })
+  @IsString()
+  @IsOptional()
+  knhtsCode?: string;
+
+  @ApiPropertyOptional({ description: 'KNHTS HPT concept display name' })
+  @IsString()
+  @IsOptional()
+  knhtsName?: string;
+
   @ApiPropertyOptional()
   @IsString()
   @IsOptional()
@@ -80,6 +90,8 @@ export class CreateItemDto {
 
 export class UpdateItemDto {
   @ApiPropertyOptional() @IsString() @IsOptional() name?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() knhtsCode?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() knhtsName?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() sku?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() category?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() unit?: string;

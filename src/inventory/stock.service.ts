@@ -57,6 +57,8 @@ export class StockService {
     const item = this.items.create({
       facilityId,
       name: dto.name.trim(),
+      knhtsCode: dto.knhtsCode ?? null,
+      knhtsName: dto.knhtsName ?? null,
       sku: dto.sku ?? null,
       category: dto.category ?? 'drug',
       unit: dto.unit ?? 'unit',
@@ -91,6 +93,8 @@ export class StockService {
     const item = await this.getItem(facilityId, id);
     Object.assign(item, {
       ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+      ...(dto.knhtsCode !== undefined ? { knhtsCode: dto.knhtsCode } : {}),
+      ...(dto.knhtsName !== undefined ? { knhtsName: dto.knhtsName } : {}),
       ...(dto.sku !== undefined ? { sku: dto.sku } : {}),
       ...(dto.category !== undefined ? { category: dto.category } : {}),
       ...(dto.unit !== undefined ? { unit: dto.unit } : {}),
