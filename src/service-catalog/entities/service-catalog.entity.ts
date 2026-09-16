@@ -37,6 +37,14 @@ export class ServiceCatalogItem {
   @Column({ name: 'name', length: 200 })
   name: string;
 
+  /** KNHTS intervention code (WHO/ICHI) for DHA interoperability. */
+  @Column({ name: 'knhts_code', type: 'varchar', length: 64, nullable: true })
+  knhtsCode: string | null;
+
+  /** KNHTS/ICHI concept display name, kept for reference and FHIR export. */
+  @Column({ name: 'knhts_name', type: 'text', nullable: true })
+  knhtsName: string | null;
+
   @Column({ name: 'description', type: 'text', nullable: true })
   description: string | null;
 

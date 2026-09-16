@@ -17,6 +17,16 @@ export class CreateServiceCatalogDto {
   @IsString()
   description?: string;
 
+  @ApiPropertyOptional({ description: 'KNHTS/ICHI intervention code' })
+  @IsOptional()
+  @IsString()
+  knhtsCode?: string;
+
+  @ApiPropertyOptional({ description: 'KNHTS/ICHI concept display name' })
+  @IsOptional()
+  @IsString()
+  knhtsName?: string;
+
   @ApiProperty({ enum: ServiceCategory, example: ServiceCategory.CONSULTATION })
   @IsEnum(ServiceCategory)
   category: ServiceCategory;
@@ -43,6 +53,16 @@ export class UpdateServiceCatalogDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  knhtsCode?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  knhtsName?: string;
 
   @ApiPropertyOptional({ enum: ServiceCategory })
   @IsOptional()
