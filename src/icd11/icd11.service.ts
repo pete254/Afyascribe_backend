@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Icd11Code } from './entities/icd11-code.entity';
 import { COMMON_ICD11_CODES } from './seeds/common-icd11-codes.seed';
+import { TerminologyService, ConceptHit } from '../terminology/terminology.service';
 
 @Injectable()
 export class Icd11Service {
@@ -12,8 +13,31 @@ export class Icd11Service {
   constructor(
     @InjectRepository(Icd11Code)
     private icd11Repository: Repository<Icd11Code>,
+    // Diagnoses are served from the unified KNHTS terminology mirror
+    // (system ICD-11, domain diagnosis); the legacy icd11_codes table is a
+    // fallback until it is retired.
+    private readonly terminology: TerminologyService,
   ) {
     this.checkPgTrgmExtension();
+  }
+
+  /** Shape a terminology concept as the legacy Icd11Code the API returns. */
+  private hitToCode(h: ConceptHit): Icd11Code {
+    return {
+      code: h.code,
+      short_description: h.display,
+      long_description: h.display,
+      chapter_code: null,
+      chapter_name: null,
+      category_code: null,
+      category_name: null,
+      billable: true,
+      usage_count: 0,
+      last_used_at: null,
+      search_terms: h.synonyms ?? [],
+      effective_date: null,
+      is_active: true,
+    } as unknown as Icd11Code;
   }
 
   /**
@@ -34,9 +58,23 @@ export class Icd11Service {
   }
 
   /**
-   * MAIN SEARCH METHOD
+   * MAIN SEARCH METHOD — serve diagnoses from the KNHTS terminology mirror,
+   * falling back to the legacy icd11_codes table when the mirror is empty.
    */
   async searchCodes(query: string, limit: number = 15): Promise<Icd11Code[]> {
+    if (!query || query.trim().length < 2) {
+      return this.getMostUsedCodes(limit);
+    }
+    try {
+      const hits = await this.terminology.search({ q: query.trim(), domain: 'diagnosis', limit });
+      if (hits.length) return hits.map((h) => this.hitToCode(h));
+    } catch (e) {
+      this.logger.warn(`Terminology search unavailable, using legacy: ${(e as Error).message}`);
+    }
+    return this.legacySearchCodes(query, limit);
+  }
+
+  private async legacySearchCodes(query: string, limit: number = 15): Promise<Icd11Code[]> {
     if (!query || query.trim().length < 2) {
       // Return most popular codes if no query
       return this.getMostUsedCodes(limit);
@@ -205,6 +243,12 @@ export class Icd11Service {
    * Get most frequently used codes
    */
   async getMostUsedCodes(limit: number = 20): Promise<Icd11Code[]> {
+    try {
+      const hits = await this.terminology.common('diagnosis', limit);
+      if (hits.length) return hits.map((h) => this.hitToCode(h));
+    } catch (e) {
+      this.logger.warn(`Terminology browse unavailable, using legacy: ${(e as Error).message}`);
+    }
     return this.icd11Repository.find({
       where: { is_active: true, billable: true },
       order: {
@@ -231,6 +275,12 @@ export class Icd11Service {
    * Fetches from WHO API if not in local database
    */
   async getCodeDetails(code: string): Promise<Icd11Code | null> {
+    try {
+      const hit = await this.terminology.validate('ICD-11', code.toUpperCase().trim());
+      if (hit) return this.hitToCode(hit);
+    } catch (e) {
+      this.logger.warn(`Terminology validate unavailable, using legacy: ${(e as Error).message}`);
+    }
     // Normalize code (uppercase, remove spaces)
     const normalizedCode = code.toUpperCase().trim();
 

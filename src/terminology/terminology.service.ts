@@ -118,6 +118,16 @@ export class TerminologyService {
     };
   }
 
+  /** A short browse list for a domain (used before the user types a query). */
+  async common(domain: string, limit = 20): Promise<ConceptHit[]> {
+    const rows = await this.repo.find({
+      where: { domain, retired: false },
+      order: { display: 'ASC' },
+      take: Math.min(limit, 100),
+    });
+    return rows.map((c) => this.toHit(c));
+  }
+
   /** The code systems in the mirror, with counts — for admin/status views. */
   async systems(): Promise<{ domain: string; system: string; count: number }[]> {
     const rows = await this.repo

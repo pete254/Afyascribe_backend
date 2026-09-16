@@ -3,9 +3,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Icd11Service } from './icd11.service';
 import { Icd11Controller } from './icd11.controller';
 import { Icd11Code } from './entities/icd11-code.entity';
+import { TerminologyModule } from '../terminology/terminology.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Icd11Code])],
+  imports: [TypeOrmModule.forFeature([Icd11Code]), TerminologyModule],
   controllers: [Icd11Controller],
   providers: [Icd11Service],
   exports: [Icd11Service], // Export for use in other modules
