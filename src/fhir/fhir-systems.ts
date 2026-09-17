@@ -32,4 +32,8 @@ export const FHIR_SYS = {
   /** Base for practitioner regulatory identifiers; the licensing body is appended
    *  (e.g. .../kmpdc, .../nck). */
   practitioner: env('FHIR_SYS_PRACTITIONER', 'https://dha.go.ke/identifier/practitioner'),
+
+  /** Coverage type code system + the per-patient coverage identifier system. */
+  coverageType: env('FHIR_SYS_COVERAGE_TYPE', 'https://dha.go.ke/CodeSystem/coverage-type'),
+  coverage: env('FHIR_SYS_COVERAGE', 'https://afyascribe.health/identifier/coverage'),
 } as const;

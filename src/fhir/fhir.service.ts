@@ -161,6 +161,36 @@ export class FhirService {
     };
   }
 
+  /**
+   * The patient's insurance/payer as a FHIR Coverage — SHA, private insurance,
+   * or self-pay. Returns null for a pure cash patient with no cover on file.
+   */
+  buildCoverage(p: Patient): Json | null {
+    const hasSha = !!p.shaNumber;
+    const hasInsurer = !!(p.insurerName && p.insurerName.trim());
+    if (!hasSha && !hasInsurer) return null;
+
+    const [code, display] = hasSha
+      ? ['SHA', 'Social Health Authority']
+      : ['private', 'Private insurance'];
+    const validUntil = (p as unknown as { insuranceValidUntil?: string | Date }).insuranceValidUntil;
+
+    return {
+      resourceType: 'Coverage',
+      id: `cov-${p.id}`,
+      identifier: [{ system: FHIR_SYS.coverage, value: p.patientId }],
+      status: 'active',
+      type: {
+        coding: [{ system: FHIR_SYS.coverageType, code, display }],
+        text: hasSha ? 'SHA' : p.insurerName || display,
+      },
+      subscriberId: hasSha ? p.shaNumber : (p as unknown as { membershipNo?: string }).membershipNo || undefined,
+      beneficiary: { reference: `Patient/${p.id}` },
+      payor: [{ display: hasSha ? 'Social Health Authority' : p.insurerName || 'Insurer' }],
+      period: validUntil ? { end: new Date(validUntil).toISOString().slice(0, 10) } : undefined,
+    };
+  }
+
   private noteDiagnoses(note: SoapNote): { code: string; description: string }[] {
     if (note.icd11Codes && note.icd11Codes.length) return note.icd11Codes;
     if (note.icd11Code) return [{ code: note.icd11Code, description: note.icd11Description ?? '' }];
@@ -374,6 +404,8 @@ export class FhirService {
     const entries: Json[] = [{ resource: this.buildPatient(patient) }];
     if (facility) entries.push({ resource: this.buildOrganization(facility) });
     for (const u of staff) entries.push({ resource: this.buildPractitioner(u) });
+    const coverage = this.buildCoverage(patient);
+    if (coverage) entries.push({ resource: coverage });
     for (const note of notes) {
       entries.push({ resource: this.buildEncounter(note) });
       for (const c of this.buildConditions(note)) entries.push({ resource: c });
@@ -433,6 +465,7 @@ export class FhirService {
         Patient: FHIR_SYS.mrn,
         Organization: FHIR_SYS.facility,
         Practitioner: FHIR_SYS.practitioner,
+        Coverage: FHIR_SYS.coverage,
       };
       const type = r.resourceType as string;
       const wanted = upsertSystem[type];
