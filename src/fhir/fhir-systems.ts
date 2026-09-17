@@ -39,4 +39,7 @@ export const FHIR_SYS = {
 
   /** Encounter / visit type code system (KNHTS Visit type). */
   visitType: env('FHIR_SYS_VISIT_TYPE', 'https://dha.go.ke/CodeSystem/visit-type'),
+
+  /** SHA benefit package (KNHTS MOH-KENYA/BenefitsAndInterventions). */
+  benefit: env('FHIR_SYS_BENEFIT', `${OCL_BASE}/orgs/MOH-KENYA/sources/BenefitsAndInterventions`),
 } as const;

@@ -30,6 +30,15 @@ export class FhirController {
     return this.fhir.patientBundle(id, user.facilityId, mode === 'transaction' ? 'transaction' : 'collection');
   }
 
+  @Get('Claim/:visitId')
+  @ApiOperation({
+    summary: "A visit's charges as a FHIR R4 Claim bundle (SHA eClaims)",
+    description: 'Claim + referenced Patient, Coverage and Organization, coded for SHA.',
+  })
+  visitClaim(@Param('visitId') visitId: string, @CurrentUser() user: CurrentUserType) {
+    return this.fhir.visitClaimBundle(visitId, user.facilityId);
+  }
+
   @Post('Patient/:id/$submit')
   @UseGuards(RolesGuard)
   @Roles('facility_admin', 'super_admin', 'doctor')

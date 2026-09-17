@@ -359,6 +359,125 @@ export class FhirService {
     };
   }
 
+  // ── SHA eClaim (per visit) ───────────────────────────────────────────────────
+
+  private money(v: number): Json {
+    return { value: Math.round(v * 100) / 100, currency: 'KES' };
+  }
+
+  /**
+   * A visit's charges as a FHIR R4 Claim, with the diagnoses (ICD-11), the
+   * SHA-coded line items, the coverage and the provider — the payload for SHA
+   * eClaims. Bundled with the resources it references so it is self-contained.
+   */
+  async visitClaimBundle(visitId: string, facilityId: string): Promise<Json> {
+    const visit = await this.visits.findOne({ where: { id: visitId, facilityId } });
+    if (!visit) throw new NotFoundException('Visit not found');
+    const patient = await this.patients.findOne({ where: { id: visit.patientId, facilityId } });
+    if (!patient) throw new NotFoundException('Patient not found');
+    const facility = await this.facilities.findOne({ where: { id: facilityId } });
+
+    const bills = (await this.bills.find({ where: { visitId, facilityId } })).filter((b) => !b.isDeposit);
+
+    // Diagnoses: the notes written for this patient on the visit day.
+    const dayKey = (d?: Date | string | null) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+    const vDay = dayKey(
+      (visit as unknown as { checkedInAt?: Date; createdAt?: Date }).checkedInAt ?? visit.createdAt,
+    );
+    const notes = await this.notes.find({ where: { patientId: visit.patientId, facilityId } });
+    const dxSeen = new Set<string>();
+    const diagnoses: { code: string; description: string }[] = [];
+    for (const n of notes) {
+      if (dayKey(n.createdAt) !== vDay) continue;
+      for (const d of this.noteDiagnoses(n)) {
+        if (d.code && !dxSeen.has(d.code)) {
+          dxSeen.add(d.code);
+          diagnoses.push(d);
+        }
+      }
+    }
+
+    // SHA benefit code per billed service, matched by catalogue name.
+    const catalog = await this.catalog.find({ where: { facilityId } });
+    const benefitByName = new Map(
+      catalog.filter((c) => c.shaBenefitCode).map((c) => [c.name.trim().toLowerCase(), c]),
+    );
+
+    const coverage = this.buildCoverage(patient);
+
+    const claim = this.buildClaim(visit.id, patient, facility, bills, diagnoses, benefitByName, !!coverage);
+
+    const entries: Json[] = [{ resource: this.buildPatient(patient) }];
+    if (facility) entries.push({ resource: this.buildOrganization(facility) });
+    if (coverage) entries.push({ resource: coverage });
+    entries.push({ resource: claim });
+
+    return {
+      resourceType: 'Bundle',
+      type: 'collection',
+      timestamp: new Date().toISOString(),
+      total: entries.length,
+      entry: entries.map((e) => ({ fullUrl: `urn:uuid:${(e.resource as Json).id}`, ...e })),
+    };
+  }
+
+  private buildClaim(
+    visitId: string,
+    patient: Patient,
+    facility: Facility | null,
+    bills: Billing[],
+    diagnoses: { code: string; description: string }[],
+    benefitByName: Map<string, ServiceCatalogItem>,
+    hasCoverage: boolean,
+  ): Json {
+    const items = bills.map((b, i) => {
+      const match = b.serviceDescription ? benefitByName.get(b.serviceDescription.trim().toLowerCase()) : undefined;
+      const product = match?.shaBenefitCode
+        ? {
+            coding: [{ system: FHIR_SYS.benefit, code: match.shaBenefitCode, display: match.shaBenefitName || b.serviceDescription || undefined }],
+            text: b.serviceDescription || undefined,
+          }
+        : { text: b.serviceDescription || b.serviceType };
+      const qty = b.quantity != null ? Number(b.quantity) : 1;
+      const amount = Number(b.amount);
+      const unit = qty ? amount / qty : amount;
+      return {
+        sequence: i + 1,
+        productOrService: product,
+        quantity: { value: qty },
+        unitPrice: this.money(unit),
+        net: this.money(amount),
+      };
+    });
+    const total = bills.reduce((s, b) => s + Number(b.amount), 0);
+
+    return {
+      resourceType: 'Claim',
+      id: `claim-${visitId}`,
+      status: 'active',
+      type: {
+        coding: [{ system: 'http://terminology.hl7.org/CodeSystem/claim-type', code: 'institutional' }],
+      },
+      use: 'claim',
+      patient: { reference: `Patient/${patient.id}` },
+      created: new Date().toISOString(),
+      provider: facility ? { reference: `Organization/org-${facility.id}` } : undefined,
+      priority: { coding: [{ system: 'http://terminology.hl7.org/CodeSystem/processpriority', code: 'normal' }] },
+      diagnosis: diagnoses.map((d, i) => ({
+        sequence: i + 1,
+        diagnosisCodeableConcept: {
+          coding: [{ system: FHIR_SYS.icd11, code: d.code, display: d.description || undefined }],
+          text: d.description || undefined,
+        },
+      })),
+      insurance: hasCoverage
+        ? [{ sequence: 1, focal: true, coverage: { reference: `Coverage/cov-${patient.id}` } }]
+        : [{ sequence: 1, focal: true, coverage: { display: 'Self-pay' } }],
+      item: items,
+      total: this.money(total),
+    };
+  }
+
   // ── Patient Bundle ─────────────────────────────────────────────────────────
 
   /**
