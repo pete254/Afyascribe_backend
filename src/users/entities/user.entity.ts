@@ -92,6 +92,18 @@ export class User {
   @Column({ name: 'practitioner_no', type: 'varchar', length: 30, nullable: true })
   practitionerNo: string | null;
 
+  /**
+   * The regulatory body that licenses this practitioner, e.g. KMPDC, NCK, COC,
+   * PPB, KMLTTB — the identifier type for their registration number, needed for
+   * FHIR Practitioner identifiers and SHA claims.
+   */
+  @Column({ name: 'regulatory_body', type: 'varchar', length: 40, nullable: true })
+  regulatoryBody: string | null;
+
+  /** The practitioner's official registration/licence number from that body. */
+  @Column({ name: 'regulatory_number', type: 'varchar', length: 60, nullable: true })
+  regulatoryNumber: string | null;
+
   // ── Facility Link ──────────────────────────────────────────────────────────
   @Column({ nullable: true, type: 'uuid' })
   facilityId: string | null;

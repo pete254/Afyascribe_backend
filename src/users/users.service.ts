@@ -80,6 +80,7 @@ export class UsersService {
       select: [
         'id', 'email', 'firstName', 'lastName', 'role', 'roles',
         'isOwner', 'permissionOverrides', 'practitionerNo',
+        'regulatoryBody', 'regulatoryNumber',
         'isActive', 'isDeactivated', 'deactivatedAt',
         'deactivationReason', 'createdAt', 'updatedAt',
       ],
@@ -237,6 +238,17 @@ export class UsersService {
     await this.usersRepository.update(userId, {
       practitionerNo: practitionerNo?.trim() || null,
     });
+  }
+
+  /** Set the practitioner's regulatory body + registration number (for FHIR/claims). */
+  async setRegulatoryIdentity(
+    userId: string,
+    body: { regulatoryBody?: string | null; regulatoryNumber?: string | null },
+  ): Promise<void> {
+    const patch: Partial<User> = {};
+    if (body.regulatoryBody !== undefined) patch.regulatoryBody = body.regulatoryBody?.trim() || null;
+    if (body.regulatoryNumber !== undefined) patch.regulatoryNumber = body.regulatoryNumber?.trim() || null;
+    if (Object.keys(patch).length) await this.usersRepository.update(userId, patch);
   }
 
   /**

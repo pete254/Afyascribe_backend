@@ -218,7 +218,14 @@ export class FacilityUsersController {
   })
   async setStaffRole(
     @Param('userId', ParseUUIDPipe) userId: string,
-    @Body() body: { role?: UserRole; roles?: UserRole[]; practitionerNo?: string },
+    @Body()
+    body: {
+      role?: UserRole;
+      roles?: UserRole[];
+      practitionerNo?: string;
+      regulatoryBody?: string;
+      regulatoryNumber?: string;
+    },
     @CurrentUser() admin: CurrentUserType,
   ) {
     assertCanManageStaff(admin);
@@ -265,6 +272,13 @@ export class FacilityUsersController {
     // Let the admin set/replace the practitioner registration number.
     if (body.practitionerNo !== undefined) {
       await this.usersService.setPractitionerNo(userId, body.practitionerNo);
+    }
+    // National regulatory identity (body + registration number) for FHIR/claims.
+    if (body.regulatoryBody !== undefined || body.regulatoryNumber !== undefined) {
+      await this.usersService.setRegulatoryIdentity(userId, {
+        regulatoryBody: body.regulatoryBody,
+        regulatoryNumber: body.regulatoryNumber,
+      });
     }
     return { message: 'Roles updated successfully', roles: requested, role: requested[0] };
   }
