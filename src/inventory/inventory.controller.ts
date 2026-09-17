@@ -63,6 +63,27 @@ export class InventoryController {
     return this.stock.createItem(facilityOf(user), dto);
   }
 
+  // ── DESTRUCTIVE: wipe inventory, optionally import the national KNHTS drugs ──
+  @Post('items/reset-from-knhts')
+  @Roles('facility_admin', 'super_admin')
+  async resetFromKnhts(
+    @CurrentUser() user: CurrentUserType,
+    @Body() body: { confirm?: string; import?: 'none' | 'all' },
+  ) {
+    if (body?.confirm !== 'RESET') {
+      throw new BadRequestException('Send { "confirm": "RESET" } to wipe inventory items, stock movements and batches.');
+    }
+    const facilityId = facilityOf(user);
+    const purged = await this.stock.resetInventory(facilityId);
+    let importStarted = false;
+    if (body.import === 'all') {
+      // ~18k national products — runs in the background.
+      this.stock.importDrugsFromKnhts(facilityId).catch(() => undefined);
+      importStarted = true;
+    }
+    return { purged, importStarted };
+  }
+
   @Get('items/:id')
   getItem(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
     return this.stock.getItem(facilityOf(user), id);

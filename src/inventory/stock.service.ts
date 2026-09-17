@@ -6,6 +6,7 @@ import { StockMovement, StockMovementType } from './entities/stock-movement.enti
 import { StockBatch } from './entities/stock-batch.entity';
 import { CreateItemDto, UpdateItemDto, AdjustStockDto } from './dto/inventory.dto';
 import { HmisPostingService } from '../accounting/hmis-posting.service';
+import { OclClient } from '../terminology/ocl.client';
 
 const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
 const r3 = (v: number) => Math.round((v + Number.EPSILON) * 1000) / 1000;
@@ -38,7 +39,61 @@ export class StockService {
     private readonly batches: Repository<StockBatch>,
     private readonly dataSource: DataSource,
     private readonly posting: HmisPostingService,
+    private readonly ocl: OclClient,
   ) {}
+
+  /**
+   * DESTRUCTIVE: wipe a facility's inventory — items, stock movements and
+   * batches. For a clean, standardized start on a facility with only dummy data.
+   */
+  async resetInventory(facilityId: string): Promise<{ items: number }> {
+    await this.batches.delete({ facilityId });
+    await this.movements.delete({ facilityId }); // (also cascades on item delete)
+    const n = (await this.items.find({ where: { facilityId }, select: ['id'] })).length;
+    await this.items.delete({ facilityId });
+    return { items: n };
+  }
+
+  /**
+   * Seed the drug catalogue from the KNHTS national products list
+   * (MOH-PPB/HPT), each carrying its HPT code. Prices and stock start at zero.
+   * Skips products already present by KNHTS code.
+   */
+  async importDrugsFromKnhts(facilityId: string): Promise<number> {
+    const existing = new Set(
+      (await this.items.find({ where: { facilityId }, select: ['knhtsCode'] }))
+        .map((i) => i.knhtsCode)
+        .filter(Boolean) as string[],
+    );
+    const limit = 100;
+    let created = 0;
+    for (let page = 1; page <= 400; page++) {
+      const batch = await this.ocl.concepts('MOH-PPB', 'HPT', page, limit);
+      if (!batch.length) break;
+      const rows = batch
+        .filter((c) => !existing.has(c.id))
+        .map((c) =>
+          this.items.create({
+            facilityId,
+            name: c.display_name || c.id,
+            knhtsCode: c.id,
+            knhtsName: c.display_name || null,
+            category: 'drug',
+            unit: 'unit',
+            salePrice: '0',
+            costPrice: '0',
+            reorderLevel: '0',
+          }),
+        );
+      if (rows.length) {
+        await this.items.save(rows);
+        rows.forEach((r) => existing.add(r.knhtsCode as string));
+        created += rows.length;
+      }
+      if (batch.length < limit) break;
+    }
+    return created;
+  }
 
   // ── Items ───────────────────────────────────────────────────────────────────
 

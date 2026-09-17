@@ -27,6 +27,7 @@ import { QuotationService } from './quotation.service';
 import { SupplierInvoiceService } from './supplier-invoice.service';
 import { InventoryController, ProcurementController } from './inventory.controller';
 import { AccountingModule } from '../accounting/accounting.module';
+import { TerminologyModule } from '../terminology/terminology.module';
 
 /**
  * Inventory + procurement: item master and moving-average stock ledger, plus
@@ -54,6 +55,7 @@ import { AccountingModule } from '../accounting/accounting.module';
       Facility,
     ]),
     AccountingModule,
+    TerminologyModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
