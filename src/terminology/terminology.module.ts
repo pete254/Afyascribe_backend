@@ -10,6 +10,6 @@ import { TerminologyController } from './terminology.controller';
   imports: [TypeOrmModule.forFeature([TerminologyConcept])],
   controllers: [TerminologyController],
   providers: [OclClient, TerminologyService, TerminologySyncService],
-  exports: [TerminologyService, TerminologySyncService],
+  exports: [TerminologyService, TerminologySyncService, OclClient],
 })
 export class TerminologyModule {}

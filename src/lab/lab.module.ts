@@ -8,11 +8,13 @@ import { LabResultValue } from './entities/lab-result-value.entity';
 import { LabService } from './lab.service';
 import { LabController } from './lab.controller';
 import { BillingModule } from '../billing/billing.module';
+import { TerminologyModule } from '../terminology/terminology.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([LabTest, LabAnalyte, LabOrder, LabOrderItem, LabResultValue]),
     BillingModule,
+    TerminologyModule,
   ],
   controllers: [LabController],
   providers: [LabService],

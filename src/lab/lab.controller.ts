@@ -70,6 +70,25 @@ export class LabController {
     return this.lab.seedTests(facilityOf(user));
   }
 
+  // ── DESTRUCTIVE: wipe lab data and reseed from KNHTS (one-time clean start) ──
+  @Post('tests/reset-from-knhts')
+  @Roles('facility_admin', 'super_admin')
+  @ApiOperation({
+    summary: 'Wipe all lab tests, orders and results, then import the national KNHTS lab tests',
+    description:
+      'Irreversible. Requires body { "confirm": "RESET" }. Intended for a facility with only test/dummy data.',
+  })
+  async resetFromKnhts(@CurrentUser() user: CurrentUserType, @Body() body: { confirm?: string }) {
+    if (body?.confirm !== 'RESET') {
+      throw new BadRequestException('Send { "confirm": "RESET" } to wipe the lab catalogue, orders and results.');
+    }
+    const facilityId = facilityOf(user);
+    const purged = await this.lab.resetCatalogue(facilityId);
+    // Import runs in the background — ~1.5k national lab tests take a minute or so.
+    this.lab.importLabTestsFromKnhts(facilityId).catch(() => undefined);
+    return { purged, importStarted: true };
+  }
+
   // ── Orders + worklist ─────────────────────────────────────────────────────────
 
   @Post('orders')

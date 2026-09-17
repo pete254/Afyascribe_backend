@@ -17,6 +17,7 @@ import { CurrentUserType } from '../common/decorators/current-user.decorator';
 import { LAB_TEST_SEED } from './data/lab-test-seed';
 import { BillingService } from '../billing/billing.service';
 import { ServiceType } from '../billing/entities/billing.entity';
+import { OclClient } from '../terminology/ocl.client';
 
 /** Stage ordering, so the order's status can be the least-advanced active item. */
 const STAGE: Record<LabStatus, number> = {
@@ -69,6 +70,7 @@ export class LabService {
     @InjectRepository(LabOrderItem) private readonly items: Repository<LabOrderItem>,
     @InjectRepository(LabResultValue) private readonly values: Repository<LabResultValue>,
     private readonly billing: BillingService,
+    private readonly ocl: OclClient,
   ) {}
 
   private fullName(u: CurrentUserType): string {
@@ -105,6 +107,68 @@ export class LabService {
       .where('t.facilityId = :facilityId', { facilityId });
     if (opts.activeOnly) qb.andWhere('t.isActive = true');
     return qb.orderBy('t.sortOrder', 'ASC').addOrderBy('t.name', 'ASC').addOrderBy('a.sortOrder', 'ASC').getMany();
+  }
+
+  /**
+   * DESTRUCTIVE: wipe a facility's lab data (results, orders, tests) for a clean
+   * standardized start. Intended for a facility that has only test/dummy data.
+   */
+  async resetCatalogue(facilityId: string): Promise<{ tests: number; orders: number }> {
+    const orderIds = (await this.orders.find({ where: { facilityId }, select: ['id'] })).map((o) => o.id);
+    if (orderIds.length) {
+      const itemIds = (await this.items.find({ where: { orderId: In(orderIds) }, select: ['id'] })).map((i) => i.id);
+      if (itemIds.length) await this.values.delete({ orderItemId: In(itemIds) });
+      await this.items.delete({ orderId: In(orderIds) });
+    }
+    await this.orders.delete({ facilityId });
+
+    const testIds = (await this.tests.find({ where: { facilityId }, select: ['id'] })).map((t) => t.id);
+    if (testIds.length) await this.tests.manager.getRepository(LabAnalyte).delete({ labTestId: In(testIds) });
+    await this.tests.delete({ facilityId });
+
+    return { tests: testIds.length, orders: orderIds.length };
+  }
+
+  /**
+   * Seed the lab catalogue from the KNHTS national investigations list
+   * (MOH-PPB/Investigations, Laboratory domain only), each carrying its LOINC
+   * code. Prices and reference ranges are left for the facility to fill in.
+   * Skips any test already present by KNHTS code.
+   */
+  async importLabTestsFromKnhts(facilityId: string): Promise<number> {
+    const existing = new Set(
+      (await this.tests.find({ where: { facilityId }, select: ['knhtsCode'] }))
+        .map((t) => t.knhtsCode)
+        .filter(Boolean) as string[],
+    );
+    const limit = 100;
+    let created = 0;
+    for (let page = 1; page <= 200; page++) {
+      const batch = await this.ocl.concepts('MOH-PPB', 'Investigations', page, limit);
+      if (!batch.length) break;
+      const rows = batch
+        .filter((c) => (c.extras?.domain as string) === 'Laboratory' && !existing.has(c.id))
+        .map((c) =>
+          this.tests.create({
+            facilityId,
+            name: c.display_name || c.id,
+            knhtsCode: c.id,
+            loincCode: (c.extras?.loinc_code as string) || null,
+            loincName: (c.extras?.loinc_long_name as string) || null,
+            specimen: 'blood',
+            department: (c.extras?.subdomain as string) || null,
+            price: '0',
+            analytes: [],
+          }),
+        );
+      if (rows.length) {
+        await this.tests.save(rows);
+        rows.forEach((r) => existing.add(r.knhtsCode as string));
+        created += rows.length;
+      }
+      if (batch.length < limit) break;
+    }
+    return created;
   }
 
   async createTest(facilityId: string, dto: CreateLabTestDto): Promise<LabTest> {
