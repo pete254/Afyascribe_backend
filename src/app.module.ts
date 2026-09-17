@@ -15,6 +15,7 @@ import { PatientsModule } from './patients/patients.module';
 import { TranscriptionModule } from './transcription/transcription.module';
 import { Icd11Module } from './icd11/icd11.module';
 import { TerminologyModule } from './terminology/terminology.module';
+import { FhirModule } from './fhir/fhir.module';
 import { FacilitiesModule } from './facilities/facilities.module';
 import { PatientVisitsModule } from './patient-visits/patient-visits.module';
 import { AdminModule } from './admin/admin.module';
@@ -117,6 +118,7 @@ import { PettyCashModule } from './petty-cash/petty-cash.module';
     TranscriptionModule,
     Icd11Module,
     TerminologyModule,
+    FhirModule,
     FacilitiesModule,
     PatientVisitsModule,
     AdminModule,
