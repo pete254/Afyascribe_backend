@@ -47,6 +47,10 @@ export class PatientResponseDto {
   @Expose()
   idNumber?: string;
 
+  @ApiProperty({ description: 'SHA beneficiary / UHID number', required: false })
+  @Expose()
+  shaNumber?: string;
+
   @ApiProperty({ description: 'Nationality', required: false })
   @Expose()
   nationality?: string;

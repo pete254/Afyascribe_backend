@@ -74,6 +74,10 @@ export class Patient {
   @Column({ nullable: true })
   idNumber: string;
 
+  /** SHA (Social Health Authority) beneficiary / UHID number. */
+  @Column({ name: 'sha_number', nullable: true, length: 60 })
+  shaNumber: string | null;
+
   // ── Location ─────────────────────────────────────────────────────────────
   @Column({ nullable: true })
   nationality: string;

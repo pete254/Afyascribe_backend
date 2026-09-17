@@ -41,6 +41,7 @@ export class FhirService {
       { system: FHIR_SYS.mrn, value: p.patientId, use: 'usual' },
     ];
     if (p.idNumber) identifiers.push({ system: FHIR_SYS.nationalId, value: p.idNumber, use: 'official' });
+    if (p.shaNumber) identifiers.push({ system: FHIR_SYS.shaId, value: p.shaNumber, use: 'official' });
 
     const address =
       p.county || p.subCounty

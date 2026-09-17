@@ -63,6 +63,11 @@ export class CreatePatientDto {
   @IsString()
   idNumber?: string;
 
+  @ApiProperty({ required: false, description: 'SHA beneficiary / UHID number' })
+  @IsOptional()
+  @IsString()
+  shaNumber?: string;
+
   @ApiProperty({ required: false, example: 'Kenyan' })
   @IsOptional()
   @IsString()

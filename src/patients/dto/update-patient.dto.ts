@@ -76,6 +76,11 @@ export class UpdatePatientDto {
   @IsString()
   idNumber?: string;
 
+  @ApiPropertyOptional({ description: 'SHA beneficiary / UHID number' })
+  @IsOptional()
+  @IsString()
+  shaNumber?: string;
+
   // ── Location ──────────────────────────────────────────────────────────────
 
   @ApiPropertyOptional({ description: 'Nationality', example: 'Kenyan' })
