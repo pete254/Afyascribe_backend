@@ -48,4 +48,19 @@ export class CreateFacilityDto {
   @IsOptional()
   @IsString()
   licenseNumber?: string;
+
+  @ApiPropertyOptional({ example: '18234', description: 'KMHFL (Master Facility List) code' })
+  @IsOptional()
+  @IsString()
+  kmhflCode?: string;
+
+  @ApiPropertyOptional({ example: 'Level 4', description: 'KEPH level' })
+  @IsOptional()
+  @IsString()
+  kephLevel?: string;
+
+  @ApiPropertyOptional({ example: 'Ministry of Health', description: 'Ownership type' })
+  @IsOptional()
+  @IsString()
+  ownershipType?: string;
 }

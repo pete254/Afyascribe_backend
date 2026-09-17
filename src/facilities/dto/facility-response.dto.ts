@@ -49,6 +49,18 @@ export class FacilityResponseDto {
 
   @Expose()
   @ApiProperty()
+  kmhflCode: string;
+
+  @Expose()
+  @ApiProperty()
+  kephLevel: string;
+
+  @Expose()
+  @ApiProperty()
+  ownershipType: string;
+
+  @Expose()
+  @ApiProperty()
   logoUrl: string;
 
   @Expose()

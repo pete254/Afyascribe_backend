@@ -196,6 +196,25 @@ export class FacilitiesController {
     });
   }
 
+  // National (DHA) facility identity: KMHFL code, KEPH level, ownership. Owner/admin.
+  @Patch(':id/dha-identity')
+  @ApiOperation({ summary: 'Set the facility KMHFL code, KEPH level and ownership type' })
+  async setDhaIdentity(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { kmhflCode?: string; kephLevel?: string; ownershipType?: string },
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    this.assertCanViewFacility(id, user);
+    const facility = await this.facilitiesService.update(id, {
+      kmhflCode: body?.kmhflCode?.trim() || null,
+      kephLevel: body?.kephLevel?.trim() || null,
+      ownershipType: body?.ownershipType?.trim() || null,
+    } as any);
+    return plainToInstance(FacilityResponseDto, facility, {
+      excludeExtraneousValues: true,
+    });
+  }
+
   // Switch a facility between direct stock entry and procurement-only. Owner/admin.
   @Patch(':id/stock-entry-mode')
   @ApiOperation({ summary: 'Set whether stock items can be added directly or only via procurement' })

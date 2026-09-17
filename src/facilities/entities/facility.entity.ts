@@ -69,6 +69,18 @@ export class Facility {
   @Column({ name: 'license_number', nullable: true, length: 100 })  // ✅ fixed
   licenseNumber: string;
 
+  /** Kenya Master Health Facility List (KMHFL) code — the national facility id. */
+  @Column({ name: 'kmhfl_code', nullable: true, length: 20 })
+  kmhflCode: string | null;
+
+  /** KEPH level (1–6), per KNHTS Healthcare Facility Levels. */
+  @Column({ name: 'keph_level', nullable: true, length: 40 })
+  kephLevel: string | null;
+
+  /** Ownership type (e.g. Ministry of Health, Private, Faith-Based, NGO). */
+  @Column({ name: 'ownership_type', nullable: true, length: 60 })
+  ownershipType: string | null;
+
   @Column({ name: 'logo_url', nullable: true })
   logoUrl: string;
 
