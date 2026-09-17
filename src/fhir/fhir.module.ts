@@ -10,6 +10,7 @@ import { Billing } from '../billing/entities/billing.entity';
 import { ServiceCatalogItem } from '../service-catalog/entities/service-catalog.entity';
 import { Facility } from '../facilities/entities/facility.entity';
 import { User } from '../users/entities/user.entity';
+import { PatientVisit } from '../patient-visits/entities/patient-visit.entity';
 import { FhirService } from './fhir.service';
 import { FhirController } from './fhir.controller';
 import { HieFhirClient } from './hie-fhir.client';
@@ -27,6 +28,7 @@ import { HieFhirClient } from './hie-fhir.client';
       ServiceCatalogItem,
       Facility,
       User,
+      PatientVisit,
     ]),
   ],
   controllers: [FhirController],

@@ -14,6 +14,7 @@ import { Billing, ServiceType } from '../billing/entities/billing.entity';
 import { ServiceCatalogItem } from '../service-catalog/entities/service-catalog.entity';
 import { Facility } from '../facilities/entities/facility.entity';
 import { User } from '../users/entities/user.entity';
+import { PatientVisit } from '../patient-visits/entities/patient-visit.entity';
 import { FHIR_SYS } from './fhir-systems';
 
 type Json = Record<string, unknown>;
@@ -36,6 +37,7 @@ export class FhirService {
     @InjectRepository(ServiceCatalogItem) private readonly catalog: Repository<ServiceCatalogItem>,
     @InjectRepository(Facility) private readonly facilities: Repository<Facility>,
     @InjectRepository(User) private readonly users: Repository<User>,
+    @InjectRepository(PatientVisit) private readonly visits: Repository<PatientVisit>,
   ) {}
 
   private idType(code: string, display: string): Json {
@@ -88,13 +90,32 @@ export class FhirService {
     return 'unknown';
   }
 
-  /** An Encounter derived from a SOAP note (the documented consultation). */
-  buildEncounter(note: SoapNote): Json {
+  /** FHIR Encounter.class from the visit type (ambulatory / inpatient / emergency). */
+  private encounterClass(visitType?: string | null): Json {
+    const v = (visitType ?? '').toLowerCase();
+    const sys = 'http://terminology.hl7.org/CodeSystem/v3-ActCode';
+    if (v === 'inpatient') return { system: sys, code: 'IMP', display: 'inpatient encounter' };
+    if (v === 'emergency') return { system: sys, code: 'EMER', display: 'emergency' };
+    return { system: sys, code: 'AMB', display: 'ambulatory' };
+  }
+
+  /** An Encounter derived from a SOAP note (the documented consultation),
+   *  typed by the day's visit where one is found. */
+  buildEncounter(note: SoapNote, visit?: PatientVisit): Json {
+    const visitType = visit?.visitType ?? null;
     return {
       resourceType: 'Encounter',
       id: `enc-${note.id}`,
       status: 'finished',
-      class: { system: 'http://terminology.hl7.org/CodeSystem/v3-ActCode', code: 'AMB', display: 'ambulatory' },
+      class: this.encounterClass(visitType),
+      type: visitType
+        ? [
+            {
+              coding: [{ system: FHIR_SYS.visitType, code: visitType, display: visitType.replace(/_/g, ' ') }],
+              text: visitType.replace(/_/g, ' '),
+            },
+          ]
+        : undefined,
       subject: { reference: `Patient/${note.patientId}` },
       participant: note.createdById
         ? [{ individual: { reference: `Practitioner/prac-${note.createdById}` } }]
@@ -401,13 +422,24 @@ export class FhirService {
     );
     const staff = staffIds.length ? await this.users.find({ where: { id: In(staffIds) } }) : [];
 
+    // Notes carry no visitId, so match each note to the day's visit (as the
+    // reports module does) to type its Encounter.
+    const dayKey = (d?: Date | string | null) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+    const patientVisits = await this.visits.find({ where: { patientId, facilityId } });
+    const visitByDay = new Map<string, PatientVisit>();
+    for (const v of patientVisits) {
+      const k = dayKey((v as unknown as { checkedInAt?: Date; createdAt?: Date }).checkedInAt ?? v.createdAt);
+      if (k && !visitByDay.has(k)) visitByDay.set(k, v);
+    }
+
     const entries: Json[] = [{ resource: this.buildPatient(patient) }];
     if (facility) entries.push({ resource: this.buildOrganization(facility) });
     for (const u of staff) entries.push({ resource: this.buildPractitioner(u) });
     const coverage = this.buildCoverage(patient);
     if (coverage) entries.push({ resource: coverage });
     for (const note of notes) {
-      entries.push({ resource: this.buildEncounter(note) });
+      const visit = visitByDay.get(dayKey(note.createdAt));
+      entries.push({ resource: this.buildEncounter(note, visit) });
       for (const c of this.buildConditions(note)) entries.push({ resource: c });
     }
     for (const rx of rxs) {

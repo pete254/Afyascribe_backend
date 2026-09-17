@@ -36,4 +36,7 @@ export const FHIR_SYS = {
   /** Coverage type code system + the per-patient coverage identifier system. */
   coverageType: env('FHIR_SYS_COVERAGE_TYPE', 'https://dha.go.ke/CodeSystem/coverage-type'),
   coverage: env('FHIR_SYS_COVERAGE', 'https://afyascribe.health/identifier/coverage'),
+
+  /** Encounter / visit type code system (KNHTS Visit type). */
+  visitType: env('FHIR_SYS_VISIT_TYPE', 'https://dha.go.ke/CodeSystem/visit-type'),
 } as const;
