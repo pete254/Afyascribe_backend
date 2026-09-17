@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'crypto';
 import { In, Repository } from 'typeorm';
 import { Patient } from '../patients/entities/patient.entity';
 import { SoapNote } from '../soap-notes/entities/soap-note.entity';
@@ -227,9 +228,17 @@ export class FhirService {
 
   // ── Patient Bundle ─────────────────────────────────────────────────────────
 
-  /** A collection Bundle of a patient's coded record (Patient + Encounters +
-   *  Conditions + MedicationRequests). Facility-scoped. */
-  async patientBundle(patientId: string, facilityId: string): Promise<Json> {
+  /**
+   * A patient's coded record as a FHIR Bundle. `collection` (default) is a
+   * readable export; `transaction` is submission-ready for the HIE — resources
+   * get urn:uuid fullUrls, internal references are rewired to them, and the
+   * Patient is a conditional upsert on its MRN identifier (idempotent).
+   */
+  async patientBundle(
+    patientId: string,
+    facilityId: string,
+    mode: 'collection' | 'transaction' = 'collection',
+  ): Promise<Json> {
     const patient = await this.patients.findOne({ where: { id: patientId, facilityId } });
     if (!patient) throw new NotFoundException('Patient not found');
 
@@ -286,15 +295,58 @@ export class FhirService {
       entries.push({ resource: this.buildProcedure(bill, ichiByName) });
     }
 
+    const resources = entries.map((e) => e.resource as Json);
+    if (mode === 'transaction') return this.toTransactionBundle(resources);
+
     return {
       resourceType: 'Bundle',
       type: 'collection',
       timestamp: new Date().toISOString(),
-      total: entries.length,
-      entry: entries.map((e) => ({
-        fullUrl: `urn:uuid:${(e.resource as Json).id}`,
-        ...e,
-      })),
+      total: resources.length,
+      entry: resources.map((r) => ({ fullUrl: `urn:uuid:${r.id}`, resource: r })),
     };
+  }
+
+  /**
+   * Convert built resources into a FHIR transaction Bundle: assign each a
+   * urn:uuid fullUrl, rewrite internal references (Type/logicalId → the urn),
+   * upsert the Patient conditionally on its MRN, and POST the rest.
+   */
+  private toTransactionBundle(resources: Json[]): Json {
+    const urn = new Map<string, string>();
+    for (const r of resources) urn.set(String(r.id), `urn:uuid:${randomUUID()}`);
+
+    const rewrite = (o: unknown): void => {
+      if (Array.isArray(o)) o.forEach(rewrite);
+      else if (o && typeof o === 'object') {
+        const obj = o as Record<string, unknown>;
+        for (const k of Object.keys(obj)) {
+          if (k === 'reference' && typeof obj[k] === 'string') {
+            const seg = (obj[k] as string).split('/').pop() ?? '';
+            if (urn.has(seg)) obj[k] = urn.get(seg);
+          } else rewrite(obj[k]);
+        }
+      }
+    };
+
+    const entry = resources.map((orig) => {
+      const r = JSON.parse(JSON.stringify(orig)) as Json;
+      const fullUrl = urn.get(String(r.id))!;
+      rewrite(r);
+      let request: Json;
+      if (r.resourceType === 'Patient') {
+        const mrn = (r.identifier as { value?: string }[] | undefined)?.[0]?.value ?? '';
+        request = {
+          method: 'PUT',
+          url: `Patient?identifier=${encodeURIComponent(FHIR_SYS.mrn)}|${encodeURIComponent(mrn)}`,
+        };
+      } else {
+        request = { method: 'POST', url: r.resourceType as string };
+      }
+      delete r.id; // identity is carried by fullUrl in a transaction
+      return { fullUrl, resource: r, request };
+    });
+
+    return { resourceType: 'Bundle', type: 'transaction', entry };
   }
 }
