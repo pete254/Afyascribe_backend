@@ -8,6 +8,8 @@ import { LabOrder } from '../lab/entities/lab-order.entity';
 import { LabTest } from '../lab/entities/lab-test.entity';
 import { Billing } from '../billing/entities/billing.entity';
 import { ServiceCatalogItem } from '../service-catalog/entities/service-catalog.entity';
+import { Facility } from '../facilities/entities/facility.entity';
+import { User } from '../users/entities/user.entity';
 import { FhirService } from './fhir.service';
 import { FhirController } from './fhir.controller';
 import { HieFhirClient } from './hie-fhir.client';
@@ -23,6 +25,8 @@ import { HieFhirClient } from './hie-fhir.client';
       LabTest,
       Billing,
       ServiceCatalogItem,
+      Facility,
+      User,
     ]),
   ],
   controllers: [FhirController],

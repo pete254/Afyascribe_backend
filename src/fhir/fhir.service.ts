@@ -12,6 +12,8 @@ import { LabResultValue } from '../lab/entities/lab-result-value.entity';
 import { LabTest } from '../lab/entities/lab-test.entity';
 import { Billing, ServiceType } from '../billing/entities/billing.entity';
 import { ServiceCatalogItem } from '../service-catalog/entities/service-catalog.entity';
+import { Facility } from '../facilities/entities/facility.entity';
+import { User } from '../users/entities/user.entity';
 import { FHIR_SYS } from './fhir-systems';
 
 type Json = Record<string, unknown>;
@@ -32,16 +34,34 @@ export class FhirService {
     @InjectRepository(LabTest) private readonly labTests: Repository<LabTest>,
     @InjectRepository(Billing) private readonly bills: Repository<Billing>,
     @InjectRepository(ServiceCatalogItem) private readonly catalog: Repository<ServiceCatalogItem>,
+    @InjectRepository(Facility) private readonly facilities: Repository<Facility>,
+    @InjectRepository(User) private readonly users: Repository<User>,
   ) {}
+
+  private idType(code: string, display: string): Json {
+    return { coding: [{ system: 'http://terminology.hl7.org/CodeSystem/v2-0203', code, display }] };
+  }
 
   // ── Resource builders ──────────────────────────────────────────────────────
 
   buildPatient(p: Patient): Json {
     const identifiers: Json[] = [
-      { system: FHIR_SYS.mrn, value: p.patientId, use: 'usual' },
+      { use: 'usual', type: this.idType('MR', 'Medical record number'), system: FHIR_SYS.mrn, value: p.patientId },
     ];
-    if (p.idNumber) identifiers.push({ system: FHIR_SYS.nationalId, value: p.idNumber, use: 'official' });
-    if (p.shaNumber) identifiers.push({ system: FHIR_SYS.shaId, value: p.shaNumber, use: 'official' });
+    if (p.idNumber)
+      identifiers.push({
+        use: 'official',
+        type: this.idType('NI', 'National unique individual identifier'),
+        system: FHIR_SYS.nationalId,
+        value: p.idNumber,
+      });
+    if (p.shaNumber)
+      identifiers.push({
+        use: 'official',
+        type: this.idType('SB', 'Social Beneficiary Identifier'),
+        system: FHIR_SYS.shaId,
+        value: p.shaNumber,
+      });
 
     const address =
       p.county || p.subCounty
@@ -76,11 +96,68 @@ export class FhirService {
       status: 'finished',
       class: { system: 'http://terminology.hl7.org/CodeSystem/v3-ActCode', code: 'AMB', display: 'ambulatory' },
       subject: { reference: `Patient/${note.patientId}` },
+      participant: note.createdById
+        ? [{ individual: { reference: `Practitioner/prac-${note.createdById}` } }]
+        : undefined,
       period: { start: note.createdAt ? new Date(note.createdAt).toISOString() : undefined },
       reasonCode: this.noteDiagnoses(note).map((d) => ({
         coding: [{ system: FHIR_SYS.icd11, code: d.code, display: d.description || undefined }],
         text: d.description || undefined,
       })),
+      serviceProvider: note.facilityId ? { reference: `Organization/org-${note.facilityId}` } : undefined,
+    };
+  }
+
+  /** The facility as a FHIR Organization, identified by its KMHFL code. */
+  buildOrganization(f: Facility): Json {
+    const identifier: Json[] = [];
+    if (f.kmhflCode)
+      identifier.push({
+        use: 'official',
+        type: this.idType('PRN', 'Provider number'),
+        system: FHIR_SYS.facility,
+        value: f.kmhflCode,
+      });
+    return {
+      resourceType: 'Organization',
+      id: `org-${f.id}`,
+      identifier: identifier.length ? identifier : undefined,
+      active: true,
+      name: f.name,
+      type: [
+        {
+          coding: [
+            { system: 'http://terminology.hl7.org/CodeSystem/organization-type', code: 'prov', display: 'Healthcare Provider' },
+          ],
+          text: [f.kephLevel, f.ownershipType].filter(Boolean).join(' · ') || undefined,
+        },
+      ],
+      telecom: f.phone ? [{ system: 'phone', value: f.phone }] : undefined,
+      address:
+        f.county || f.subCounty
+          ? [{ district: f.subCounty || undefined, state: f.county || undefined, country: 'KE' }]
+          : undefined,
+    };
+  }
+
+  /** A staff member as a FHIR Practitioner, with their regulatory identifier. */
+  buildPractitioner(u: User): Json {
+    const identifier: Json[] = [];
+    if (u.regulatoryNumber)
+      identifier.push({
+        use: 'official',
+        type: this.idType('MD', u.regulatoryBody || 'Practitioner registration'),
+        system: `${FHIR_SYS.practitioner}/${(u.regulatoryBody || 'reg').toLowerCase()}`,
+        value: u.regulatoryNumber,
+      });
+    if (u.practitionerNo)
+      identifier.push({ system: `${FHIR_SYS.practitioner}/internal`, value: u.practitionerNo });
+    return {
+      resourceType: 'Practitioner',
+      id: `prac-${u.id}`,
+      identifier: identifier.length ? identifier : undefined,
+      active: true,
+      name: [{ family: u.lastName, given: [u.firstName].filter(Boolean) }],
     };
   }
 
@@ -134,7 +211,11 @@ export class FhirService {
         medicationCodeableConcept: medication,
         subject: { reference: `Patient/${rx.patientId}` },
         authoredOn: rx.createdAt ? new Date(rx.createdAt as unknown as string).toISOString() : undefined,
-        requester: rx.doctorName ? { display: rx.doctorName } : undefined,
+        requester: rx.doctorId
+          ? { reference: `Practitioner/prac-${rx.doctorId}`, display: rx.doctorName || undefined }
+          : rx.doctorName
+            ? { display: rx.doctorName }
+            : undefined,
         dosageInstruction: dosageText ? [{ text: dosageText }] : undefined,
       };
     });
@@ -279,7 +360,20 @@ export class FhirService {
         .map((c) => [c.name.trim().toLowerCase(), c]),
     );
 
+    // Facility (Organization) and the staff (Practitioners) referenced by the
+    // encounters and prescriptions — so every reference in the bundle resolves.
+    const facility = await this.facilities.findOne({ where: { id: facilityId } });
+    const staffIds = Array.from(
+      new Set([
+        ...notes.map((n) => n.createdById).filter((x): x is string => !!x),
+        ...rxs.map((r) => r.doctorId).filter((x): x is string => !!x),
+      ]),
+    );
+    const staff = staffIds.length ? await this.users.find({ where: { id: In(staffIds) } }) : [];
+
     const entries: Json[] = [{ resource: this.buildPatient(patient) }];
+    if (facility) entries.push({ resource: this.buildOrganization(facility) });
+    for (const u of staff) entries.push({ resource: this.buildPractitioner(u) });
     for (const note of notes) {
       entries.push({ resource: this.buildEncounter(note) });
       for (const c of this.buildConditions(note)) entries.push({ resource: c });
@@ -334,16 +428,22 @@ export class FhirService {
       const r = JSON.parse(JSON.stringify(orig)) as Json;
       const fullUrl = urn.get(String(r.id))!;
       rewrite(r);
-      let request: Json;
-      if (r.resourceType === 'Patient') {
-        const mrn = (r.identifier as { value?: string }[] | undefined)?.[0]?.value ?? '';
-        request = {
-          method: 'PUT',
-          url: `Patient?identifier=${encodeURIComponent(FHIR_SYS.mrn)}|${encodeURIComponent(mrn)}`,
-        };
-      } else {
-        request = { method: 'POST', url: r.resourceType as string };
-      }
+      // Idempotent upsert on a stable identifier where one exists, else create.
+      const upsertSystem: Record<string, string> = {
+        Patient: FHIR_SYS.mrn,
+        Organization: FHIR_SYS.facility,
+        Practitioner: FHIR_SYS.practitioner,
+      };
+      const type = r.resourceType as string;
+      const wanted = upsertSystem[type];
+      const ids = (r.identifier as { system?: string; value?: string }[] | undefined) ?? [];
+      const match = wanted ? ids.find((i) => i.system && i.value && i.system.startsWith(wanted)) : undefined;
+      const request: Json = match
+        ? {
+            method: 'PUT',
+            url: `${type}?identifier=${encodeURIComponent(match.system!)}|${encodeURIComponent(match.value!)}`,
+          }
+        : { method: 'POST', url: type };
       delete r.id; // identity is carried by fullUrl in a transaction
       return { fullUrl, resource: r, request };
     });

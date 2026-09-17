@@ -28,4 +28,8 @@ export const FHIR_SYS = {
 
   /** Facility identifier (KMHFL code when available). */
   facility: env('FHIR_SYS_FACILITY', 'https://kmhfl.health.go.ke/identifier/facility-code'),
+
+  /** Base for practitioner regulatory identifiers; the licensing body is appended
+   *  (e.g. .../kmpdc, .../nck). */
+  practitioner: env('FHIR_SYS_PRACTITIONER', 'https://dha.go.ke/identifier/practitioner'),
 } as const;
