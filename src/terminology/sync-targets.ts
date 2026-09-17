@@ -6,7 +6,7 @@
  * appear in the national service (https://ilm-hie.dha.go.ke/ocl).
  */
 export interface SyncTarget {
-  domain: 'diagnosis' | 'procedure' | 'lab' | 'drug' | 'reference';
+  domain: 'diagnosis' | 'procedure' | 'lab' | 'drug' | 'benefit' | 'reference';
   org: string;
   source: string;
   /** Stored `system` for concepts from this source (defaults to source). */
@@ -27,6 +27,8 @@ export const SYNC_TARGETS: SyncTarget[] = [
   { domain: 'lab', org: 'Regenstrief', source: 'LOINC', optional: true },
   // Drugs / commodities
   { domain: 'drug', org: 'MOH-PPB', source: 'HPT' },
+  // SHA benefit package — billable services map to these for claims.
+  { domain: 'benefit', org: 'MOH-KENYA', source: 'BenefitsAndInterventions', system: 'BenefitsAndInterventions' },
 ];
 
 export const findTarget = (org: string, source: string): SyncTarget | undefined =>

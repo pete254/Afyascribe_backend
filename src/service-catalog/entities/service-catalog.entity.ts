@@ -45,6 +45,13 @@ export class ServiceCatalogItem {
   @Column({ name: 'knhts_name', type: 'text', nullable: true })
   knhtsName: string | null;
 
+  /** SHA benefit package code (MOH-KENYA/BenefitsAndInterventions) for claims. */
+  @Column({ name: 'sha_benefit_code', type: 'varchar', length: 64, nullable: true })
+  shaBenefitCode: string | null;
+
+  @Column({ name: 'sha_benefit_name', type: 'text', nullable: true })
+  shaBenefitName: string | null;
+
   @Column({ name: 'description', type: 'text', nullable: true })
   description: string | null;
 

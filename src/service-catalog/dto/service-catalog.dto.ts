@@ -27,6 +27,16 @@ export class CreateServiceCatalogDto {
   @IsString()
   knhtsName?: string;
 
+  @ApiPropertyOptional({ description: 'SHA benefit package code' })
+  @IsOptional()
+  @IsString()
+  shaBenefitCode?: string;
+
+  @ApiPropertyOptional({ description: 'SHA benefit package name' })
+  @IsOptional()
+  @IsString()
+  shaBenefitName?: string;
+
   @ApiProperty({ enum: ServiceCategory, example: ServiceCategory.CONSULTATION })
   @IsEnum(ServiceCategory)
   category: ServiceCategory;
@@ -63,6 +73,16 @@ export class UpdateServiceCatalogDto {
   @IsOptional()
   @IsString()
   knhtsName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  shaBenefitCode?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  shaBenefitName?: string;
 
   @ApiPropertyOptional({ enum: ServiceCategory })
   @IsOptional()
