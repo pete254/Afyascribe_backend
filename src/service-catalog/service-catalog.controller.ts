@@ -23,6 +23,7 @@ import { ServiceCatalogService } from './service-catalog.service';
 import {
   CreateServiceCatalogDto,
   UpdateServiceCatalogDto,
+  ImportIchiDto,
 } from './dto/service-catalog.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -52,6 +53,18 @@ export class ServiceCatalogController {
   async seedDefaults(@CurrentUser() user: any) {
     await this.service.seedDefaults(user.facilityId);
     return { message: 'Default services seeded successfully' };
+  }
+
+  // ── IMPORT a national procedure list (WHO ICHI via KNHTS) ─────────────────
+  @Post('import-ichi')
+  @Roles('facility_admin', 'super_admin')
+  @ApiOperation({
+    summary: 'Import an ICHI section as catalogue items (background)',
+    description: '"dental" = teeth + gums interventions (active); "eye" = the eye chapter (inactive, activate what you offer). Skips codes already present.',
+  })
+  importIchi(@CurrentUser() user: any, @Body() body: ImportIchiDto) {
+    this.service.importIchiSection(user.facilityId, body.section).catch(() => undefined);
+    return { started: true, section: body.section };
   }
 
   // ── CREATE ────────────────────────────────────────────────────────────────

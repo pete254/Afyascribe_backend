@@ -1,4 +1,4 @@
-import { IsIn, IsNotEmpty, IsOptional, IsUUID, IsString, IsNumber, Min } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsUUID, IsString, IsNumber, Min, IsBoolean } from 'class-validator';
 import { OPTICAL_RX_TYPES } from '../optical.enums';
 
 export class CreateOpticalDto {
@@ -35,9 +35,19 @@ export class CreateOpticalDto {
   @IsOptional() @IsString() frame?: string;
   @IsOptional() @IsString() lensType?: string;
 
-  /** Dispensing price; when > 0 an optical bill is raised. */
+  /** The catalogue service charged (e.g. eye assessment); supplies the ICHI code and default price. */
+  @IsOptional()
+  @IsUUID()
+  serviceId?: string;
+
+  /** Price; when > 0 an optical bill is raised. Defaults from the service when omitted. */
   @IsOptional()
   @IsNumber()
   @Min(0)
   price?: number;
+
+  /** With serviceId: also make the price the catalogue default. */
+  @IsOptional()
+  @IsBoolean()
+  saveAsServicePrice?: boolean;
 }

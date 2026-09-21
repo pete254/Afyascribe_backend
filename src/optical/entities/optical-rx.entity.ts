@@ -87,6 +87,16 @@ export class OpticalRx {
   @Column({ name: 'lens_type', type: 'varchar', length: 160, nullable: true })
   lensType?: string | null;
 
+  // The catalogue service this was charged as (e.g. eye assessment / refraction), ICHI-coded.
+  @Column({ name: 'service_id', type: 'uuid', nullable: true })
+  serviceId?: string | null;
+
+  @Column({ name: 'service_name', type: 'varchar', length: 200, nullable: true })
+  serviceName?: string | null;
+
+  @Column({ name: 'knhts_code', type: 'varchar', length: 64, nullable: true })
+  knhtsCode?: string | null;
+
   @Column({ name: 'price', type: 'numeric', precision: 12, scale: 2, nullable: true })
   price?: string | null;
   @Column({ name: 'billing_id', type: 'uuid', nullable: true })

@@ -1,10 +1,12 @@
 // src/service-catalog/service-catalog.service.ts
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { OclClient } from '../terminology/ocl.client';
 import { Repository } from 'typeorm';
 import {
   ServiceCatalogItem,
@@ -37,10 +39,71 @@ const DEFAULT_SERVICES: Omit<CreateServiceCatalogDto, 'sortOrder'>[] = [
 
 @Injectable()
 export class ServiceCatalogService {
+  private readonly logger = new Logger(ServiceCatalogService.name);
+
   constructor(
     @InjectRepository(ServiceCatalogItem)
     private readonly repo: Repository<ServiceCatalogItem>,
+    private readonly ocl: OclClient,
   ) {}
+
+  // ── National procedure lists (WHO ICHI via KNHTS) ────────────────────────
+
+  /**
+   * Import one section of ICHI as catalogue items, coded to the ICHI code and
+   * skipping codes already present. Dental (teeth KAE.*, gums KAG.*) is small
+   * and fully relevant so it comes in active; the eye chapter (B**.*) is the
+   * whole of eye surgery, so it comes in inactive for the clinic to activate
+   * what it offers. Prices start at zero (see suggestedPrice).
+   */
+  async importIchiSection(facilityId: string, section: 'dental' | 'eye'): Promise<number> {
+    const match = section === 'dental' ? /^KA[EG]\.[A-Z]{2}\.[A-Z]{2}$/ : /^B[A-Z]{2}\.[A-Z]{2}\.[A-Z]{2}$/;
+    const category = section === 'dental' ? ServiceCategory.DENTAL : ServiceCategory.OPTICAL;
+    const isActive = section === 'dental';
+    const existing = new Set(
+      (await this.repo.find({ where: { facilityId }, select: ['knhtsCode'] })).map((c) => c.knhtsCode).filter(Boolean) as string[],
+    );
+    const limit = 100;
+    let created = 0;
+    for (let page = 1; page <= 400; page++) {
+      const batch = await this.ocl.concepts('WHO', 'ICHI', page, limit);
+      if (!batch.length) break;
+      const rows = batch
+        .filter((c) => match.test(c.id) && !existing.has(c.id))
+        .map((c) =>
+          this.repo.create({
+            facilityId,
+            name: (c.display_name || c.id).slice(0, 200),
+            knhtsCode: c.id,
+            knhtsName: c.display_name || null,
+            category,
+            defaultPrice: 0,
+            isActive,
+            sortOrder: 0,
+          }),
+        );
+      if (rows.length) {
+        await this.repo.save(rows);
+        rows.forEach((r) => existing.add(r.knhtsCode as string));
+        created += rows.length;
+      }
+      if (batch.length < limit) break;
+    }
+    this.logger.log(`ICHI ${section}: ${created} catalogue items imported`);
+    return created;
+  }
+
+  /**
+   * An ad-hoc amount charged for a service with no default price: remember it
+   * as the suggestion, optionally make it the default price.
+   */
+  async rememberPrice(facilityId: string, id: string, price: number, saveAsDefault: boolean): Promise<void> {
+    const item = await this.repo.findOne({ where: { id, facilityId } });
+    if (!item || !(price > 0) || Number(item.defaultPrice) > 0) return;
+    item.suggestedPrice = price.toFixed(2);
+    if (saveAsDefault) item.defaultPrice = price;
+    await this.repo.save(item);
+  }
 
   // ── Seed defaults for a new facility ──────────────────────────────────────
   async seedDefaults(facilityId: string): Promise<void> {

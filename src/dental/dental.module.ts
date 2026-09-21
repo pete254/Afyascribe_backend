@@ -8,11 +8,13 @@ import { Facility } from '../facilities/entities/facility.entity';
 import { User } from '../users/entities/user.entity';
 import { PatientVisit } from '../patient-visits/entities/patient-visit.entity';
 import { BillingModule } from '../billing/billing.module';
+import { ServiceCatalogModule } from '../service-catalog/service-catalog.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([DentalTreatment, Patient, Facility, User, PatientVisit]),
     BillingModule,
+    ServiceCatalogModule,
   ],
   controllers: [DentalController],
   providers: [DentalService],

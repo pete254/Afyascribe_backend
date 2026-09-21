@@ -2,7 +2,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsString, IsEnum, IsNumber, IsOptional,
-  IsBoolean, Length, Min,
+  IsBoolean, Length, Min, IsIn,
 } from 'class-validator';
 import { ServiceCategory } from '../entities/service-catalog.entity';
 
@@ -104,4 +104,9 @@ export class UpdateServiceCatalogDto {
   @IsOptional()
   @IsNumber()
   sortOrder?: number;
+}
+export class ImportIchiDto {
+  @ApiProperty({ enum: ['dental', 'eye'], example: 'dental' })
+  @IsIn(['dental', 'eye'])
+  section: 'dental' | 'eye';
 }

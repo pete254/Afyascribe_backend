@@ -9,6 +9,8 @@ import { Facility } from '../facilities/entities/facility.entity';
 import { User } from '../users/entities/user.entity';
 import { PatientVisit, VisitStatus } from '../patient-visits/entities/patient-visit.entity';
 import { BillingService } from '../billing/billing.service';
+import { ServiceCatalogService } from '../service-catalog/service-catalog.service';
+import { ServiceCatalogItem } from '../service-catalog/entities/service-catalog.entity';
 import { ServiceType } from '../billing/entities/billing.entity';
 import { OpticalRxType, OpticalStatus } from './optical.enums';
 
@@ -38,6 +40,7 @@ export class OpticalService {
     @InjectRepository(PatientVisit)
     private visitRepo: Repository<PatientVisit>,
     private billing: BillingService,
+    private catalog: ServiceCatalogService,
   ) {}
 
   async create(facilityId: string, dto: CreateOpticalDto, userId?: string) {
@@ -46,13 +49,19 @@ export class OpticalService {
     const facility = await this.facilityRepo.findOneBy({ id: facilityId });
     if (!facility) throw new NotFoundException('Facility not found');
 
-    const price = Number(dto.price) || 0;
+    let service: ServiceCatalogItem | null = null;
+    if (dto.serviceId) service = await this.catalog.findOne(dto.serviceId, facilityId);
+    const price = dto.price !== undefined && dto.price !== null ? Number(dto.price) || 0 : Number(service?.defaultPrice) || 0;
+    if (service && price > 0) await this.catalog.rememberPrice(facilityId, service.id, price, !!dto.saveAsServicePrice);
     const visitId = await this.resolveVisit(facilityId, dto, price, userId);
 
     const rx = this.opticalRepo.create({
       patient,
       facility,
       visitId,
+      serviceId: service?.id ?? null,
+      serviceName: service?.name ?? null,
+      knhtsCode: service?.knhtsCode ?? null,
       rxType: (dto.rxType as OpticalRxType) ?? OpticalRxType.DISTANCE,
       status: OpticalStatus.EXAM,
       optometrist: userId ? ({ id: userId } as User) : undefined,
@@ -66,7 +75,7 @@ export class OpticalService {
 
     if (price > 0 && visitId) {
       try {
-        const desc = ['Optical', dto.frame, dto.lensType].filter(Boolean).join(' — ');
+        const desc = [service?.name ? `Optical: ${service.name}` : 'Optical', dto.frame, dto.lensType].filter(Boolean).join(' — ');
         const bill = await this.billing.create(
           { visitId, serviceType: ServiceType.PROCEDURE, serviceDescription: desc, amount: price },
           facilityId,

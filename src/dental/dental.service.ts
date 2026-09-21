@@ -9,8 +9,10 @@ import { Facility } from '../facilities/entities/facility.entity';
 import { User } from '../users/entities/user.entity';
 import { PatientVisit, VisitStatus } from '../patient-visits/entities/patient-visit.entity';
 import { BillingService } from '../billing/billing.service';
+import { ServiceCatalogService } from '../service-catalog/service-catalog.service';
+import { ServiceCatalogItem } from '../service-catalog/entities/service-catalog.entity';
 import { ServiceType } from '../billing/entities/billing.entity';
-import { DentalProcedure, DentalStatus } from './dental.enums';
+import { DentalProcedure, DentalStatus, ichiToDentalProcedure } from './dental.enums';
 
 const ACTIVE_VISIT_STATUSES = [
   VisitStatus.CHECKED_IN,
@@ -38,6 +40,7 @@ export class DentalService {
     @InjectRepository(PatientVisit)
     private visitRepo: Repository<PatientVisit>,
     private billing: BillingService,
+    private catalog: ServiceCatalogService,
   ) {}
 
   async create(facilityId: string, dto: CreateDentalDto, userId?: string) {
@@ -46,11 +49,23 @@ export class DentalService {
     const facility = await this.facilityRepo.findOneBy({ id: facilityId });
     if (!facility) throw new NotFoundException('Facility not found');
 
-    const price = Number(dto.price) || 0;
+    // From the catalogue: the service supplies the ICHI code, the kind and the
+    // default price; an ad-hoc price for an unpriced service is remembered.
+    let service: ServiceCatalogItem | null = null;
+    if (dto.serviceId) {
+      service = await this.catalog.findOne(dto.serviceId, facilityId);
+    }
+    const procedure = (dto.procedure as DentalProcedure | undefined) ?? ichiToDentalProcedure(service?.knhtsCode, service?.name);
+    const price = dto.price !== undefined && dto.price !== null ? Number(dto.price) || 0 : Number(service?.defaultPrice) || 0;
+    if (service && price > 0) await this.catalog.rememberPrice(facilityId, service.id, price, !!dto.saveAsServicePrice);
+    const label = service?.name ?? procedureLabel(procedure);
     const visitId = await this.resolveVisit(facilityId, dto, price, userId);
 
     const t = this.dentalRepo.create({
-      procedure: dto.procedure as DentalProcedure,
+      procedure,
+      serviceId: service?.id ?? null,
+      serviceName: service?.name ?? null,
+      knhtsCode: service?.knhtsCode ?? null,
       tooth: dto.tooth ?? null,
       surfaces: dto.surfaces ?? null,
       patient,
@@ -70,7 +85,7 @@ export class DentalService {
           {
             visitId,
             serviceType: ServiceType.PROCEDURE,
-            serviceDescription: `Dental: ${procedureLabel(dto.procedure)}${dto.tooth ? ` (tooth ${dto.tooth})` : ''}`,
+            serviceDescription: `Dental: ${label}${dto.tooth ? ` (tooth ${dto.tooth})` : ''}`,
             amount: price,
           },
           facilityId,
@@ -78,7 +93,7 @@ export class DentalService {
         saved.billingId = bill.id;
         await this.dentalRepo.save(saved);
       } catch (e) {
-        console.error(`Dental bill for "${dto.procedure}" failed: ${(e as Error).message}`);
+        console.error(`Dental bill for "${label}" failed: ${(e as Error).message}`);
       }
     }
     return saved;

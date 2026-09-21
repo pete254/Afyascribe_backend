@@ -19,6 +19,8 @@ export enum ServiceCategory {
   NURSING         = 'nursing',
   THEATRE         = 'theatre',
   PHYSIOTHERAPY   = 'physiotherapy',
+  DENTAL          = 'dental',
+  OPTICAL         = 'optical',
   OTHER           = 'other',
 }
 
@@ -71,6 +73,10 @@ export class ServiceCatalogItem {
     default: 0,
   })
   defaultPrice: number;
+
+  /** Last ad-hoc amount charged when the service has no default price — next time's default. */
+  @Column({ name: 'suggested_price', type: 'numeric', precision: 14, scale: 2, nullable: true })
+  suggestedPrice: string | null;
 
   @Column({ name: 'is_active', default: true })
   isActive: boolean;

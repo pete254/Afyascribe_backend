@@ -48,6 +48,16 @@ export class DentalTreatment {
   @Column({ name: 'surfaces', type: 'varchar', length: 20, nullable: true })
   surfaces?: string | null;
 
+  // The catalogue procedure this was charged as (ICHI-coded), snapshotted.
+  @Column({ name: 'service_id', type: 'uuid', nullable: true })
+  serviceId?: string | null;
+
+  @Column({ name: 'service_name', type: 'varchar', length: 200, nullable: true })
+  serviceName?: string | null;
+
+  @Column({ name: 'knhts_code', type: 'varchar', length: 64, nullable: true })
+  knhtsCode?: string | null;
+
   @Column({ name: 'procedure', type: 'varchar', length: 30 })
   procedure: DentalProcedure;
 
