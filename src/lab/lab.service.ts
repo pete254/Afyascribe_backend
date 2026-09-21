@@ -357,6 +357,22 @@ export class LabService {
     if (tests.length === 0) throw new BadRequestException('No valid tests selected');
     const byId = new Map(tests.map((t) => [t.id, t]));
 
+    // Ad-hoc amounts for tests with no catalogue price: charge them on this
+    // order, remember them as the suggestion next time, and optionally promote
+    // them to the catalogue price.
+    const priceFor = new Map<string, string>();
+    for (const p of dto.prices ?? []) {
+      const t = byId.get(p.testId);
+      if (!t) continue;
+      const amount = (Number(p.price) || 0).toFixed(2);
+      priceFor.set(t.id, amount);
+      if (Number(amount) > 0) {
+        t.suggestedPrice = amount;
+        if (p.saveAsCatalogPrice) t.price = amount;
+        await this.tests.save(t);
+      }
+    }
+
     const order = this.orders.create({
       facilityId,
       orderNo: await this.nextOrderNo(facilityId),
@@ -378,7 +394,7 @@ export class LabService {
           item.testName = t.name;
           item.specimen = t.specimen;
           item.department = t.department;
-          item.price = t.price;
+          item.price = priceFor.get(t.id) ?? t.price;
           item.status = 'requested';
           return item;
         }),

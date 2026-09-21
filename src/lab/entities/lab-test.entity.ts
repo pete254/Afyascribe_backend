@@ -50,6 +50,11 @@ export class LabTest {
   @Column({ type: 'numeric', precision: 14, scale: 2, default: 0 })
   price: string;
 
+  /** The last amount charged when a test has no catalogue price — offered as
+   *  the default next time, without being the official price. */
+  @Column({ name: 'suggested_price', type: 'numeric', precision: 14, scale: 2, nullable: true })
+  suggestedPrice: string | null;
+
   @Column({ name: 'turnaround_hours', type: 'int', nullable: true })
   turnaroundHours: number | null;
 

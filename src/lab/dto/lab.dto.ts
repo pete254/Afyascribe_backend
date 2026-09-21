@@ -77,6 +77,14 @@ export class UpdateLabTestDto {
 
 // ── Orders ────────────────────────────────────────────────────────────────────
 
+export class OrderPriceDto {
+  @ApiProperty() @IsUUID() testId: string;
+  @ApiProperty({ description: 'Amount to charge for this test on this order (KES)' })
+  @IsNumber() @Min(0) price: number;
+  @ApiPropertyOptional({ description: 'Also make this the catalogue price for the test' })
+  @IsBoolean() @IsOptional() saveAsCatalogPrice?: boolean;
+}
+
 export class CreateLabOrderDto {
   @ApiProperty() @IsUUID() patientId: string;
   @ApiPropertyOptional() @IsString() @IsOptional() patientName?: string;
@@ -90,6 +98,13 @@ export class CreateLabOrderDto {
   @ArrayMinSize(1)
   @IsUUID('all', { each: true })
   testIds: string[];
+
+  @ApiPropertyOptional({ type: [OrderPriceDto], description: 'Amounts for tests that have no catalogue price' })
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => OrderPriceDto)
+  prices?: OrderPriceDto[];
 }
 
 export class CollectSampleDto {
