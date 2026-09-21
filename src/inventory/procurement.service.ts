@@ -8,6 +8,7 @@ import { GoodsReceiptLine } from './entities/goods-receipt-line.entity';
 import { SupplierPayment } from './entities/supplier-payment.entity';
 import { PurchaseOrder } from './entities/purchase-order.entity';
 import { PurchaseOrderLine } from './entities/purchase-order-line.entity';
+import { accountsFor, classOf } from './item-classes';
 import { Facility } from '../facilities/entities/facility.entity';
 import { SupplierInvoiceService } from './supplier-invoice.service';
 import {
@@ -30,18 +31,6 @@ const priceFromMarkup = (cost: number, markupPct: number) => r2(cost * (1 + mark
  * ITEM_CATEGORIES so a drug, reagent or consumable lands in the right
  * inventory / COGS / revenue accounts without anyone touching account codes.
  */
-const CATEGORY_ACCOUNTS: Record<string, { inventory: string; cogs: string; revenue: string }> = {
-  drug: { inventory: '13001', cogs: '51001', revenue: '42001' },
-  reagent: { inventory: '13002', cogs: '51003', revenue: '43001' },
-  consumable: { inventory: '13003', cogs: '51002', revenue: '41004' },
-  surgical: { inventory: '13004', cogs: '51005', revenue: '45001' },
-  vaccine: { inventory: '13007', cogs: '51006', revenue: '41004' },
-  radiology: { inventory: '13005', cogs: '51007', revenue: '44001' },
-  other: { inventory: '13003', cogs: '51002', revenue: '41004' },
-};
-const accountsFor = (category?: string | null) =>
-  CATEGORY_ACCOUNTS[category ?? 'drug'] ?? CATEGORY_ACCOUNTS.drug;
-
 @Injectable()
 export class ProcurementService {
   constructor(
@@ -247,6 +236,7 @@ export class ProcurementService {
                 facilityId,
                 name,
                 category: line.category ?? 'drug',
+                itemClass: classOf(line.category),
                 unit: line.unit ?? 'unit',
                 costPrice: line.unitCost.toFixed(2),
                 salePrice: sale.toFixed(2),

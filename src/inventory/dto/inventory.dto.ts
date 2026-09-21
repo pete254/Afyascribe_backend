@@ -1,5 +1,6 @@
 import {
   IsString,
+  IsIn,
   IsOptional,
   IsNumber,
   IsArray,
@@ -12,6 +13,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ITEM_CATEGORIES } from '../item-classes';
 
 export class CreateItemDto {
   @ApiProperty({ example: 'Amoxicillin 500mg' })
@@ -33,8 +35,8 @@ export class CreateItemDto {
   @IsOptional()
   sku?: string;
 
-  @ApiPropertyOptional({ example: 'drug' })
-  @IsString()
+  @ApiPropertyOptional({ example: 'drug', enum: ITEM_CATEGORIES })
+  @IsIn(ITEM_CATEGORIES)
   @IsOptional()
   category?: string;
 
@@ -93,7 +95,7 @@ export class UpdateItemDto {
   @ApiPropertyOptional() @IsString() @IsOptional() knhtsCode?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() knhtsName?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() sku?: string;
-  @ApiPropertyOptional() @IsString() @IsOptional() category?: string;
+  @ApiPropertyOptional({ enum: ITEM_CATEGORIES }) @IsIn(ITEM_CATEGORIES) @IsOptional() category?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() unit?: string;
   @ApiPropertyOptional() @IsNumber() @Min(0) @IsOptional() salePrice?: number;
   @ApiPropertyOptional() @IsNumber() @Min(0) @IsOptional() costPrice?: number;
@@ -103,6 +105,32 @@ export class UpdateItemDto {
   @ApiPropertyOptional() @IsString() @IsOptional() inventoryAccountCode?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() cogsAccountCode?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() revenueAccountCode?: string;
+}
+
+export class IssueStockDto {
+  @ApiProperty({ description: 'Units to issue' })
+  @IsNumber()
+  @Min(0.001)
+  quantity: number;
+
+  @ApiProperty({ description: 'Receiving department / cost centre, e.g. Housekeeping, Theatre, Kitchen' })
+  @IsString()
+  department: string;
+
+  @ApiPropertyOptional({ description: 'ISO date; defaults to today' })
+  @IsString()
+  @IsOptional()
+  date?: string;
+
+  @ApiPropertyOptional({ description: 'Issue-note / requisition number' })
+  @IsString()
+  @IsOptional()
+  reference?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  note?: string;
 }
 
 export class AdjustStockDto {

@@ -541,7 +541,20 @@ export class HmisPostingService {
       const je = await this.ledger.post(input);
       return je.id;
     } catch (e) {
-      this.logger.error(`Auto-post (${input.sourceType}) failed: ${(e as Error).message}`);
+      const msg = (e as Error).message ?? '';
+      // A chart that predates a newer standard account (e.g. general-stores
+      // expense): seed the missing standard accounts once and retry.
+      if (/Unknown account/i.test(msg)) {
+        try {
+          await this.ledger.seedChartOfAccounts(input.facilityId);
+          const je = await this.ledger.post(input);
+          return je.id;
+        } catch (e2) {
+          this.logger.error(`Auto-post (${input.sourceType}) failed after reseed: ${(e2 as Error).message}`);
+          return null;
+        }
+      }
+      this.logger.error(`Auto-post (${input.sourceType}) failed: ${msg}`);
       return null;
     }
   }

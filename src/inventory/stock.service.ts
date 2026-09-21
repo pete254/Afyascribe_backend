@@ -3,8 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager, Between } from 'typeorm';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { StockMovement, StockMovementType } from './entities/stock-movement.entity';
+import { ItemClass, accountsFor, classOf } from './item-classes';
 import { StockBatch } from './entities/stock-batch.entity';
-import { CreateItemDto, UpdateItemDto, AdjustStockDto } from './dto/inventory.dto';
+import { CreateItemDto, UpdateItemDto, IssueStockDto, AdjustStockDto } from './dto/inventory.dto';
 import { HmisPostingService } from '../accounting/hmis-posting.service';
 import { OclClient } from '../terminology/ocl.client';
 
@@ -81,6 +82,7 @@ export class StockService {
             knhtsCode: c.id,
             knhtsName: c.display_name || null,
             category: 'drug',
+            itemClass: 'pharmacy',
             unit: 'unit',
             salePrice: '0',
             costPrice: '0',
@@ -112,22 +114,25 @@ export class StockService {
           ? priceFromMarkup(costPrice, markupPct)
           : 0;
 
+    const category = dto.category ?? 'drug';
+    const acc = accountsFor(category);
     const item = this.items.create({
       facilityId,
       name: dto.name.trim(),
       knhtsCode: dto.knhtsCode ?? null,
       knhtsName: dto.knhtsName ?? null,
       sku: dto.sku ?? null,
-      category: dto.category ?? 'drug',
+      category,
+      itemClass: classOf(category),
       unit: dto.unit ?? 'unit',
       salePrice: String(salePrice),
       costPrice: String(costPrice),
       markupPct: markupPct != null ? String(markupPct) : null,
       reorderLevel: String(dto.reorderLevel ?? 0),
       trackStock: dto.trackStock ?? true,
-      inventoryAccountCode: dto.inventoryAccountCode ?? '13001',
-      cogsAccountCode: dto.cogsAccountCode ?? '51001',
-      revenueAccountCode: dto.revenueAccountCode ?? '42001',
+      inventoryAccountCode: dto.inventoryAccountCode ?? acc.inventory,
+      cogsAccountCode: dto.cogsAccountCode ?? acc.cogs,
+      revenueAccountCode: dto.revenueAccountCode ?? acc.revenue,
     });
     return this.items.save(item);
   }
@@ -139,10 +144,11 @@ export class StockService {
    */
   listItems(
     facilityId: string,
-    opts: { lowStock?: boolean; search?: string; inactiveOnly?: boolean } = {},
+    opts: { lowStock?: boolean; search?: string; inactiveOnly?: boolean; itemClass?: ItemClass } = {},
   ): Promise<InventoryItem[]> {
     const qb = this.items.createQueryBuilder('i').where('i.facilityId = :facilityId', { facilityId });
     qb.andWhere('i.is_active = :active', { active: !opts.inactiveOnly });
+    if (opts.itemClass) qb.andWhere('i.item_class = :itemClass', { itemClass: opts.itemClass });
     if (opts.search) {
       qb.andWhere('(i.name ILIKE :s OR i.sku ILIKE :s OR i.knhts_code ILIKE :s)', { s: `%${opts.search.trim()}%` });
     }
@@ -157,13 +163,15 @@ export class StockService {
    * list, for procurement lines (a buyer can request a product before it is
    * stocked). Active items rank first.
    */
-  async searchItems(facilityId: string, q: string, limit = 30): Promise<InventoryItem[]> {
+  async searchItems(facilityId: string, q: string, limit = 30, itemClass?: ItemClass): Promise<InventoryItem[]> {
     const term = q.trim();
     if (!term) return [];
-    return this.items
+    const qb = this.items
       .createQueryBuilder('i')
       .where('i.facilityId = :facilityId', { facilityId })
-      .andWhere('(i.name ILIKE :s OR i.sku ILIKE :s OR i.knhts_code ILIKE :s)', { s: `%${term}%` })
+      .andWhere('(i.name ILIKE :s OR i.sku ILIKE :s OR i.knhts_code ILIKE :s)', { s: `%${term}%` });
+    if (itemClass) qb.andWhere('i.item_class = :itemClass', { itemClass });
+    return qb
       .orderBy('i.is_active', 'DESC')
       .addOrderBy('i.name', 'ASC')
       .take(limit)
@@ -203,7 +211,15 @@ export class StockService {
       ...(dto.knhtsCode !== undefined ? { knhtsCode: dto.knhtsCode } : {}),
       ...(dto.knhtsName !== undefined ? { knhtsName: dto.knhtsName } : {}),
       ...(dto.sku !== undefined ? { sku: dto.sku } : {}),
-      ...(dto.category !== undefined ? { category: dto.category } : {}),
+      ...(dto.category !== undefined
+        ? {
+            category: dto.category,
+            itemClass: classOf(dto.category),
+            ...(dto.inventoryAccountCode === undefined ? { inventoryAccountCode: accountsFor(dto.category).inventory } : {}),
+            ...(dto.cogsAccountCode === undefined ? { cogsAccountCode: accountsFor(dto.category).cogs } : {}),
+            ...(dto.revenueAccountCode === undefined ? { revenueAccountCode: accountsFor(dto.category).revenue } : {}),
+          }
+        : {}),
       ...(dto.unit !== undefined ? { unit: dto.unit } : {}),
       ...(dto.costPrice !== undefined ? { costPrice: String(dto.costPrice) } : {}),
       ...(dto.markupPct !== undefined ? { markupPct: dto.markupPct === null ? null : String(dto.markupPct) } : {}),
@@ -588,6 +604,27 @@ export class StockService {
     });
 
     return { item, value, issued };
+  }
+
+  /**
+   * Storekeeper issue: stock leaves the store to a department (housekeeping,
+   * theatre, kitchen…) without a sale. Costed at moving average and posted to
+   * the category's consumption/expense account against the department.
+   */
+  async issueToDepartment(facilityId: string, itemId: string, dto: IssueStockDto, userId?: string) {
+    const item = await this.getItem(facilityId, itemId);
+    if (item.itemClass === 'pharmacy') {
+      throw new BadRequestException('Pharmacy stock leaves through dispensing, not a store issue');
+    }
+    const res = await this.issueStock(facilityId, itemId, dto.quantity, {
+      date: dto.date,
+      reference: dto.reference,
+      sourceType: 'store_issue',
+      note: `Issued to ${dto.department}${dto.note ? ` — ${dto.note}` : ''}: ${item.name}`,
+      costCenter: dto.department,
+      userId,
+    });
+    return { item: res.item, issued: res.issued, value: res.value };
   }
 
   /** Manual stock adjustment (write-up/down or count correction). */

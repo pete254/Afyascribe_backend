@@ -1,3 +1,4 @@
+import { ItemClass } from '../item-classes';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -40,6 +41,10 @@ export class InventoryItem {
   /** drug | reagent | consumable | surgical | vaccine | radiology | other */
   @Column({ type: 'varchar', length: 40, default: 'drug' })
   category: string;
+
+  /** Which store this belongs to (derived from the category): pharmacy | medical | general. */
+  @Column({ name: 'item_class', type: 'varchar', length: 20, default: 'pharmacy' })
+  itemClass: ItemClass;
 
   @Column({ type: 'varchar', length: 20, default: 'unit' })
   unit: string;

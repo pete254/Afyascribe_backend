@@ -10,6 +10,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ItemClass } from './item-classes';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -24,6 +25,7 @@ import {
   CreateItemDto,
   UpdateItemDto,
   AdjustStockDto,
+  IssueStockDto,
   CreateSupplierDto,
   UpdateSupplierDto,
   CreateGoodsReceiptDto,
@@ -57,14 +59,20 @@ export class InventoryController {
     @Query('search') search?: string,
     @Query('lowStock') lowStock?: string,
     @Query('inactiveOnly') inactiveOnly?: string,
+    @Query('itemClass') itemClass?: string,
   ) {
-    return this.stock.listItems(facilityOf(user), { search, lowStock: lowStock === 'true', inactiveOnly: inactiveOnly === 'true' });
+    return this.stock.listItems(facilityOf(user), {
+      search,
+      lowStock: lowStock === 'true',
+      inactiveOnly: inactiveOnly === 'true',
+      itemClass: (itemClass as ItemClass) || undefined,
+    });
   }
 
   @Get('items/search')
   @ApiOperation({ summary: 'Typeahead over your items and the dormant national list (name / SKU / HPT code)' })
-  searchItems(@CurrentUser() user: CurrentUserType, @Query('q') q?: string) {
-    return this.stock.searchItems(facilityOf(user), q ?? '');
+  searchItems(@CurrentUser() user: CurrentUserType, @Query('q') q?: string, @Query('itemClass') itemClass?: string) {
+    return this.stock.searchItems(facilityOf(user), q ?? '', 30, (itemClass as ItemClass) || undefined);
   }
 
   @Get('items/inactive-count')
@@ -140,6 +148,12 @@ export class InventoryController {
   @Get('items/:id/batches')
   itemBatches(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
     return this.stock.listItemBatches(facilityOf(user), id);
+  }
+
+  @Post('items/:id/issue')
+  @ApiOperation({ summary: 'Issue stock to a department (medical / general stores; expensed, not sold)' })
+  issue(@CurrentUser() user: CurrentUserType, @Param('id') id: string, @Body() dto: IssueStockDto) {
+    return this.stock.issueToDepartment(facilityOf(user), id, dto, user.id);
   }
 
   @Post('items/:id/adjust')
