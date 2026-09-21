@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { LabTest } from './entities/lab-test.entity';
@@ -17,7 +17,7 @@ import { CurrentUserType } from '../common/decorators/current-user.decorator';
 import { LAB_TEST_SEED } from './data/lab-test-seed';
 import { BillingService } from '../billing/billing.service';
 import { ServiceType } from '../billing/entities/billing.entity';
-import { OclClient } from '../terminology/ocl.client';
+import { OclClient, OclConcept } from '../terminology/ocl.client';
 
 /** Stage ordering, so the order's status can be the least-advanced active item. */
 const STAGE: Record<LabStatus, number> = {
@@ -64,6 +64,8 @@ export interface LabLedger {
 
 @Injectable()
 export class LabService {
+  private readonly logger = new Logger(LabService.name);
+
   constructor(
     @InjectRepository(LabTest) private readonly tests: Repository<LabTest>,
     @InjectRepository(LabOrder) private readonly orders: Repository<LabOrder>,
@@ -168,7 +170,108 @@ export class LabService {
       }
       if (batch.length < limit) break;
     }
+    // Then give every LOINC-coded test its analytes from the LOINC panel
+    // members (same background run; ranges stay for the facility to fill).
+    await this.fillAnalytesFromLoinc(facilityId, { onlyEmpty: true });
     return created;
+  }
+
+  // ── Analyte templates from LOINC ────────────────────────────────────────────
+
+  /**
+   * Build a test's analyte template from LOINC via KNHTS: a panel's members
+   * (`has-member` mappings) each become an analyte with the LOINC name, UCUM
+   * unit, scale and code; a non-panel LOINC becomes a single analyte for the
+   * test itself. Reference ranges are NOT in LOINC — left empty for the lab.
+   */
+  async analytesFromLoinc(loincCode: string, cache = new Map<string, OclConcept | null>()): Promise<LabAnalyte[]> {
+    const concept = async (code: string) => {
+      if (!cache.has(code)) cache.set(code, await this.ocl.lookup('Regenstrief', 'LOINC', code));
+      return cache.get(code) ?? null;
+    };
+    const maps = await this.ocl.mappings('Regenstrief', 'LOINC', loincCode);
+    const seen = new Set<string>();
+    const memberCodes: string[] = [];
+    for (const m of maps) {
+      const t = (m.map_type ?? '').toLowerCase().replace(/[\s_]/g, '-');
+      if (t !== 'has-member' && t !== 'has-element') continue;
+      const code = m.to_concept_code;
+      if (!code || code === loincCode || seen.has(code)) continue;
+      seen.add(code);
+      memberCodes.push(code);
+    }
+    const codes = memberCodes.length ? memberCodes : [loincCode];
+
+    // OCL returns members in no clinical order; LOINC's COMMON_TEST_RANK (how
+    // often the analyte is reported) puts Hb / WBC / platelets first.
+    const built: { a: LabAnalyte; rank: number }[] = [];
+    for (const code of codes) {
+      const c = await concept(code);
+      const x = (c?.extras ?? {}) as Record<string, unknown>;
+      const str = (k: string) => (typeof x[k] === 'string' && (x[k] as string).trim() ? (x[k] as string).trim() : null);
+      const a = new LabAnalyte();
+      a.name = str('COMPONENT') || str('DisplayName') || c?.display_name || code;
+      a.unit = str('EXAMPLE_UCUM_UNITS') || str('EXAMPLE_UNITS');
+      a.scale = str('SCALE_TYP') || (c?.datatype ?? null);
+      a.loincCode = code;
+      a.refLow = null;
+      a.refHigh = null;
+      a.refText = null;
+      const rank = Number(str('COMMON_TEST_RANK'));
+      built.push({ a, rank: rank > 0 ? rank : Number.MAX_SAFE_INTEGER });
+    }
+    built.sort((p, q) => p.rank - q.rank || p.a.name.localeCompare(q.a.name));
+    return built.map((b, i) => Object.assign(b.a, { sortOrder: i }));
+  }
+
+  /**
+   * Replace one test's analytes with its LOINC template, keeping any reference
+   * ranges the lab had already entered (matched by LOINC code, then by name).
+   */
+  async fillTestAnalytesFromLoinc(facilityId: string, testId: string, cache?: Map<string, OclConcept | null>): Promise<LabTest> {
+    const test = await this.tests.findOne({ where: { id: testId, facilityId } });
+    if (!test) throw new NotFoundException('Test not found');
+    if (!test.loincCode) throw new BadRequestException('This test has no LOINC code to derive analytes from');
+    const template = await this.analytesFromLoinc(test.loincCode, cache);
+    const prev = test.analytes ?? [];
+    const byLoinc = new Map(prev.filter((a) => a.loincCode).map((a) => [a.loincCode as string, a]));
+    const byName = new Map(prev.map((a) => [a.name.trim().toLowerCase(), a]));
+    for (const a of template) {
+      const old = (a.loincCode && byLoinc.get(a.loincCode)) || byName.get(a.name.trim().toLowerCase());
+      if (old) {
+        a.refLow = old.refLow;
+        a.refHigh = old.refHigh;
+        a.refText = old.refText;
+        if (old.unit) a.unit = old.unit;
+      }
+    }
+    test.analytes = template; // cascade replaces
+    return this.tests.save(test);
+  }
+
+  /**
+   * Fill analytes for every LOINC-coded test in the facility (by default only
+   * those with none yet). One KNHTS call per test + one per distinct member
+   * concept, so it runs in the background over a few minutes for a full
+   * national catalogue.
+   */
+  async fillAnalytesFromLoinc(facilityId: string, opts: { onlyEmpty?: boolean } = {}): Promise<{ tests: number; analytes: number }> {
+    const all = await this.tests.find({ where: { facilityId } });
+    const targets = all.filter((t) => t.loincCode && (!opts.onlyEmpty || !(t.analytes ?? []).length));
+    const cache = new Map<string, OclConcept | null>();
+    let tests = 0;
+    let analytes = 0;
+    for (const t of targets) {
+      try {
+        const saved = await this.fillTestAnalytesFromLoinc(facilityId, t.id, cache);
+        tests += 1;
+        analytes += saved.analytes?.length ?? 0;
+      } catch (e) {
+        this.logger.warn(`LOINC analytes for "${t.name}" (${t.loincCode}) failed: ${(e as Error).message}`);
+      }
+    }
+    this.logger.log(`LOINC analytes: ${tests} tests, ${analytes} analytes`);
+    return { tests, analytes };
   }
 
   async createTest(facilityId: string, dto: CreateLabTestDto): Promise<LabTest> {
@@ -195,6 +298,8 @@ export class LabService {
     analyte.refLow = a.refLow != null ? String(a.refLow) : null;
     analyte.refHigh = a.refHigh != null ? String(a.refHigh) : null;
     analyte.refText = a.refText ?? null;
+    analyte.loincCode = a.loincCode?.trim() || null;
+    analyte.scale = a.scale?.trim() || null;
     analyte.sortOrder = i;
     return analyte;
   }

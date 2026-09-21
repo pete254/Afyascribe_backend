@@ -24,6 +24,15 @@ export class LabAnalyteDto {
   @IsNumber() @IsOptional() refHigh?: number;
   @ApiPropertyOptional({ description: 'Expected qualitative result, e.g. "Negative"' })
   @IsString() @IsOptional() refText?: string;
+  @ApiPropertyOptional({ description: "The analyte's own LOINC code" })
+  @IsString() @IsOptional() loincCode?: string;
+  @ApiPropertyOptional({ description: 'LOINC scale: Qn / Ord / Nom' })
+  @IsString() @IsOptional() scale?: string;
+}
+
+export class FillAnalytesDto {
+  @ApiPropertyOptional({ default: true, description: 'Only tests that have no analytes yet' })
+  @IsOptional() @IsBoolean() onlyEmpty?: boolean;
 }
 
 export class CreateLabTestDto {

@@ -10,6 +10,7 @@ import { LabOrder } from '../lab/entities/lab-order.entity';
 import { LabOrderItem } from '../lab/entities/lab-order-item.entity';
 import { LabResultValue } from '../lab/entities/lab-result-value.entity';
 import { LabTest } from '../lab/entities/lab-test.entity';
+import { LabAnalyte } from '../lab/entities/lab-analyte.entity';
 import { Billing, ServiceType } from '../billing/entities/billing.entity';
 import { ServiceCatalogItem } from '../service-catalog/entities/service-catalog.entity';
 import { Facility } from '../facilities/entities/facility.entity';
@@ -17,7 +18,7 @@ import { User } from '../users/entities/user.entity';
 import { PatientVisit } from '../patient-visits/entities/patient-visit.entity';
 import { Radiology } from '../radiology/entities/radiology.entity';
 import { RadiologyStatus } from '../radiology/radiology-status.enum';
-import { FHIR_SYS } from './fhir-systems';
+import { FHIR_PROFILE, FHIR_SYS } from './fhir-systems';
 
 type Json = Record<string, unknown>;
 
@@ -35,6 +36,7 @@ export class FhirService {
     @InjectRepository(InventoryItem) private readonly items: Repository<InventoryItem>,
     @InjectRepository(LabOrder) private readonly labOrders: Repository<LabOrder>,
     @InjectRepository(LabTest) private readonly labTests: Repository<LabTest>,
+    @InjectRepository(LabAnalyte) private readonly labAnalytes: Repository<LabAnalyte>,
     @InjectRepository(Billing) private readonly bills: Repository<Billing>,
     @InjectRepository(ServiceCatalogItem) private readonly catalog: Repository<ServiceCatalogItem>,
     @InjectRepository(Facility) private readonly facilities: Repository<Facility>,
@@ -286,7 +288,11 @@ export class FhirService {
 
   private valueOf(v: LabResultValue): Json {
     const num = v.value != null && v.value !== '' && !Number.isNaN(Number(v.value)) ? Number(v.value) : null;
-    if (num != null) return { valueQuantity: { value: num, unit: v.unit || undefined } };
+    if (num != null) {
+      return {
+        valueQuantity: { value: num, unit: v.unit || undefined, system: v.unit ? FHIR_SYS.ucum : undefined, code: v.unit || undefined },
+      };
+    }
     return { valueString: v.value ?? undefined };
   }
 
@@ -301,49 +307,73 @@ export class FhirService {
     ];
   }
 
-  /** One Observation per resulted lab-order item (LOINC-coded when the test is mapped). */
-  buildObservations(order: LabOrder, item: LabOrderItem, loincByTestId: Map<string, LabTest>): Json[] {
+  /**
+   * A resulted lab-order item → one LOINC-coded Observation per analyte plus a
+   * DiagnosticReport that groups them — the shape in the Kenya Core IG's Full
+   * Haemogram example (Observation-example-observation-amina-hgb et al.).
+   * Analytes are coded with their own LOINC (panel member); the report carries
+   * the test's (panel) LOINC.
+   */
+  buildObservations(
+    order: LabOrder,
+    item: LabOrderItem,
+    loincByTestId: Map<string, LabTest>,
+    loincByAnalyteId: Map<string, LabAnalyte> = new Map(),
+  ): Json[] {
     const results = item.results ?? [];
     if (!results.length) return [];
     const test = loincByTestId.get(item.labTestId);
-    const code = test?.loincCode
-      ? { coding: [{ system: FHIR_SYS.loinc, code: test.loincCode, display: test.loincName || item.testName }], text: item.testName }
-      : { text: item.testName };
-    const status = item.resultedAt ? 'final' : 'preliminary';
+    const status = item.verifiedById ? 'final' : item.resultedAt ? 'preliminary' : 'registered';
     const effective = item.resultedAt ? new Date(item.resultedAt).toISOString() : undefined;
-
-    const base: Json = {
-      resourceType: 'Observation',
-      id: `obs-${item.id}`,
-      status,
-      category: [
-        {
-          coding: [
-            { system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'laboratory', display: 'Laboratory' },
-          ],
-        },
-      ],
-      code,
-      subject: { reference: `Patient/${order.patientId}` },
-      effectiveDateTime: effective,
-    };
-
-    if (results.length === 1) {
-      const v = results[0];
-      return [{ ...base, ...this.valueOf(v), interpretation: this.interpretation(v.flag), referenceRange: this.refRange(v) }];
-    }
-    // Multiple analytes → components on one Observation.
-    return [
+    const category = [
       {
-        ...base,
-        component: results.map((v) => ({
-          code: { text: v.analyteName },
-          ...this.valueOf(v),
-          interpretation: this.interpretation(v.flag),
-          referenceRange: this.refRange(v),
-        })),
+        coding: [
+          { system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'laboratory', display: 'Laboratory' },
+        ],
       },
     ];
+    const subject = { reference: `Patient/${order.patientId}` };
+
+    const observations: Json[] = results.map((v) => {
+      const analyte = v.analyteId ? loincByAnalyteId.get(v.analyteId) : undefined;
+      // Single-analyte tests carry the test's own LOINC on their one analyte.
+      const loinc = analyte?.loincCode || (results.length === 1 ? test?.loincCode : undefined);
+      const code = loinc
+        ? { coding: [{ system: FHIR_SYS.loinc, code: loinc, display: v.analyteName }], text: v.analyteName }
+        : { text: v.analyteName };
+      return {
+        resourceType: 'Observation',
+        id: `obs-${v.id}`,
+        meta: { profile: [FHIR_PROFILE.observation] },
+        status,
+        category,
+        code,
+        subject,
+        effectiveDateTime: effective,
+        issued: item.verifiedById && item.resultedAt ? new Date(item.resultedAt).toISOString() : undefined,
+        ...this.valueOf(v),
+        interpretation: this.interpretation(v.flag),
+        referenceRange: this.refRange(v),
+      };
+    });
+
+    const reportCode = test?.loincCode
+      ? { coding: [{ system: FHIR_SYS.loinc, code: test.loincCode, display: test.loincName || item.testName }], text: item.testName }
+      : { text: item.testName };
+    const report: Json = {
+      resourceType: 'DiagnosticReport',
+      id: `lab-${item.id}`,
+      meta: { profile: [FHIR_PROFILE.diagnosticReport] },
+      status,
+      category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/v2-0074', code: 'LAB', display: 'Laboratory' }] }],
+      code: reportCode,
+      subject,
+      effectiveDateTime: effective,
+      issued: item.verifiedById && item.resultedAt ? new Date(item.resultedAt).toISOString() : undefined,
+      result: observations.map((o) => ({ reference: `Observation/${o.id}` })),
+      conclusion: item.resultNote || undefined,
+    };
+    return [...observations, report];
   }
 
   /** A billed procedure → FHIR Procedure, ICHI-coded when the catalogue item is mapped. */
@@ -556,6 +586,13 @@ export class FhirService {
     );
     const tests = testIds.length ? await this.labTests.find({ where: { id: In(testIds) } }) : [];
     const loincByTestId = new Map(tests.map((t) => [t.id, t]));
+    const analyteIds = Array.from(
+      new Set(
+        orders.flatMap((o) => (o.items ?? []).flatMap((i) => (i.results ?? []).map((r) => r.analyteId).filter((x): x is string => !!x))),
+      ),
+    );
+    const analytes = analyteIds.length ? await this.labAnalytes.find({ where: { id: In(analyteIds) } }) : [];
+    const loincByAnalyteId = new Map(analytes.map((a) => [a.id, a]));
 
     // Billed procedures → Procedures (ICHI via the catalogue mapping).
     const procBills = await this.bills.find({
@@ -613,7 +650,7 @@ export class FhirService {
     }
     for (const order of orders) {
       for (const item of order.items ?? []) {
-        for (const o of this.buildObservations(order, item, loincByTestId)) entries.push({ resource: o });
+        for (const o of this.buildObservations(order, item, loincByTestId, loincByAnalyteId)) entries.push({ resource: o });
       }
     }
     for (const bill of procBills) {

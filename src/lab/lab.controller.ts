@@ -27,6 +27,7 @@ import {
   SubmitResultDto,
 } from './dto/lab.dto';
 import { ConfirmResetDto } from '../common/dto/confirm-reset.dto';
+import { FillAnalytesDto } from './dto/lab.dto';
 
 function facilityOf(user: CurrentUserType): string {
   if (!user.facilityId) throw new BadRequestException('Your account is not linked to a facility');
@@ -63,6 +64,24 @@ export class LabController {
   @RequireCapability('manage_lab_catalog')
   updateTest(@CurrentUser() user: CurrentUserType, @Param('id') id: string, @Body() dto: UpdateLabTestDto) {
     return this.lab.updateTest(facilityOf(user), id, dto);
+  }
+
+  @Post('tests/fill-analytes-from-loinc')
+  @RequireCapability('manage_lab_catalog')
+  @ApiOperation({
+    summary: 'Give every LOINC-coded test its analytes from the LOINC panel members (background)',
+    description: 'By default only tests with no analytes yet; pass { "onlyEmpty": false } to re-derive all (existing ranges are kept).',
+  })
+  fillAnalytes(@CurrentUser() user: CurrentUserType, @Body() body: FillAnalytesDto) {
+    this.lab.fillAnalytesFromLoinc(facilityOf(user), { onlyEmpty: body?.onlyEmpty !== false }).catch(() => undefined);
+    return { started: true };
+  }
+
+  @Post('tests/:id/analytes-from-loinc')
+  @RequireCapability('manage_lab_catalog')
+  @ApiOperation({ summary: "Replace one test's analytes with its LOINC template (keeps entered ranges)" })
+  fillTestAnalytes(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
+    return this.lab.fillTestAnalytesFromLoinc(facilityOf(user), id);
   }
 
   @Post('tests/seed')

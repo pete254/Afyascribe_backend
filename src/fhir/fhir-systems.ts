@@ -11,11 +11,22 @@ const env = (k: string, fallback: string) => process.env[k]?.trim() || fallback;
 
 const OCL_BASE = env('KNHTS_API_BASE', 'https://ilm-hie.dha.go.ke/ocl').replace(/\/+$/, '');
 
+/** Kenya Core IG profile canonicals (fhir.dha.go.ke/ig). */
+const KENYA_CORE = env('FHIR_KENYA_CORE_BASE', 'https://fhir.dha.go.ke/core/StructureDefinition');
+
+export const FHIR_PROFILE = {
+  observation: `${KENYA_CORE}/kenya-core-observation`,
+  diagnosticReport: `${KENYA_CORE}/kenya-core-diagnosticreport`,
+  serviceRequest: `${KENYA_CORE}/kenya-core-servicerequest`,
+} as const;
+
 export const FHIR_SYS = {
   /** Diagnoses — WHO ICD-11 MMS (the widely-used canonical). */
   icd11: env('FHIR_SYS_ICD11', 'http://id.who.int/icd/release/11/mms'),
   /** Labs — LOINC. */
   loinc: env('FHIR_SYS_LOINC', 'http://loinc.org'),
+  /** Units — UCUM. */
+  ucum: 'http://unitsofmeasure.org',
   /** Drugs / commodities — KNHTS MOH-PPB Health Products & Technologies. */
   hpt: env('FHIR_SYS_HPT', `${OCL_BASE}/orgs/MOH-PPB/sources/HPT`),
   /** Procedures / interventions — WHO ICHI via KNHTS. */

@@ -6,6 +6,7 @@ import { Prescription } from '../prescriptions/entities/prescription.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { LabOrder } from '../lab/entities/lab-order.entity';
 import { LabTest } from '../lab/entities/lab-test.entity';
+import { LabAnalyte } from '../lab/entities/lab-analyte.entity';
 import { Billing } from '../billing/entities/billing.entity';
 import { ServiceCatalogItem } from '../service-catalog/entities/service-catalog.entity';
 import { Facility } from '../facilities/entities/facility.entity';
@@ -25,6 +26,7 @@ import { HieFhirClient } from './hie-fhir.client';
       InventoryItem,
       LabOrder,
       LabTest,
+      LabAnalyte,
       Billing,
       ServiceCatalogItem,
       Facility,

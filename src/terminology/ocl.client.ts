@@ -20,6 +20,15 @@ export interface OclConcept {
   url?: string;
 }
 
+export interface OclMapping {
+  map_type: string;
+  from_concept_code?: string;
+  to_concept_code?: string;
+  to_concept_name?: string;
+  to_source_name?: string;
+  sort_weight?: number | null;
+}
+
 /**
  * Thin client for the KNHTS Open Concept Lab REST API
  * (default base https://ilm-hie.dha.go.ke/ocl). Read-only, public.
@@ -78,6 +87,16 @@ export class OclClient {
     const data = await this.getJson<OclConcept[]>(
       `/orgs/${encodeURIComponent(org)}/sources/${encodeURIComponent(source)}/concepts/` +
         `?q=${encodeURIComponent(q)}&limit=${limit}&verbose=true`,
+    );
+    return data ?? [];
+  }
+
+  /** A concept's outbound mappings (e.g. LOINC panel → its members). */
+  async mappings(org: string, source: string, code: string): Promise<OclMapping[]> {
+    const data = await this.getJson<OclMapping[]>(
+      `/orgs/${encodeURIComponent(org)}/sources/${encodeURIComponent(source)}/concepts/${encodeURIComponent(
+        code,
+      )}/mappings/?limit=200`,
     );
     return data ?? [];
   }

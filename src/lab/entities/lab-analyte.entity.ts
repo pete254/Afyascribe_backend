@@ -40,6 +40,15 @@ export class LabAnalyte {
   @Column({ name: 'ref_text', type: 'varchar', nullable: true })
   refText: string | null;
 
+  /** The analyte's own LOINC code (a panel member, or the test itself for a
+   *  single-analyte test) — what its result Observation is coded with. */
+  @Column({ name: 'loinc_code', type: 'varchar', length: 32, nullable: true })
+  loincCode: string | null;
+
+  /** LOINC scale: Qn (numeric), Ord (ordinal, e.g. Negative/Positive), Nom (nominal). */
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  scale: string | null;
+
   @Column({ name: 'sort_order', type: 'int', default: 0 })
   sortOrder: number;
 }
