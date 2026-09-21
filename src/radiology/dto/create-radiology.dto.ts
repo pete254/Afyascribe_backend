@@ -1,4 +1,4 @@
-import { IsIn, IsNotEmpty, IsOptional, IsUUID, IsString, IsISO8601, IsNumber, Min, ValidateIf } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsUUID, IsString, IsISO8601, IsNumber, Min, ValidateIf, IsBoolean } from 'class-validator';
 
 export class CreateRadiologyDto {
   /** An exam from the facility's imaging catalogue (radiology_exams). When set,
@@ -36,6 +36,11 @@ export class CreateRadiologyDto {
   @IsNumber()
   @Min(0)
   price?: number;
+
+  /** With examId: also make this price the exam's catalogue price. */
+  @IsOptional()
+  @IsBoolean()
+  saveAsExamPrice?: boolean;
 
   @IsOptional()
   @IsISO8601()

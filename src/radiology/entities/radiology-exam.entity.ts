@@ -42,6 +42,10 @@ export class RadiologyExam {
   @Column({ type: 'numeric', precision: 14, scale: 2, default: 0 })
   price: string;
 
+  /** Last amount charged when the exam has no catalogue price — next time's default. */
+  @Column({ name: 'suggested_price', type: 'numeric', precision: 14, scale: 2, nullable: true })
+  suggestedPrice: string | null;
+
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 

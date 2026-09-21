@@ -144,6 +144,21 @@ export class StockService {
     return item;
   }
 
+  /**
+   * An ad-hoc unit price used at dispensing for an item with no sale price:
+   * remember it as the suggestion, optionally make it the (manual) sale price.
+   */
+  async rememberDispensePrice(facilityId: string, id: string, price: number, saveAsSalePrice: boolean): Promise<void> {
+    const item = await this.items.findOne({ where: { id, facilityId } });
+    if (!item || !(price > 0) || Number(item.salePrice) > 0) return;
+    item.suggestedPrice = price.toFixed(2);
+    if (saveAsSalePrice) {
+      item.salePrice = price.toFixed(2);
+      item.markupPct = null;
+    }
+    await this.items.save(item);
+  }
+
   async updateItem(facilityId: string, id: string, dto: UpdateItemDto): Promise<InventoryItem> {
     const item = await this.getItem(facilityId, id);
     Object.assign(item, {

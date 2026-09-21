@@ -51,6 +51,10 @@ export class InventoryItem {
   @Column({ name: 'cost_price', type: 'numeric', precision: 14, scale: 2, default: 0 })
   costPrice: string;
 
+  /** Last unit price charged at dispensing when the item has no sale price — next time's default. */
+  @Column({ name: 'suggested_price', type: 'numeric', precision: 14, scale: 2, nullable: true })
+  suggestedPrice: string | null;
+
   /** When set, sale price is derived as cost × (1 + markupPct/100). Null = manual. */
   @Column({ name: 'markup_pct', type: 'numeric', precision: 6, scale: 2, nullable: true })
   markupPct: string | null;

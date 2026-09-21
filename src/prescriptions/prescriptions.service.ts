@@ -218,6 +218,13 @@ export class PrescriptionsService {
     await this.lines.save(next);
     rx.items = [...next, ...protectedLines];
     await this.rx.save(rx);
+
+    // Prices typed for items that have none become their suggestion (or sale price).
+    for (const d of dto.items ?? []) {
+      if (d.itemId && d.unitPrice != null && Number(d.unitPrice) > 0) {
+        await this.stock.rememberDispensePrice(facilityId, d.itemId, Number(d.unitPrice), !!d.saveAsItemPrice);
+      }
+    }
     return this.getOne(facilityId, id);
   }
 

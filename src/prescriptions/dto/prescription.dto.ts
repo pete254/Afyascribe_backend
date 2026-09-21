@@ -96,6 +96,10 @@ export class PharmacyItemDto {
 
   @IsOptional() @IsNumber()
   unitPrice?: number | null;
+
+  /** Also make unitPrice the linked item's sale price (when it had none). */
+  @IsOptional() @IsBoolean()
+  saveAsItemPrice?: boolean;
 }
 
 export class UpdatePrescriptionItemsDto {

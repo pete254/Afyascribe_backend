@@ -121,6 +121,14 @@ export class RadiologyService {
     const price = dto.price !== undefined && dto.price !== null ? Number(dto.price) || 0 : Number(exam?.price) || 0;
     const label = exam?.name ?? type;
 
+    // An ad-hoc amount for an unpriced exam is remembered as next time's
+    // suggestion, and optionally promoted to the catalogue price.
+    if (exam && price > 0 && !(Number(exam.price) > 0)) {
+      exam.suggestedPrice = price.toFixed(2);
+      if (dto.saveAsExamPrice) exam.price = price.toFixed(2);
+      await this.examRepo.save(exam);
+    }
+
     // Resolve a visit to bill against when a price is set: an explicit one, the
     // patient's active visit, or a lightweight anchor visit (as inpatient does).
     let visitId = await this.resolveVisit(facilityId, dto, price, label, userId);
