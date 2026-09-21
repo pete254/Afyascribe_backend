@@ -9,13 +9,16 @@ import {
 import { LabOrderItem } from './lab-order-item.entity';
 
 /** Lab statuses, shared by an order and its individual test items. */
-export type LabStatus =
-  | 'ordered'
-  | 'collected'
-  | 'in_progress'
-  | 'resulted'
-  | 'verified'
-  | 'cancelled';
+/**
+ * Lab workflow stages, in lab vocabulary and mapped to the FHIR statuses the
+ * Kenya Core IG expects:
+ *   requested       — awaiting sample      (ServiceRequest active, Task requested)
+ *   in_lab          — collected, being run (Specimen available, Task in-progress)
+ *   awaiting_review — results entered      (DiagnosticReport preliminary)
+ *   released        — authorised, final    (DiagnosticReport final / amended)
+ * A rejected sample goes back to `requested` with the rejection kept on the item.
+ */
+export type LabStatus = 'requested' | 'in_lab' | 'awaiting_review' | 'released' | 'cancelled';
 
 /**
  * A request for one or more lab tests for a patient, usually raised from a
@@ -59,7 +62,7 @@ export class LabOrder {
   @Column({ name: 'clinical_notes', type: 'text', nullable: true })
   clinicalNotes: string | null;
 
-  @Column({ type: 'varchar', length: 20, default: 'ordered' })
+  @Column({ type: 'varchar', length: 20, default: 'requested' })
   status: LabStatus;
 
   @OneToMany(() => LabOrderItem, (i) => i.order, { cascade: true, eager: true })

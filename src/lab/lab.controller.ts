@@ -25,6 +25,8 @@ import {
   CreateLabOrderDto,
   CollectSampleDto,
   SubmitResultDto,
+  RejectSampleDto,
+  AmendResultDto,
 } from './dto/lab.dto';
 import { ConfirmResetDto } from '../common/dto/confirm-reset.dto';
 import { FillAnalytesDto } from './dto/lab.dto';
@@ -128,9 +130,9 @@ export class LabController {
   }
 
   @Get('worklist')
-  @ApiOperation({ summary: 'Test items at a given stage (ordered|collected|in_progress|resulted)' })
+  @ApiOperation({ summary: 'Test items at a given stage (requested|in_lab|awaiting_review|released)' })
   worklist(@CurrentUser() user: CurrentUserType, @Query('stage') stage: LabStatus) {
-    return this.lab.worklist(facilityOf(user), stage ?? 'ordered');
+    return this.lab.worklist(facilityOf(user), stage ?? 'requested');
   }
 
   @Get('ledger')
@@ -175,16 +177,21 @@ export class LabController {
     return this.lab.collect(facilityOf(user), id, itemId, user, dto);
   }
 
-  @Patch('orders/:id/items/:itemId/start')
+  @Patch('orders/:id/items/:itemId/reject')
   @RequireCapability('run_lab')
-  @ApiOperation({ summary: 'Begin testing the collected sample' })
-  start(@CurrentUser() user: CurrentUserType, @Param('id') id: string, @Param('itemId') itemId: string) {
-    return this.lab.startTest(facilityOf(user), id, itemId);
+  @ApiOperation({ summary: 'Reject the sample (back to awaiting sample, reason kept)' })
+  reject(
+    @CurrentUser() user: CurrentUserType,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() dto: RejectSampleDto,
+  ) {
+    return this.lab.rejectSample(facilityOf(user), id, itemId, user, dto);
   }
 
   @Put('orders/:id/items/:itemId/result')
   @RequireCapability('run_lab')
-  @ApiOperation({ summary: 'Enter results (post=true also posts them to the record)' })
+  @ApiOperation({ summary: 'Enter results (release=true also releases them in one step)' })
   result(
     @CurrentUser() user: CurrentUserType,
     @Param('id') id: string,
@@ -194,11 +201,23 @@ export class LabController {
     return this.lab.submitResult(facilityOf(user), id, itemId, user, dto);
   }
 
-  @Patch('orders/:id/items/:itemId/verify')
+  @Patch('orders/:id/items/:itemId/release')
   @RequireCapability('run_lab')
-  @ApiOperation({ summary: 'Post results to the system (final)' })
-  verify(@CurrentUser() user: CurrentUserType, @Param('id') id: string, @Param('itemId') itemId: string) {
-    return this.lab.verify(facilityOf(user), id, itemId, user);
+  @ApiOperation({ summary: 'Release entered results (final, visible to the clinician)' })
+  release(@CurrentUser() user: CurrentUserType, @Param('id') id: string, @Param('itemId') itemId: string) {
+    return this.lab.release(facilityOf(user), id, itemId, user);
+  }
+
+  @Put('orders/:id/items/:itemId/amend')
+  @RequireCapability('run_lab')
+  @ApiOperation({ summary: 'Amend released results (original kept with the reason)' })
+  amend(
+    @CurrentUser() user: CurrentUserType,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() dto: AmendResultDto,
+  ) {
+    return this.lab.amend(facilityOf(user), id, itemId, user, dto);
   }
 
   @Patch('orders/:id/items/:itemId/cancel')

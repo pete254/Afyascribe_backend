@@ -8,6 +8,7 @@ import {
   Min,
   IsUUID,
   IsBoolean,
+  IsNotEmpty,
   IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -116,6 +117,24 @@ export class SubmitResultDto {
   @Type(() => ResultValueDto)
   values: ResultValueDto[];
 
-  @ApiPropertyOptional({ description: 'true = post/verify to the record; false = save as draft' })
-  @IsBoolean() @IsOptional() post?: boolean;
+  @ApiPropertyOptional({ description: 'true = enter and release in one step; false = leave awaiting review' })
+  @IsBoolean() @IsOptional() release?: boolean;
+}
+
+export class RejectSampleDto {
+  @ApiProperty({ description: 'Why the sample was rejected (haemolysed, clotted, insufficient, mislabelled…)' })
+  @IsString() @IsNotEmpty() reason: string;
+}
+
+export class AmendResultDto {
+  @ApiProperty({ description: 'Why the released result is being amended' })
+  @IsString() @IsNotEmpty() reason: string;
+
+  @ApiPropertyOptional() @IsString() @IsOptional() resultNote?: string;
+
+  @ApiProperty({ type: [ResultValueDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ResultValueDto)
+  values: ResultValueDto[];
 }

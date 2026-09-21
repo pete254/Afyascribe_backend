@@ -1237,7 +1237,7 @@ export class ReportsService {
       .andWhere('o.created_at <= :to', { to: toEnd })
       .getMany(); // items are eager
 
-    const DONE = new Set(['resulted', 'verified']);
+    const DONE = new Set(['awaiting_review', 'released']);
     const map = new Map<string, { department: string; testName: string; total: number; completed: number }>();
     for (const o of orders) {
       for (const it of o.items ?? []) {

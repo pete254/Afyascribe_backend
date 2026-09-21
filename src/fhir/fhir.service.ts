@@ -323,7 +323,7 @@ export class FhirService {
     const results = item.results ?? [];
     if (!results.length) return [];
     const test = loincByTestId.get(item.labTestId);
-    const status = item.verifiedById ? 'final' : item.resultedAt ? 'preliminary' : 'registered';
+    const status = item.amendedAt ? 'amended' : item.verifiedById ? 'final' : item.resultedAt ? 'preliminary' : 'registered';
     const effective = item.resultedAt ? new Date(item.resultedAt).toISOString() : undefined;
     const category = [
       {

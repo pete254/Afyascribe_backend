@@ -12,6 +12,9 @@ import {
   CreateLabOrderDto,
   CollectSampleDto,
   SubmitResultDto,
+  RejectSampleDto,
+  AmendResultDto,
+  ResultValueDto,
 } from './dto/lab.dto';
 import { CurrentUserType } from '../common/decorators/current-user.decorator';
 import { LAB_TEST_SEED } from './data/lab-test-seed';
@@ -21,11 +24,10 @@ import { OclClient, OclConcept } from '../terminology/ocl.client';
 
 /** Stage ordering, so the order's status can be the least-advanced active item. */
 const STAGE: Record<LabStatus, number> = {
-  ordered: 0,
-  collected: 1,
-  in_progress: 2,
-  resulted: 3,
-  verified: 4,
+  requested: 0,
+  in_lab: 1,
+  awaiting_review: 2,
+  released: 3,
   cancelled: 99,
 };
 
@@ -366,7 +368,7 @@ export class LabService {
       orderedByName: this.fullName(user),
       priority: dto.priority ?? 'routine',
       clinicalNotes: dto.clinicalNotes ?? null,
-      status: 'ordered',
+      status: 'requested',
       items: dto.testIds
         .filter((id) => byId.has(id))
         .map((id) => {
@@ -377,7 +379,7 @@ export class LabService {
           item.specimen = t.specimen;
           item.department = t.department;
           item.price = t.price;
-          item.status = 'ordered';
+          item.status = 'requested';
           return item;
         }),
     });
@@ -483,7 +485,7 @@ export class LabService {
     if (active.length === 0) status = 'cancelled';
     else {
       const min = Math.min(...active.map((i) => STAGE[i.status]));
-      status = (Object.keys(STAGE) as LabStatus[]).find((k) => STAGE[k] === min) ?? 'ordered';
+      status = (Object.keys(STAGE) as LabStatus[]).find((k) => STAGE[k] === min) ?? 'requested';
     }
     if (order.status !== status) {
       order.status = status;
@@ -491,47 +493,54 @@ export class LabService {
     }
   }
 
+  /** Sample collected → straight into the lab (collection and analysis are one stage). */
   async collect(facilityId: string, orderId: string, itemId: string, user: CurrentUserType, dto: CollectSampleDto) {
     const { item } = await this.loadItem(facilityId, orderId, itemId);
-    if (item.status !== 'ordered') throw new BadRequestException('Sample already collected for this test');
-    item.status = 'collected';
+    if (item.status !== 'requested') throw new BadRequestException('Sample already collected for this test');
+    item.status = 'in_lab';
     item.collectedById = user.id;
     item.collectedByName = this.fullName(user);
     item.collectedAt = new Date();
+    item.startedAt = item.collectedAt;
     item.specimenNote = dto.specimenNote ?? null;
     await this.items.save(item);
     await this.syncOrderStatus(orderId);
     return this.getOrder(facilityId, orderId);
   }
 
-  async startTest(facilityId: string, orderId: string, itemId: string) {
+  /**
+   * Pre-analytical rejection (haemolysed, clotted, insufficient, mislabelled…):
+   * the item returns to `requested` for re-collection, and the rejected
+   * collection is kept on the item's history.
+   */
+  async rejectSample(facilityId: string, orderId: string, itemId: string, user: CurrentUserType, dto: RejectSampleDto) {
     const { item } = await this.loadItem(facilityId, orderId, itemId);
-    if (item.status !== 'collected') throw new BadRequestException('Collect the sample before starting the test');
-    item.status = 'in_progress';
-    item.startedAt = new Date();
+    if (item.status !== 'in_lab') throw new BadRequestException('Only a sample in the lab can be rejected');
+    item.rejections = [
+      ...(item.rejections ?? []),
+      {
+        at: new Date().toISOString(),
+        byId: user.id ?? null,
+        byName: this.fullName(user),
+        reason: dto.reason.trim(),
+        collectedAt: item.collectedAt ? item.collectedAt.toISOString() : null,
+        collectedByName: item.collectedByName,
+        specimenNote: item.specimenNote,
+      },
+    ];
+    item.status = 'requested';
+    item.collectedById = null;
+    item.collectedByName = null;
+    item.collectedAt = null;
+    item.startedAt = null;
+    item.specimenNote = null;
     await this.items.save(item);
     await this.syncOrderStatus(orderId);
     return this.getOrder(facilityId, orderId);
   }
 
-  async submitResult(
-    facilityId: string,
-    orderId: string,
-    itemId: string,
-    user: CurrentUserType,
-    dto: SubmitResultDto,
-  ) {
-    const { item } = await this.loadItem(facilityId, orderId, itemId);
-    if (item.status === 'ordered') {
-      throw new BadRequestException('Collect the sample before entering results');
-    }
-    if (item.status === 'verified') {
-      throw new BadRequestException('These results are already posted');
-    }
-
-    // Replace the result set (cascade delete-orphan not enabled, so clear first).
-    await this.values.delete({ orderItemId: item.id });
-    item.results = dto.values.map((v, i) => {
+  private buildValues(item: LabOrderItem, values: ResultValueDto[]): LabResultValue[] {
+    return values.map((v, i) => {
       const rv = new LabResultValue();
       rv.orderItemId = item.id;
       rv.analyteId = v.analyteId ?? null;
@@ -545,18 +554,44 @@ export class LabService {
       rv.sortOrder = i;
       return rv;
     });
+  }
+
+  /**
+   * Enter results. Leaves the item awaiting review, or — with `release` — releases
+   * it in the same step (a one-person lab has no separate reviewer; the two
+   * signatures are still recorded, they just belong to the same person).
+   */
+  async submitResult(
+    facilityId: string,
+    orderId: string,
+    itemId: string,
+    user: CurrentUserType,
+    dto: SubmitResultDto,
+  ) {
+    const { item } = await this.loadItem(facilityId, orderId, itemId);
+    if (item.status === 'requested') {
+      throw new BadRequestException('Collect the sample before entering results');
+    }
+    if (item.status === 'released') {
+      throw new BadRequestException('These results are released — amend them instead');
+    }
+    if (item.status === 'cancelled') throw new BadRequestException('This test was cancelled');
+
+    // Replace the result set (cascade delete-orphan not enabled, so clear first).
+    await this.values.delete({ orderItemId: item.id });
+    item.results = this.buildValues(item, dto.values);
     item.resultNote = dto.resultNote ?? null;
     item.resultedById = user.id;
     item.resultedByName = this.fullName(user);
     item.resultedAt = new Date();
 
-    if (dto.post) {
-      item.status = 'verified';
+    if (dto.release) {
+      item.status = 'released';
       item.verifiedById = user.id;
       item.verifiedByName = this.fullName(user);
       item.verifiedAt = new Date();
     } else {
-      item.status = 'resulted';
+      item.status = 'awaiting_review';
     }
 
     await this.items.save(item);
@@ -564,10 +599,11 @@ export class LabService {
     return this.getOrder(facilityId, orderId);
   }
 
-  async verify(facilityId: string, orderId: string, itemId: string, user: CurrentUserType) {
+  /** Authorise entered results: they become final and visible to the clinician. */
+  async release(facilityId: string, orderId: string, itemId: string, user: CurrentUserType) {
     const { item } = await this.loadItem(facilityId, orderId, itemId);
-    if (item.status !== 'resulted') throw new BadRequestException('Enter results before posting');
-    item.status = 'verified';
+    if (item.status !== 'awaiting_review') throw new BadRequestException('Enter results before releasing');
+    item.status = 'released';
     item.verifiedById = user.id;
     item.verifiedByName = this.fullName(user);
     item.verifiedAt = new Date();
@@ -576,9 +612,49 @@ export class LabService {
     return this.getOrder(facilityId, orderId);
   }
 
+  /**
+   * Correct a released result. The superseded values, note and signatures are
+   * kept on the item with the reason; the item stays released (FHIR `amended`).
+   */
+  async amend(facilityId: string, orderId: string, itemId: string, user: CurrentUserType, dto: AmendResultDto) {
+    const { item } = await this.loadItem(facilityId, orderId, itemId);
+    if (item.status !== 'released') throw new BadRequestException('Only released results can be amended');
+    item.amendments = [
+      ...(item.amendments ?? []),
+      {
+        at: new Date().toISOString(),
+        byId: user.id ?? null,
+        byName: this.fullName(user),
+        reason: dto.reason.trim(),
+        previous: {
+          resultNote: item.resultNote,
+          resultedAt: item.amendedAt ? item.amendedAt.toISOString() : item.resultedAt ? item.resultedAt.toISOString() : null,
+          resultedByName: item.amendedByName ?? item.resultedByName,
+          values: (item.results ?? []).map((v) => ({
+            analyteName: v.analyteName,
+            value: v.value,
+            unit: v.unit,
+            flag: v.flag,
+            refLow: v.refLow,
+            refHigh: v.refHigh,
+            refText: v.refText,
+          })),
+        },
+      },
+    ];
+    await this.values.delete({ orderItemId: item.id });
+    item.results = this.buildValues(item, dto.values);
+    if (dto.resultNote !== undefined) item.resultNote = dto.resultNote ?? null;
+    item.amendedById = user.id;
+    item.amendedByName = this.fullName(user);
+    item.amendedAt = new Date();
+    await this.items.save(item);
+    return this.getOrder(facilityId, orderId);
+  }
+
   async cancelItem(facilityId: string, orderId: string, itemId: string) {
     const { item } = await this.loadItem(facilityId, orderId, itemId);
-    if (item.status === 'verified') throw new BadRequestException('Cannot cancel a posted test');
+    if (item.status === 'released') throw new BadRequestException('Cannot cancel a released test');
     // Drop the charge if it hasn't been paid yet (best-effort — a paid bill is
     // left in place for the till to reconcile / refund).
     if (item.billingId) {
@@ -609,7 +685,7 @@ export class LabService {
       .leftJoinAndSelect('i.results', 'r')
       .where('o.facilityId = :facilityId', { facilityId })
       .andWhere('o.patientId = :patientId', { patientId })
-      .andWhere('i.status = :verified', { verified: 'verified' })
+      .andWhere('i.status = :released', { released: 'released' })
       .orderBy('o.createdAt', 'DESC')
       .addOrderBy('r.sortOrder', 'ASC')
       .getMany();
@@ -617,7 +693,7 @@ export class LabService {
     const trends: Record<string, { date: Date; value: number; unit: string | null; flag: LabFlag | null }[]> = {};
     for (const o of orders) {
       for (const it of o.items ?? []) {
-        if (it.status !== 'verified') continue;
+        if (it.status !== 'released') continue;
         for (const rv of it.results ?? []) {
           const num = Number(rv.value);
           if (rv.value == null || Number.isNaN(num)) continue;
@@ -677,7 +753,7 @@ export class LabService {
         summary.charge += charge;
         if (i.collectedAt) summary.collected += 1;
         if (i.resultedAt) summary.resulted += 1;
-        if (i.status === 'verified') summary.released += 1;
+        if (i.status === 'released') summary.released += 1;
       }
       return {
         orderId: o.id,

@@ -46,7 +46,7 @@ export class LabOrderItem {
   @Column({ name: 'billing_id', type: 'uuid', nullable: true })
   billingId: string | null;
 
-  @Column({ type: 'varchar', length: 20, default: 'ordered' })
+  @Column({ type: 'varchar', length: 20, default: 'requested' })
   status: LabStatus;
 
   // ── Sample collection (phlebotomy) ──────────────────────────────────────────
@@ -88,6 +88,58 @@ export class LabOrderItem {
   @Column({ name: 'verified_at', type: 'timestamptz', nullable: true })
   verifiedAt: Date | null;
 
+  // ── Exceptions, kept for the record ──────────────────────────────────────────
+
+  /** Every sample rejection (pre-analytical): the item goes back to `requested`. */
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  rejections: LabRejection[];
+
+  /** Every amendment after release: the superseded result set and the reason. */
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  amendments: LabAmendment[];
+
+  @Column({ name: 'amended_by_id', type: 'uuid', nullable: true })
+  amendedById: string | null;
+
+  @Column({ name: 'amended_by_name', nullable: true })
+  amendedByName: string | null;
+
+  @Column({ name: 'amended_at', type: 'timestamptz', nullable: true })
+  amendedAt: Date | null;
+
   @OneToMany(() => LabResultValue, (v) => v.orderItem, { cascade: true, eager: true })
   results: LabResultValue[];
+}
+
+export interface LabRejection {
+  at: string;
+  byId: string | null;
+  byName: string | null;
+  reason: string;
+  /** The collection being rejected. */
+  collectedAt: string | null;
+  collectedByName: string | null;
+  specimenNote: string | null;
+}
+
+export interface LabAmendment {
+  at: string;
+  byId: string | null;
+  byName: string | null;
+  reason: string;
+  /** The result set this amendment replaced. */
+  previous: {
+    resultNote: string | null;
+    resultedAt: string | null;
+    resultedByName: string | null;
+    values: {
+      analyteName: string;
+      value: string | null;
+      unit: string | null;
+      flag: string | null;
+      refLow: string | null;
+      refHigh: string | null;
+      refText: string | null;
+    }[];
+  };
 }
