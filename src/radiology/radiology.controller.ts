@@ -20,6 +20,7 @@ import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.
 import { RadiologyService } from './radiology.service';
 import { CreateRadiologyDto } from './dto/create-radiology.dto';
 import { UpdateRadiologyDto } from './dto/update-radiology.dto';
+import { ConfirmResetDto } from '../common/dto/confirm-reset.dto';
 
 function facilityOf(user: CurrentUserType): string {
   if (!user.facilityId) throw new BadRequestException('Your account is not linked to a facility');
@@ -69,7 +70,7 @@ export class RadiologyController {
   @Post('exams/reset-from-knhts')
   @Roles('facility_admin', 'super_admin')
   @ApiOperation({ summary: 'Wipe imaging studies + exams, then import the national KNHTS imaging exams' })
-  async resetExams(@CurrentUser() user: CurrentUserType, @Body() body: { confirm?: string }) {
+  async resetExams(@CurrentUser() user: CurrentUserType, @Body() body: ConfirmResetDto) {
     if (body?.confirm !== 'RESET') {
       throw new BadRequestException('Send { "confirm": "RESET" } to wipe imaging studies and the exam catalogue.');
     }

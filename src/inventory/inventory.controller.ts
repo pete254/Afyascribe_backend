@@ -34,6 +34,7 @@ import { CreatePurchaseOrderDto, DecisionDto } from './dto/purchase-order.dto';
 import { CreateRequisitionDto } from './dto/purchase-requisition.dto';
 import { CreateQuotationDto } from './dto/quotation.dto';
 import { CreateSupplierInvoiceDto } from './dto/supplier-invoice.dto';
+import { ConfirmInventoryResetDto } from '../common/dto/confirm-reset.dto';
 
 function facilityOf(user: CurrentUserType): string {
   if (!user.facilityId) throw new BadRequestException('Your account is not linked to a facility');
@@ -68,7 +69,7 @@ export class InventoryController {
   @Roles('facility_admin', 'super_admin')
   async resetFromKnhts(
     @CurrentUser() user: CurrentUserType,
-    @Body() body: { confirm?: string; import?: 'none' | 'all' },
+    @Body() body: ConfirmInventoryResetDto,
   ) {
     if (body?.confirm !== 'RESET') {
       throw new BadRequestException('Send { "confirm": "RESET" } to wipe inventory items, stock movements and batches.');

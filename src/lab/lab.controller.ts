@@ -26,6 +26,7 @@ import {
   CollectSampleDto,
   SubmitResultDto,
 } from './dto/lab.dto';
+import { ConfirmResetDto } from '../common/dto/confirm-reset.dto';
 
 function facilityOf(user: CurrentUserType): string {
   if (!user.facilityId) throw new BadRequestException('Your account is not linked to a facility');
@@ -78,7 +79,7 @@ export class LabController {
     description:
       'Irreversible. Requires body { "confirm": "RESET" }. Intended for a facility with only test/dummy data.',
   })
-  async resetFromKnhts(@CurrentUser() user: CurrentUserType, @Body() body: { confirm?: string }) {
+  async resetFromKnhts(@CurrentUser() user: CurrentUserType, @Body() body: ConfirmResetDto) {
     if (body?.confirm !== 'RESET') {
       throw new BadRequestException('Send { "confirm": "RESET" } to wipe the lab catalogue, orders and results.');
     }
