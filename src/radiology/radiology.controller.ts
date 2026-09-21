@@ -14,6 +14,8 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { CapabilityGuard } from '../auth/guards/capability.guard';
+import { RequireCapability } from '../auth/decorators/require-capability.decorator';
 import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.decorator';
 import { RadiologyService } from './radiology.service';
 import { CreateRadiologyDto } from './dto/create-radiology.dto';
@@ -32,7 +34,7 @@ function facilityOf(user: CurrentUserType): string {
 @ApiTags('radiology')
 @ApiBearerAuth('JWT-auth')
 @Controller('radiology')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, CapabilityGuard)
 @Roles('doctor', 'nurse', 'radiographer', 'facility_admin', 'super_admin')
 export class RadiologyController {
   constructor(private readonly service: RadiologyService) {}
@@ -53,6 +55,7 @@ export class RadiologyController {
 
   @Patch('exams/:id')
   @Roles('radiographer', 'facility_admin', 'super_admin')
+  @RequireCapability('manage_radiology_catalog')
   @ApiOperation({ summary: 'Update an imaging exam (price / active / name)' })
   updateExam(
     @CurrentUser() user: CurrentUserType,
