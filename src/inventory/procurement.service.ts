@@ -237,6 +237,7 @@ export class ProcurementService {
             .createQueryBuilder('i')
             .where('i.facilityId = :facilityId', { facilityId })
             .andWhere('LOWER(i.name) = LOWER(:name)', { name })
+            .orderBy('i.is_active', 'DESC')
             .getOne();
           if (!item) {
             const acc = accountsFor(line.category);
@@ -256,6 +257,16 @@ export class ProcurementService {
               }),
             );
           }
+        }
+        // Stock has arrived for a dormant national product: it is stocked now,
+        // so activate it (and give it the default markup if it has no price).
+        if (!item.isActive) {
+          item.isActive = true;
+          if (!(Number(item.salePrice) > 0) && item.markupPct == null && defaultMarkup > 0) {
+            item.markupPct = defaultMarkup.toFixed(2);
+          }
+          if (item.unit === 'unit' && line.unit) item.unit = line.unit;
+          await itemRepo.save(item);
         }
 
         const lineValue = r2(line.quantity * line.unitCost);

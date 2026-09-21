@@ -61,6 +61,12 @@ export class InventoryController {
     return this.stock.listItems(facilityOf(user), { search, lowStock: lowStock === 'true', inactiveOnly: inactiveOnly === 'true' });
   }
 
+  @Get('items/search')
+  @ApiOperation({ summary: 'Typeahead over your items and the dormant national list (name / SKU / HPT code)' })
+  searchItems(@CurrentUser() user: CurrentUserType, @Query('q') q?: string) {
+    return this.stock.searchItems(facilityOf(user), q ?? '');
+  }
+
   @Get('items/inactive-count')
   @ApiOperation({ summary: 'Number of imported national products not yet activated' })
   async inactiveCount(@CurrentUser() user: CurrentUserType) {

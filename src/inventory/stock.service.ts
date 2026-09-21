@@ -152,6 +152,24 @@ export class StockService {
     return qb.getMany();
   }
 
+  /**
+   * Name/code typeahead across the facility's items AND the dormant national
+   * list, for procurement lines (a buyer can request a product before it is
+   * stocked). Active items rank first.
+   */
+  async searchItems(facilityId: string, q: string, limit = 30): Promise<InventoryItem[]> {
+    const term = q.trim();
+    if (!term) return [];
+    return this.items
+      .createQueryBuilder('i')
+      .where('i.facilityId = :facilityId', { facilityId })
+      .andWhere('(i.name ILIKE :s OR i.sku ILIKE :s OR i.knhts_code ILIKE :s)', { s: `%${term}%` })
+      .orderBy('i.is_active', 'DESC')
+      .addOrderBy('i.name', 'ASC')
+      .take(limit)
+      .getMany();
+  }
+
   /** How many dormant (imported, not yet activated) products the facility has. */
   countInactive(facilityId: string): Promise<number> {
     return this.items.count({ where: { facilityId, isActive: false } });
