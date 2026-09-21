@@ -74,6 +74,10 @@ export class StockMovement {
   @Column({ type: 'text', nullable: true })
   note: string | null;
 
+  /** Receiving department / cost centre for a store issue. */
+  @Column({ type: 'varchar', length: 60, nullable: true })
+  department: string | null;
+
   @Column({ name: 'created_by_id', type: 'uuid', nullable: true })
   createdById: string | null;
 

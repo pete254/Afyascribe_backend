@@ -63,3 +63,32 @@ export const accountsFor = (category?: string | null) => {
   const m = categoryMeta(category);
   return { inventory: m.inventory, cogs: m.cogs, revenue: m.revenue ?? '41004' };
 };
+
+/**
+ * Capital items on a requisition / LPO. They are NOT stock: receiving one
+ * creates an asset-register entry per unit and debits the fixed-asset account.
+ */
+export interface AssetCategoryMeta {
+  label: string;
+  /** Asset register type (see assets/dto ASSET_TYPES). */
+  assetType: string;
+  /** Fixed-asset account debited on receipt. */
+  account: string;
+}
+
+export const ASSET_CATEGORY_META: Record<string, AssetCategoryMeta> = {
+  asset_medical: { label: 'Medical equipment', assetType: 'medical', account: '15003' },
+  asset_lab: { label: 'Laboratory equipment', assetType: 'equipment', account: '15004' },
+  asset_radiology: { label: 'Radiology equipment', assetType: 'equipment', account: '15005' },
+  asset_dental: { label: 'Dental equipment', assetType: 'equipment', account: '15006' },
+  asset_furniture: { label: 'Furniture & fittings', assetType: 'furniture', account: '15007' },
+  asset_it: { label: 'Computers & IT', assetType: 'it', account: '15008' },
+  asset_vehicle: { label: 'Motor vehicle', assetType: 'vehicle', account: '15010' },
+  asset_building: { label: 'Building works', assetType: 'building', account: '15002' },
+  asset_other: { label: 'Other equipment', assetType: 'equipment', account: '15003' },
+};
+
+export const ASSET_CATEGORIES = Object.keys(ASSET_CATEGORY_META);
+export const isAssetCategory = (c?: string | null) => !!c && c in ASSET_CATEGORY_META;
+export const assetCategoryMeta = (c?: string | null): AssetCategoryMeta =>
+  ASSET_CATEGORY_META[c ?? ''] ?? ASSET_CATEGORY_META.asset_other;

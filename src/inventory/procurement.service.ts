@@ -8,7 +8,9 @@ import { GoodsReceiptLine } from './entities/goods-receipt-line.entity';
 import { SupplierPayment } from './entities/supplier-payment.entity';
 import { PurchaseOrder } from './entities/purchase-order.entity';
 import { PurchaseOrderLine } from './entities/purchase-order-line.entity';
-import { accountsFor, classOf } from './item-classes';
+import { accountsFor, classOf, isAssetCategory, assetCategoryMeta } from './item-classes';
+import { Asset } from '../assets/entities/asset.entity';
+import { AssetEvent } from '../assets/entities/asset-event.entity';
 import { Facility } from '../facilities/entities/facility.entity';
 import { SupplierInvoiceService } from './supplier-invoice.service';
 import {
@@ -214,6 +216,73 @@ export class ProcurementService {
       const postingLines: { inventoryAccountCode: string; value: number; description?: string }[] = [];
 
       for (const line of dto.lines) {
+        // Capital line: not stock. One asset-register entry per unit received,
+        // debiting the fixed-asset account instead of inventory.
+        if (!line.itemId && isAssetCategory(line.category)) {
+          const meta = assetCategoryMeta(line.category);
+          const name = (line.name ?? meta.label).trim();
+          const units = Math.max(1, Math.round(line.quantity));
+          const lineValue = r2(line.quantity * line.unitCost);
+          total = r2(total + lineValue);
+          const assetRepo = mgr.getRepository(Asset);
+          const eventRepo = mgr.getRepository(AssetEvent);
+          const assetIds: string[] = [];
+          let seq = await assetRepo.count({ where: { facilityId } });
+          for (let u = 0; u < units; u++) {
+            seq += 1;
+            const asset = await assetRepo.save(
+              assetRepo.create({
+                facilityId,
+                assetTag: `AST-${String(seq).padStart(5, '0')}`,
+                name: units > 1 ? `${name} #${u + 1}` : name,
+                assetType: meta.assetType,
+                purchaseDate: date,
+                purchaseCost: line.unitCost.toFixed(2),
+                salvageValue: '0',
+                depreciationMethod: 'straight_line',
+                usefulLifeYears: '0',
+                status: 'in_use',
+                supplier: supplier.name,
+                notes: `Received on ${grnNo}${dto.reference ? ` (${dto.reference})` : ''}`,
+              }),
+            );
+            await eventRepo.save(
+              eventRepo.create({
+                facilityId,
+                assetId: asset.id,
+                type: 'acquired',
+                date,
+                amount: line.unitCost.toFixed(2),
+                note: `Received on ${grnNo} from ${supplier.name}`,
+              }),
+            );
+            assetIds.push(asset.id);
+          }
+          await mgr.getRepository(GoodsReceiptLine).save(
+            mgr.getRepository(GoodsReceiptLine).create({
+              goodsReceiptId: header.id,
+              itemId: null,
+              description: name,
+              assetIds,
+              quantity: line.quantity.toFixed(3),
+              unitCost: line.unitCost.toFixed(4),
+              lineValue: lineValue.toFixed(2),
+            }),
+          );
+          if (line.purchaseOrderLineId) {
+            const poLine = await mgr.getRepository(PurchaseOrderLine).findOne({ where: { id: line.purchaseOrderLineId } });
+            if (poLine) {
+              const ordered = Number(poLine.quantity);
+              const already = Number(poLine.receivedQty);
+              poLine.receivedQty = r3(Math.min(ordered, already + line.quantity)).toFixed(3);
+              await mgr.getRepository(PurchaseOrderLine).save(poLine);
+              touchedPoIds.add(poLine.purchaseOrderId);
+            }
+          }
+          postingLines.push({ inventoryAccountCode: meta.account, value: lineValue, description: `Asset: ${name}` });
+          continue;
+        }
+
         // Resolve the line to a stock item: use the given one, match an existing
         // item by name, or create it (procurement-only facilities never pre-add).
         let item: InventoryItem | null = null;

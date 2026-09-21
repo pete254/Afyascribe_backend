@@ -131,6 +131,12 @@ export class InventoryController {
     return this.stock.performanceReport(facilityOf(user), { from, to });
   }
 
+  @Get('reports/consumption')
+  @ApiOperation({ summary: 'Store issues by department × category for a period (medical / general stores)' })
+  consumption(@CurrentUser() user: CurrentUserType, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.stock.consumptionReport(facilityOf(user), from, to);
+  }
+
   @Get('reports/stock-variance')
   stockVariance(
     @CurrentUser() user: CurrentUserType,

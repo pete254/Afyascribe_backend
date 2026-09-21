@@ -27,6 +27,8 @@ export interface MovementParams {
   sourceId?: string;
   note?: string;
   userId?: string;
+  /** Receiving department for a store issue. */
+  department?: string;
 }
 
 @Injectable()
@@ -462,6 +464,7 @@ export class StockService {
       sourceType: params.sourceType ?? null,
       sourceId: params.sourceId ?? null,
       note: params.note ?? null,
+      department: params.department ?? null,
       createdById: params.userId ?? null,
     });
     const saved = await mgr.getRepository(StockMovement).save(movement);
@@ -555,6 +558,7 @@ export class StockService {
       userId?: string;
       /** Clamp the issue to on-hand stock instead of going negative. */
       capToStock?: boolean;
+      department?: string;
     } = {},
   ): Promise<{ item: InventoryItem; value: number; issued: number }> {
     if (!(quantity > 0)) throw new BadRequestException('Issue quantity must be greater than 0');
@@ -583,6 +587,7 @@ export class StockService {
         sourceId: opts.sourceId,
         note: opts.note,
         userId: opts.userId,
+        department: opts.department ?? opts.costCenter,
       });
       await this.consumeFefo(mgr, facilityId, itemId, qty);
       return { item: it, value: Math.abs(res.value), issued: qty };
@@ -622,9 +627,68 @@ export class StockService {
       sourceType: 'store_issue',
       note: `Issued to ${dto.department}${dto.note ? ` — ${dto.note}` : ''}: ${item.name}`,
       costCenter: dto.department,
+      department: dto.department,
       userId,
     });
     return { item: res.item, issued: res.issued, value: res.value };
+  }
+
+  /**
+   * Consumption by department: every store issue in the period, grouped by
+   * department × category, plus the issue lines themselves. Dispensing to
+   * patients is not a department issue and is reported under Pharmacy.
+   */
+  async consumptionReport(facilityId: string, from?: string, to?: string) {
+    const qb = this.movements
+      .createQueryBuilder('m')
+      .innerJoinAndSelect('m.item', 'i')
+      .where('m.facilityId = :facilityId', { facilityId })
+      .andWhere("m.type = 'issue'")
+      .andWhere("m.source_type = 'store_issue'");
+    if (from) qb.andWhere('m.date >= :from', { from });
+    if (to) qb.andWhere('m.date <= :to', { to });
+    const rows = await qb.orderBy('m.date', 'DESC').addOrderBy('m.created_at', 'DESC').getMany();
+
+    const byKey = new Map<string, { department: string; category: string; itemClass: string; quantity: number; value: number; lines: number }>();
+    const byDept = new Map<string, { department: string; value: number; lines: number }>();
+    let total = 0;
+    for (const m of rows) {
+      const dept = m.department || 'Unassigned';
+      const value = Math.abs(Number(m.value));
+      total = r2(total + value);
+      const k = `${dept}::${m.item.category}`;
+      const g = byKey.get(k) ?? { department: dept, category: m.item.category, itemClass: m.item.itemClass, quantity: 0, value: 0, lines: 0 };
+      g.quantity = r3(g.quantity + Math.abs(Number(m.quantity)));
+      g.value = r2(g.value + value);
+      g.lines += 1;
+      byKey.set(k, g);
+      const d = byDept.get(dept) ?? { department: dept, value: 0, lines: 0 };
+      d.value = r2(d.value + value);
+      d.lines += 1;
+      byDept.set(dept, d);
+    }
+    return {
+      from: from ?? null,
+      to: to ?? null,
+      total,
+      departments: Array.from(byDept.values()).sort((a, b) => b.value - a.value),
+      groups: Array.from(byKey.values()).sort((a, b) => a.department.localeCompare(b.department) || b.value - a.value),
+      lines: rows.map((m) => ({
+        id: m.id,
+        date: m.date,
+        department: m.department,
+        itemId: m.itemId,
+        itemName: m.item.name,
+        category: m.item.category,
+        itemClass: m.item.itemClass,
+        unit: m.item.unit,
+        quantity: Math.abs(Number(m.quantity)),
+        unitCost: Number(m.unitCost),
+        value: Math.abs(Number(m.value)),
+        reference: m.reference,
+        note: m.note,
+      })),
+    };
   }
 
   /** Manual stock adjustment (write-up/down or count correction). */

@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { Asset } from '../assets/entities/asset.entity';
+import { AssetEvent } from '../assets/entities/asset-event.entity';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -44,6 +46,8 @@ import { TerminologyModule } from '../terminology/terminology.module';
       StockBatch,
       GoodsReceipt,
       GoodsReceiptLine,
+      Asset,
+      AssetEvent,
       SupplierPayment,
       PurchaseOrder,
       PurchaseOrderLine,
