@@ -59,7 +59,7 @@ export class DentalService {
     const price = dto.price !== undefined && dto.price !== null ? Number(dto.price) || 0 : Number(service?.defaultPrice) || 0;
     if (service && price > 0) await this.catalog.rememberPrice(facilityId, service.id, price, !!dto.saveAsServicePrice);
     const label = service?.name ?? procedureLabel(procedure);
-    const visitId = await this.resolveVisit(facilityId, dto, price, userId);
+    const visitId = await this.resolveVisit(facilityId, dto, price, label, userId);
 
     const t = this.dentalRepo.create({
       procedure,
@@ -104,6 +104,7 @@ export class DentalService {
     facilityId: string,
     dto: CreateDentalDto,
     price: number,
+    label: string,
     userId?: string,
   ): Promise<string | null> {
     if (dto.visitId) {
@@ -123,7 +124,7 @@ export class DentalService {
       this.visitRepo.create({
         facilityId,
         patientId: dto.patientId,
-        reasonForVisit: `Dental: ${procedureLabel(dto.procedure)}`,
+        reasonForVisit: `Dental: ${label}`,
         visitType: 'dental',
         status: VisitStatus.COMPLETED,
         checkedInById: userId ?? null,
