@@ -149,16 +149,59 @@ export class OpticalService {
       const v = dto[f];
       if (v !== undefined) (rx as unknown as Record<string, unknown>)[f] = v || null;
     }
-    if (dto.status === OpticalStatus.DISPENSED && !rx.dispensedAt) rx.dispensedAt = new Date();
+    if (dto.framePrice !== undefined) rx.framePrice = dto.framePrice > 0 ? dto.framePrice.toFixed(2) : null;
+    if (dto.lensPrice !== undefined) rx.lensPrice = dto.lensPrice > 0 ? dto.lensPrice.toFixed(2) : null;
+    const nowDispensing = dto.status === OpticalStatus.DISPENSED && !rx.dispensedAt;
+    if (nowDispensing) rx.dispensedAt = new Date();
     if (userId) rx.optometrist = { id: userId } as User;
 
     const saved = await this.opticalRepo.save(rx);
 
-    if (nowCancelling && saved.billingId && userId) {
+    // Frame + lenses are billed as one dispensing charge the first time the
+    // record is marked dispensed. Best-effort: a billing hiccup must not undo
+    // the dispensing itself.
+    const dispenseTotal = (Number(saved.framePrice) || 0) + (Number(saved.lensPrice) || 0);
+    if (nowDispensing && dispenseTotal > 0 && !saved.dispenseBillingId) {
       try {
-        await this.billing.waive(saved.billingId, 'Optical order cancelled', userId, facilityId);
+        const visitId =
+          saved.visitId ??
+          (await this.resolveVisit(
+            facilityId,
+            { patientId: saved.patient.id } as CreateOpticalDto,
+            dispenseTotal,
+            userId,
+          ));
+        if (visitId) {
+          if (!saved.visitId) saved.visitId = visitId;
+          const parts = [
+            saved.frame ? `Frame: ${saved.frame}${Number(saved.framePrice) > 0 ? ` (${Number(saved.framePrice).toFixed(2)})` : ''}` : null,
+            saved.lensType ? `Lenses: ${saved.lensType}${Number(saved.lensPrice) > 0 ? ` (${Number(saved.lensPrice).toFixed(2)})` : ''}` : null,
+          ].filter(Boolean);
+          const bill = await this.billing.create(
+            {
+              visitId,
+              serviceType: ServiceType.PROCEDURE,
+              serviceDescription: `Optical dispensing${parts.length ? ` — ${parts.join(' · ')}` : ''}`,
+              amount: Math.round(dispenseTotal * 100) / 100,
+            },
+            facilityId,
+          );
+          saved.dispenseBillingId = bill.id;
+          await this.opticalRepo.save(saved);
+        }
       } catch (e) {
-        console.error(`Voiding optical bill ${saved.billingId} failed: ${(e as Error).message}`);
+        console.error(`Optical dispensing bill failed: ${(e as Error).message}`);
+      }
+    }
+
+    if (nowCancelling && userId) {
+      for (const billId of [saved.billingId, saved.dispenseBillingId]) {
+        if (!billId) continue;
+        try {
+          await this.billing.waive(billId, 'Optical order cancelled', userId, facilityId);
+        } catch (e) {
+          console.error(`Voiding optical bill ${billId} failed: ${(e as Error).message}`);
+        }
       }
     }
     return saved;

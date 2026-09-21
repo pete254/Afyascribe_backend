@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsNumber, Min } from 'class-validator';
 import { OPTICAL_RX_TYPES, OPTICAL_STATUSES } from '../optical.enums';
 
 export class UpdateOpticalDto {
@@ -24,4 +24,8 @@ export class UpdateOpticalDto {
 
   @IsOptional() @IsString() frame?: string;
   @IsOptional() @IsString() lensType?: string;
+
+  /** Dispensing charges (KES). Billed together when status becomes DISPENSED. */
+  @IsOptional() @IsNumber() @Min(0) framePrice?: number;
+  @IsOptional() @IsNumber() @Min(0) lensPrice?: number;
 }

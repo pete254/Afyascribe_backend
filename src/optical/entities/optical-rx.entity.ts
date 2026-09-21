@@ -99,6 +99,17 @@ export class OpticalRx {
 
   @Column({ name: 'price', type: 'numeric', precision: 12, scale: 2, nullable: true })
   price?: string | null;
+
+  // Dispensing charges (frame + lenses), billed together when the record is
+  // marked dispensed.
+  @Column({ name: 'frame_price', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  framePrice?: string | null;
+
+  @Column({ name: 'lens_price', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  lensPrice?: string | null;
+
+  @Column({ name: 'dispense_billing_id', type: 'uuid', nullable: true })
+  dispenseBillingId?: string | null;
   @Column({ name: 'billing_id', type: 'uuid', nullable: true })
   billingId?: string | null;
 
