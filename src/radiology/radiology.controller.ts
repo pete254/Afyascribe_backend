@@ -43,6 +43,39 @@ export class RadiologyController {
     return this.service.create(facilityOf(user), dto, user.id);
   }
 
+  // ── Imaging exam catalogue (national, LOINC-coded) ──────────────────────────
+
+  @Get('exams')
+  @ApiOperation({ summary: "This facility's imaging exam catalogue" })
+  listExams(@CurrentUser() user: CurrentUserType, @Query('activeOnly') activeOnly?: string) {
+    return this.service.listExams(facilityOf(user), activeOnly === 'true');
+  }
+
+  @Patch('exams/:id')
+  @Roles('radiographer', 'facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Update an imaging exam (price / active / name)' })
+  updateExam(
+    @CurrentUser() user: CurrentUserType,
+    @Param('id') id: string,
+    @Body() body: { price?: number; isActive?: boolean; name?: string },
+  ) {
+    return this.service.updateExam(facilityOf(user), id, body);
+  }
+
+  // DESTRUCTIVE: wipe radiology studies + exams, import the national imaging list.
+  @Post('exams/reset-from-knhts')
+  @Roles('facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Wipe imaging studies + exams, then import the national KNHTS imaging exams' })
+  async resetExams(@CurrentUser() user: CurrentUserType, @Body() body: { confirm?: string }) {
+    if (body?.confirm !== 'RESET') {
+      throw new BadRequestException('Send { "confirm": "RESET" } to wipe imaging studies and the exam catalogue.');
+    }
+    const facilityId = facilityOf(user);
+    const purged = await this.service.resetCatalogue(facilityId);
+    this.service.importExamsFromKnhts(facilityId).catch(() => undefined);
+    return { purged, importStarted: true };
+  }
+
   @Get()
   @ApiOperation({ summary: "This facility's imaging studies (filterable by patient/status)" })
   findAll(

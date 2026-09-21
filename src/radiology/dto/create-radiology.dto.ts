@@ -1,9 +1,17 @@
-import { IsIn, IsNotEmpty, IsOptional, IsUUID, IsString, IsISO8601, IsNumber, Min } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsUUID, IsString, IsISO8601, IsNumber, Min, ValidateIf } from 'class-validator';
 
 export class CreateRadiologyDto {
-  @IsIn(['X-RAY', 'ULTRASOUND', 'CT', 'MRI', 'MAMMOGRAPHY', 'FLUOROSCOPY'])
+  /** An exam from the facility's imaging catalogue (radiology_exams). When set,
+   *  the modality, LOINC coding and default price come from the exam. */
+  @IsOptional()
+  @IsUUID()
+  examId?: string;
+
+  /** Modality; required when no examId is given (derived from the exam otherwise). */
+  @ValidateIf((o) => !o.examId)
+  @IsIn(['X-RAY', 'ULTRASOUND', 'CT', 'MRI', 'MAMMOGRAPHY', 'FLUOROSCOPY', 'NUCLEAR', 'OTHER'])
   @IsNotEmpty()
-  type: string;
+  type?: string;
 
   @IsUUID()
   @IsNotEmpty()

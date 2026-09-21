@@ -8,11 +8,14 @@ import { Facility } from '../facilities/entities/facility.entity';
 import { User } from '../users/entities/user.entity';
 import { PatientVisit } from '../patient-visits/entities/patient-visit.entity';
 import { BillingModule } from '../billing/billing.module';
+import { RadiologyExam } from './entities/radiology-exam.entity';
+import { TerminologyModule } from '../terminology/terminology.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Radiology, Patient, Facility, User, PatientVisit]),
+    TypeOrmModule.forFeature([Radiology, Patient, Facility, User, PatientVisit, RadiologyExam]),
     BillingModule,
+    TerminologyModule,
   ],
   controllers: [RadiologyController],
   providers: [RadiologyService],

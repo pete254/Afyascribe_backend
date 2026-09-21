@@ -2,7 +2,7 @@ import { IsIn, IsOptional, IsISO8601, IsString } from 'class-validator';
 
 export class UpdateRadiologyDto {
   @IsOptional()
-  @IsIn(['X-RAY', 'ULTRASOUND', 'CT', 'MRI', 'MAMMOGRAPHY', 'FLUOROSCOPY'])
+  @IsIn(['X-RAY', 'ULTRASOUND', 'CT', 'MRI', 'MAMMOGRAPHY', 'FLUOROSCOPY', 'NUCLEAR', 'OTHER'])
   type?: string;
 
   @IsOptional()

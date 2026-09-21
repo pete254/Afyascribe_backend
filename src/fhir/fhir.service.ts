@@ -15,6 +15,8 @@ import { ServiceCatalogItem } from '../service-catalog/entities/service-catalog.
 import { Facility } from '../facilities/entities/facility.entity';
 import { User } from '../users/entities/user.entity';
 import { PatientVisit } from '../patient-visits/entities/patient-visit.entity';
+import { Radiology } from '../radiology/entities/radiology.entity';
+import { RadiologyStatus } from '../radiology/radiology-status.enum';
 import { FHIR_SYS } from './fhir-systems';
 
 type Json = Record<string, unknown>;
@@ -38,6 +40,7 @@ export class FhirService {
     @InjectRepository(Facility) private readonly facilities: Repository<Facility>,
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(PatientVisit) private readonly visits: Repository<PatientVisit>,
+    @InjectRepository(Radiology) private readonly studies: Repository<Radiology>,
   ) {}
 
   private idType(code: string, display: string): Json {
@@ -359,6 +362,42 @@ export class FhirService {
     };
   }
 
+  /**
+   * An imaging study → FHIR DiagnosticReport (radiology), LOINC-coded when it
+   * was ordered from the national exam catalogue. Findings + impression become
+   * the report's conclusion; status follows the worklist.
+   */
+  buildImagingReport(study: Radiology): Json {
+    const name = study.examName || `${study.type}${study.bodyPart ? ` — ${study.bodyPart}` : ''}`;
+    const code = study.loincCode
+      ? { coding: [{ system: FHIR_SYS.loinc, code: study.loincCode, display: study.examName || undefined }], text: name }
+      : { text: name };
+    const status =
+      study.status === RadiologyStatus.CANCELLED
+        ? 'cancelled'
+        : study.reportedAt || study.findings || study.impression
+          ? 'final'
+          : study.status === RadiologyStatus.COMPLETED
+            ? 'partial'
+            : 'registered';
+    const conclusion = [study.findings, study.impression].filter(Boolean).join('\n\nImpression: ') || study.report || undefined;
+    const performer = study.reportedBy?.id ?? study.performedBy?.id;
+    return {
+      resourceType: 'DiagnosticReport',
+      id: `img-${study.id}`,
+      status,
+      category: [
+        { coding: [{ system: 'http://terminology.hl7.org/CodeSystem/v2-0074', code: 'RAD', display: 'Radiology' }] },
+      ],
+      code,
+      subject: { reference: `Patient/${study.patient?.id}` },
+      effectiveDateTime: (study.performedAt ?? study.createdAt) ? new Date(study.performedAt ?? study.createdAt).toISOString() : undefined,
+      issued: study.reportedAt ? new Date(study.reportedAt).toISOString() : undefined,
+      performer: performer ? [{ reference: `Practitioner/${performer}` }] : undefined,
+      conclusion,
+    };
+  }
+
   // ── SHA eClaim (per visit) ───────────────────────────────────────────────────
 
   private money(v: number): Json {
@@ -530,13 +569,21 @@ export class FhirService {
         .map((c) => [c.name.trim().toLowerCase(), c]),
     );
 
+    // Imaging studies → DiagnosticReports (LOINC via the exam snapshot).
+    const imaging = await this.studies.find({
+      where: { patient: { id: patientId }, facility: { id: facilityId } },
+      order: { createdAt: 'DESC' },
+    });
+
     // Facility (Organization) and the staff (Practitioners) referenced by the
-    // encounters and prescriptions — so every reference in the bundle resolves.
+    // encounters, prescriptions and imaging reports — so every reference in
+    // the bundle resolves.
     const facility = await this.facilities.findOne({ where: { id: facilityId } });
     const staffIds = Array.from(
       new Set([
         ...notes.map((n) => n.createdById).filter((x): x is string => !!x),
         ...rxs.map((r) => r.doctorId).filter((x): x is string => !!x),
+        ...imaging.map((s) => s.reportedBy?.id ?? s.performedBy?.id).filter((x): x is string => !!x),
       ]),
     );
     const staff = staffIds.length ? await this.users.find({ where: { id: In(staffIds) } }) : [];
@@ -571,6 +618,9 @@ export class FhirService {
     }
     for (const bill of procBills) {
       entries.push({ resource: this.buildProcedure(bill, ichiByName) });
+    }
+    for (const study of imaging) {
+      entries.push({ resource: this.buildImagingReport(study) });
     }
 
     const resources = entries.map((e) => e.resource as Json);

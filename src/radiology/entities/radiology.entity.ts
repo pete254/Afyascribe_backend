@@ -21,6 +21,18 @@ export class Radiology {
   @Column({ name: 'priority', type: 'varchar', length: 20, default: 'ROUTINE' })
   priority: string;
 
+  // The catalogue exam this study was ordered from (radiology_exams), with the
+  // name and LOINC code snapshotted so the record stays coded even if the
+  // catalogue is later edited or reset.
+  @Column({ name: 'exam_id', type: 'uuid', nullable: true })
+  examId?: string | null;
+
+  @Column({ name: 'exam_name', type: 'varchar', length: 200, nullable: true })
+  examName?: string | null;
+
+  @Column({ name: 'loinc_code', type: 'varchar', length: 32, nullable: true })
+  loincCode?: string | null;
+
   @ManyToOne(() => Patient, { eager: true })
   @JoinColumn({ name: 'patient_id' })
   patient: Patient;
