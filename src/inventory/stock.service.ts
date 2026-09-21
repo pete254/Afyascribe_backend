@@ -56,7 +56,9 @@ export class StockService {
 
   /**
    * Seed the drug catalogue from the KNHTS national products list
-   * (MOH-PPB/HPT), each carrying its HPT code. Prices and stock start at zero.
+   * (MOH-PPB/HPT), each carrying its HPT code. Prices and stock start at zero
+   * and every product is imported INACTIVE — hidden from pickers until the
+   * facility activates the ones it actually stocks.
    * Skips products already present by KNHTS code.
    */
   async importDrugsFromKnhts(facilityId: string): Promise<number> {
@@ -83,6 +85,7 @@ export class StockService {
             salePrice: '0',
             costPrice: '0',
             reorderLevel: '0',
+            isActive: false,
           }),
         );
       if (rows.length) {
@@ -129,13 +132,29 @@ export class StockService {
     return this.items.save(item);
   }
 
-  listItems(facilityId: string, opts: { lowStock?: boolean; search?: string } = {}): Promise<InventoryItem[]> {
+  /**
+   * Active items by default (what pickers and reports want). `inactiveOnly`
+   * lists the dormant national catalogue for the facility to activate from —
+   * capped, since it can be ~18k rows, so callers search it.
+   */
+  listItems(
+    facilityId: string,
+    opts: { lowStock?: boolean; search?: string; inactiveOnly?: boolean } = {},
+  ): Promise<InventoryItem[]> {
     const qb = this.items.createQueryBuilder('i').where('i.facilityId = :facilityId', { facilityId });
+    qb.andWhere('i.is_active = :active', { active: !opts.inactiveOnly });
     if (opts.search) {
-      qb.andWhere('(i.name ILIKE :s OR i.sku ILIKE :s)', { s: `%${opts.search.trim()}%` });
+      qb.andWhere('(i.name ILIKE :s OR i.sku ILIKE :s OR i.knhts_code ILIKE :s)', { s: `%${opts.search.trim()}%` });
     }
     if (opts.lowStock) qb.andWhere('i.stock_qty <= i.reorder_level');
-    return qb.orderBy('i.name', 'ASC').getMany();
+    qb.orderBy('i.name', 'ASC');
+    if (opts.inactiveOnly) qb.take(200);
+    return qb.getMany();
+  }
+
+  /** How many dormant (imported, not yet activated) products the facility has. */
+  countInactive(facilityId: string): Promise<number> {
+    return this.items.count({ where: { facilityId, isActive: false } });
   }
 
   async getItem(facilityId: string, id: string): Promise<InventoryItem> {

@@ -9,7 +9,7 @@ import {
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -51,12 +51,20 @@ export class InventoryController {
   constructor(private readonly stock: StockService) {}
 
   @Get('items')
+  @ApiOperation({ summary: 'Active items (default) or, with inactiveOnly=true, the dormant national list (search it; capped at 200)' })
   listItems(
     @CurrentUser() user: CurrentUserType,
     @Query('search') search?: string,
     @Query('lowStock') lowStock?: string,
+    @Query('inactiveOnly') inactiveOnly?: string,
   ) {
-    return this.stock.listItems(facilityOf(user), { search, lowStock: lowStock === 'true' });
+    return this.stock.listItems(facilityOf(user), { search, lowStock: lowStock === 'true', inactiveOnly: inactiveOnly === 'true' });
+  }
+
+  @Get('items/inactive-count')
+  @ApiOperation({ summary: 'Number of imported national products not yet activated' })
+  async inactiveCount(@CurrentUser() user: CurrentUserType) {
+    return { count: await this.stock.countInactive(facilityOf(user)) };
   }
 
   @Post('items')
