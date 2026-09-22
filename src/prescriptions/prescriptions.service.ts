@@ -83,6 +83,11 @@ export class PrescriptionsService {
         line.duration = i.duration ?? null;
         line.quantityText = i.quantityText ?? null;
         line.instructions = i.instructions ?? null;
+        line.knhtsCode = i.knhtsCode?.trim() || null;
+        line.doseForm = i.doseForm?.trim() || null;
+        line.strength = i.strength?.trim() || null;
+        // The prescriber may already have picked stock; the pharmacist can change it.
+        line.itemId = i.itemId ?? null;
         line.sortOrder = idx;
         line.dispensed = false;
         return line;
@@ -198,6 +203,9 @@ export class PrescriptionsService {
       line.quantityText = d.quantityText ?? null;
       line.instructions = d.instructions ?? null;
       line.itemId = d.itemId ?? null;
+      if (d.knhtsCode !== undefined) line.knhtsCode = d.knhtsCode?.trim() || null;
+      if (d.doseForm !== undefined) line.doseForm = d.doseForm?.trim() || null;
+      if (d.strength !== undefined) line.strength = d.strength?.trim() || null;
       line.dispenseQty = d.dispenseQty != null ? String(d.dispenseQty) : null;
       line.unitPrice = d.unitPrice != null ? String(d.unitPrice) : null;
       line.sortOrder = idx;

@@ -52,6 +52,21 @@ export class PrescriptionItem {
 
   // ── Pharmacy (dispensing) ──────────────────────────────────────────────────
   /** Linked inventory item — set when the pharmacist maps the drug to stock. */
+  /**
+   * National HPT generic code, captured when the drug is written — so the
+   * prescription is coded in its own right rather than only becoming coded if
+   * a pharmacist later links it to stock.
+   */
+  @Column({ name: 'knhts_code', type: 'varchar', length: 64, nullable: true })
+  knhtsCode: string | null;
+
+  /** Dose form and strength as the national dictionary states them. */
+  @Column({ name: 'dose_form', type: 'varchar', length: 80, nullable: true })
+  doseForm: string | null;
+
+  @Column({ type: 'varchar', length: 60, nullable: true })
+  strength: string | null;
+
   @Column({ name: 'item_id', type: 'uuid', nullable: true })
   itemId: string | null;
 

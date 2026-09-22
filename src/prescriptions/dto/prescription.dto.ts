@@ -12,6 +12,20 @@ import { Type } from 'class-transformer';
 
 /** One medication line as written by the doctor. */
 export class PrescriptionItemDto {
+  @ApiPropertyOptional({ description: 'National HPT generic code for the drug' })
+  @IsOptional() @IsString()
+  knhtsCode?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  doseForm?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  strength?: string;
+
+  @ApiPropertyOptional({ description: 'Stock item, when the drug prescribed is one the facility stocks' })
+  @IsOptional() @IsUUID()
+  itemId?: string;
+
   @IsString()
   medication: string;
 
@@ -101,6 +115,15 @@ export class PharmacyItemDto {
   /** Also make unitPrice the linked item's sale price (when it had none). */
   @IsOptional() @IsBoolean()
   saveAsItemPrice?: boolean;
+
+  @IsOptional() @IsString()
+  knhtsCode?: string;
+
+  @IsOptional() @IsString()
+  doseForm?: string;
+
+  @IsOptional() @IsString()
+  strength?: string;
 }
 
 export class UpdatePrescriptionItemsDto {

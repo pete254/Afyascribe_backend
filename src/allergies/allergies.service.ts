@@ -22,6 +22,8 @@ export interface MedicationListEntry {
   frequency: string | null;
   duration: string | null;
   instructions: string | null;
+  doseForm: string | null;
+  strength: string | null;
   prescribedOn: string;
   prescriber: string | null;
   dispensed: boolean;
@@ -246,6 +248,8 @@ export class AllergiesService {
           dosage: line.dosage ?? null,
           frequency: line.frequency ?? null,
           duration: line.duration ?? null,
+          doseForm: item?.doseForm ?? line.doseForm ?? null,
+          strength: item?.strength ?? line.strength ?? null,
           instructions: line.instructions ?? null,
           prescribedOn: startDay ?? '',
           prescriber: rx.doctorName ?? null,
@@ -253,7 +257,9 @@ export class AllergiesService {
           dispensedQty: qty,
           daysSupply: supply?.days ?? null,
           dispensedOn: rx.dispensedAt ? new Date(rx.dispensedAt).toISOString().slice(0, 10) : null,
-          hptCode: item?.knhtsCode ?? null,
+          // The item's code when dispensed from stock, else the code the
+          // prescriber picked — so a prescription is coded either way.
+          hptCode: item?.knhtsCode ?? line.knhtsCode ?? null,
           atcCode: item?.atcCode ?? null,
           activeComponentCode: item?.activeComponentCode ?? null,
           expectedEnd,
