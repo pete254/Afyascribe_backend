@@ -51,6 +51,13 @@ export const FHIR_SYS = {
   /** Encounter / visit type code system (KNHTS Visit type). */
   visitType: env('FHIR_SYS_VISIT_TYPE', 'https://dha.go.ke/CodeSystem/visit-type'),
 
+  /** Allergens — national Allergy Intolerance Code list. */
+  allergen: env('FHIR_SYS_ALLERGEN', `${OCL_BASE}/orgs/MOH-KENYA/sources/ORG-00001-SRC-012`),
+  /** Allergy reaction manifestations. */
+  allergyManifestation: env('FHIR_SYS_ALLERGY_MANIFESTATION', `${OCL_BASE}/orgs/MOH-KENYA/sources/ORG-00001-SRC-052`),
+  /** Active components of a medicinal product (HPT `AC…` tier). */
+  hptComponent: env('FHIR_SYS_HPT_COMPONENT', `${OCL_BASE}/orgs/MOH-PPB/sources/HPT`),
+
   /** SHA benefit package (KNHTS MOH-KENYA/BenefitsAndInterventions). */
   benefit: env('FHIR_SYS_BENEFIT', `${OCL_BASE}/orgs/MOH-KENYA/sources/BenefitsAndInterventions`),
 } as const;

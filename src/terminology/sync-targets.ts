@@ -6,7 +6,7 @@
  * appear in the national service (https://ilm-hie.dha.go.ke/ocl).
  */
 export interface SyncTarget {
-  domain: 'diagnosis' | 'procedure' | 'lab' | 'drug' | 'benefit' | 'reference';
+  domain: 'diagnosis' | 'procedure' | 'lab' | 'drug' | 'benefit' | 'allergen' | 'reference';
   org: string;
   source: string;
   /** Stored `system` for concepts from this source (defaults to source). */
@@ -27,6 +27,11 @@ export const SYNC_TARGETS: SyncTarget[] = [
   { domain: 'lab', org: 'Regenstrief', source: 'LOINC', optional: true },
   // Drugs / commodities
   { domain: 'drug', org: 'MOH-PPB', source: 'HPT' },
+  // Allergens — the national Allergy Intolerance Code list (~3,000 substances).
+  { domain: 'allergen', org: 'MOH-KENYA', source: 'ORG-00001-SRC-012', system: 'AllergyIntoleranceCode' },
+  // Reaction manifestations and severity, for coding what actually happened.
+  { domain: 'reference', org: 'MOH-KENYA', source: 'ORG-00001-SRC-052', system: 'AllergyReactionManifestation' },
+  { domain: 'reference', org: 'MOH-KENYA', source: 'ORG-00001-SRC-028', system: 'ConditionSeverity' },
   // SHA benefit package — billable services map to these for claims.
   { domain: 'benefit', org: 'MOH-KENYA', source: 'BenefitsAndInterventions', system: 'BenefitsAndInterventions' },
 ];

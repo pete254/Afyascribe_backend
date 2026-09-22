@@ -78,6 +78,7 @@ import { KardexModule } from './kardex/kardex.module';
 import { AssetsModule } from './assets/assets.module';
 import { AuditModule } from './audit/audit.module';
 import { PettyCashModule } from './petty-cash/petty-cash.module';
+import { AllergiesModule } from './allergies/allergies.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -143,6 +144,7 @@ import { PettyCashModule } from './petty-cash/petty-cash.module';
     AssetsModule,
     AuditModule,
     PettyCashModule,
+    AllergiesModule,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],

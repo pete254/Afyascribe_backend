@@ -17,6 +17,8 @@ import { Facility } from '../facilities/entities/facility.entity';
 import { User } from '../users/entities/user.entity';
 import { PatientVisit } from '../patient-visits/entities/patient-visit.entity';
 import { Radiology } from '../radiology/entities/radiology.entity';
+import { PatientAllergy } from '../allergies/entities/patient-allergy.entity';
+import { AllergiesService, MedicationListEntry } from '../allergies/allergies.service';
 import { RadiologyStatus } from '../radiology/radiology-status.enum';
 import { FHIR_PROFILE, FHIR_SYS } from './fhir-systems';
 
@@ -43,6 +45,8 @@ export class FhirService {
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(PatientVisit) private readonly visits: Repository<PatientVisit>,
     @InjectRepository(Radiology) private readonly studies: Repository<Radiology>,
+    @InjectRepository(PatientAllergy) private readonly allergies: Repository<PatientAllergy>,
+    private readonly meds: AllergiesService,
   ) {}
 
   private idType(code: string, display: string): Json {
@@ -428,6 +432,87 @@ export class FhirService {
     };
   }
 
+  /**
+   * A recorded allergy → FHIR AllergyIntolerance, coded to the national
+   * allergen list and, for a drug allergy, to the HPT active component. This is
+   * the resource the DHA criterion means by recording HPT allergies into the
+   * HPT Registry.
+   */
+  buildAllergyIntolerance(a: PatientAllergy): Json {
+    const coding: Json[] = [];
+    if (a.hptCode) coding.push({ system: FHIR_SYS.hptComponent, code: a.hptCode, display: a.hptName || a.allergenName });
+    if (a.knhtsCode) coding.push({ system: FHIR_SYS.allergen, code: a.knhtsCode, display: a.allergenName });
+
+    const clinical =
+      a.status === 'active' ? 'active' : a.status === 'resolved' ? 'resolved' : a.status === 'inactive' ? 'inactive' : null;
+    const categoryOf: Record<string, string> = {
+      medication: 'medication',
+      food: 'food',
+      environment: 'environment',
+      biologic: 'biologic',
+    };
+    const category = categoryOf[a.allergenType];
+    const reactions = (a.manifestations ?? []).map((m) => ({
+      manifestation: [
+        m.code
+          ? { coding: [{ system: FHIR_SYS.allergyManifestation, code: m.code, display: m.display }], text: m.display }
+          : { text: m.display },
+      ],
+      severity: a.severity === 'severe' ? 'severe' : a.severity === 'moderate' ? 'moderate' : a.severity === 'mild' ? 'mild' : undefined,
+    }));
+
+    return {
+      resourceType: 'AllergyIntolerance',
+      id: `allergy-${a.id}`,
+      clinicalStatus: clinical
+        ? { coding: [{ system: 'http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical', code: clinical }] }
+        : undefined,
+      verificationStatus: {
+        coding: [
+          {
+            system: 'http://terminology.hl7.org/CodeSystem/allergyintolerance-verification',
+            code: a.status === 'entered-in-error' ? 'entered-in-error' : a.verificationStatus,
+          },
+        ],
+      },
+      type: a.kind,
+      category: category ? [category] : undefined,
+      criticality: a.criticality ?? undefined,
+      code: coding.length ? { coding, text: a.allergenName } : { text: a.allergenName },
+      patient: { reference: `Patient/${a.patientId}` },
+      onsetDateTime: a.onsetDate ?? undefined,
+      recordedDate: a.createdAt ? new Date(a.createdAt).toISOString() : undefined,
+      recorder: a.recordedByName ? { display: a.recordedByName } : undefined,
+      lastOccurrence: a.lastOccurrence ?? undefined,
+      note: a.note ? [{ text: a.note }] : undefined,
+      reaction: reactions.length ? reactions : undefined,
+    };
+  }
+
+  /**
+   * A line of the patient's medication list → FHIR MedicationStatement, coded
+   * to its HPT product. `status` reflects whether the written course still
+   * runs; where no duration was recorded we say `unknown` rather than assert
+   * the patient is still taking it.
+   */
+  buildMedicationStatement(patientId: string, m: MedicationListEntry): Json {
+    const status = m.activeBasis === 'within-duration' ? 'active' : m.activeBasis === 'ended' ? 'completed' : 'unknown';
+    const dosageText = [m.dosage, m.frequency, m.duration, m.instructions].filter(Boolean).join(' · ') || undefined;
+    return {
+      resourceType: 'MedicationStatement',
+      id: `medstmt-${m.prescriptionId}-${(m.itemId ?? m.medication).slice(0, 8)}`,
+      status,
+      medicationCodeableConcept: m.hptCode
+        ? { coding: [{ system: FHIR_SYS.hpt, code: m.hptCode, display: m.medication }], text: m.medication }
+        : { text: m.medication },
+      subject: { reference: `Patient/${patientId}` },
+      effectivePeriod: { start: m.prescribedOn || undefined, end: m.expectedEnd ?? undefined },
+      dateAsserted: m.prescribedOn || undefined,
+      informationSource: m.prescriber ? { display: m.prescriber } : undefined,
+      dosage: dosageText ? [{ text: dosageText }] : undefined,
+    };
+  }
+
   // ── SHA eClaim (per visit) ───────────────────────────────────────────────────
 
   private money(v: number): Json {
@@ -606,6 +691,11 @@ export class FhirService {
         .map((c) => [c.name.trim().toLowerCase(), c]),
     );
 
+    // Allergies → AllergyIntolerance, and the medication list → MedicationStatement.
+    // Both are DHA certification criteria in their own right.
+    const allergies = await this.allergies.find({ where: { facilityId, patientId } });
+    const medications = await this.meds.medications(facilityId, patientId);
+
     // Imaging studies → DiagnosticReports (LOINC via the exam snapshot).
     const imaging = await this.studies.find({
       where: { patient: { id: patientId }, facility: { id: facilityId } },
@@ -658,6 +748,12 @@ export class FhirService {
     }
     for (const study of imaging) {
       entries.push({ resource: this.buildImagingReport(study) });
+    }
+    for (const a of allergies) {
+      entries.push({ resource: this.buildAllergyIntolerance(a) });
+    }
+    for (const m of medications) {
+      entries.push({ resource: this.buildMedicationStatement(patientId, m) });
     }
 
     const resources = entries.map((e) => e.resource as Json);
