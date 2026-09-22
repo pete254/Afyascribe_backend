@@ -30,6 +30,14 @@ export class FhirController {
     return this.fhir.patientBundle(id, user.facilityId, mode === 'transaction' ? 'transaction' : 'collection');
   }
 
+  @Get('Composition/:patientId')
+  @ApiOperation({
+    summary: "A patient's clinical summary — an IPS-style FHIR document, human-readable and exchangeable",
+  })
+  clinicalSummary(@CurrentUser() user: CurrentUserType, @Param('patientId') patientId: string) {
+    return this.fhir.clinicalSummary(patientId, user.facilityId);
+  }
+
   @Get('Claim/:visitId')
   @ApiOperation({
     summary: "A visit's charges as a FHIR R4 Claim bundle (SHA eClaims)",

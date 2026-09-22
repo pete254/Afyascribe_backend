@@ -22,6 +22,8 @@ import { PatientProblem } from '../problems/entities/patient-problem.entity';
 import { AllergiesService, MedicationListEntry } from '../allergies/allergies.service';
 import { RadiologyStatus } from '../radiology/radiology-status.enum';
 import { FHIR_PROFILE, FHIR_SYS } from './fhir-systems';
+import { SUMMARY_LOINC, narrative } from './clinical-summary';
+import { Appointment } from '../appointments/entities/appointment.entity';
 
 type Json = Record<string, unknown>;
 
@@ -48,6 +50,7 @@ export class FhirService {
     @InjectRepository(Radiology) private readonly studies: Repository<Radiology>,
     @InjectRepository(PatientAllergy) private readonly allergies: Repository<PatientAllergy>,
     @InjectRepository(PatientProblem) private readonly problems: Repository<PatientProblem>,
+    @InjectRepository(Appointment) private readonly appointments: Repository<Appointment>,
     private readonly meds: AllergiesService,
   ) {}
 
@@ -820,6 +823,205 @@ export class FhirService {
       timestamp: new Date().toISOString(),
       total: resources.length,
       entry: resources.map((r) => ({ fullUrl: `urn:uuid:${r.id}`, resource: r })),
+    };
+  }
+
+  // ── Clinical summary (IPS-style document) ────────────────────────────────────
+
+  /**
+   * A clinical summary for a patient: human-readable and exchangeable, which is
+   * what the certification criterion asks for.
+   *
+   * Built as an IPS-style document — a Composition whose sections each carry
+   * narrative XHTML as well as references to the resources they summarise — in
+   * a Bundle of type `document`. The narrative matters: it is what a clinician
+   * reads when the receiving system cannot process the structured entries.
+   */
+  async clinicalSummary(patientId: string, facilityId: string): Promise<Json> {
+    // Everything the summary reports on, gathered once.
+    const collection = (await this.patientBundle(patientId, facilityId, 'collection')) as {
+      entry: { resource: Json }[];
+    };
+    const resources = (collection.entry ?? []).map((e) => e.resource);
+    const of = (type: string) => resources.filter((r) => r.resourceType === type);
+
+    const patient = await this.patients.findOne({ where: { id: patientId, facilityId } });
+    if (!patient) throw new NotFoundException('Patient not found');
+    const facility = await this.facilities.findOne({ where: { id: facilityId } });
+    const problems = await this.problems.find({ where: { facilityId, patientId } });
+    const allergies = await this.allergies.find({ where: { facilityId, patientId } });
+    const medications = await this.meds.medications(facilityId, patientId);
+    const appointments = await this.appointments.find({
+      where: { facilityId, patientId },
+      order: { appointmentDate: 'DESC' },
+    });
+
+    const ref = (r: Json) => ({ reference: `${r.resourceType}/${r.id}` });
+    const now = new Date().toISOString();
+    const dateOnly = (v: unknown) => (v ? String(v).slice(0, 10) : '');
+
+    // Each section: its code, its narrative, and what it points at.
+    const sections: Json[] = [];
+
+    sections.push({
+      title: 'Problems',
+      code: { coding: [{ system: FHIR_SYS.loinc, ...SUMMARY_LOINC.problems }] },
+      text: {
+        status: 'generated',
+        div: narrative(
+          problems.map((p) => [p.display, p.code ?? '—', p.status, dateOnly(p.onsetDate) || '—']),
+          ['Problem', 'ICD-11', 'Status', 'Onset'],
+          'No problems recorded.',
+        ),
+      },
+      entry: of('Condition').map(ref),
+    });
+
+    sections.push({
+      title: 'Allergies and intolerances',
+      code: { coding: [{ system: FHIR_SYS.loinc, ...SUMMARY_LOINC.allergies }] },
+      text: {
+        status: 'generated',
+        div: narrative(
+          allergies.map((a) => [
+            a.allergenName,
+            a.allergenType,
+            (a.manifestations ?? []).map((m) => m.display).join(', ') || '—',
+            a.severity ?? '—',
+            a.status,
+          ]),
+          ['Allergen', 'Type', 'Reaction', 'Severity', 'Status'],
+          // "None recorded" is not the same as "no allergies" — say which.
+          'No allergies recorded. This is not the same as a confirmed absence of allergies.',
+        ),
+      },
+      entry: of('AllergyIntolerance').map(ref),
+    });
+
+    sections.push({
+      title: 'Medications',
+      code: { coding: [{ system: FHIR_SYS.loinc, ...SUMMARY_LOINC.medications }] },
+      text: {
+        status: 'generated',
+        div: narrative(
+          medications.map((m) => [
+            m.medication,
+            [m.dosage, m.frequency].filter(Boolean).join(' ') || '—',
+            m.duration ?? '—',
+            m.activeBasis === 'ended' ? 'Ended' : m.activeBasis === 'duration-not-recorded' ? 'Duration not recorded' : 'Current',
+            dateOnly(m.prescribedOn) || '—',
+          ]),
+          ['Medication', 'Dose', 'Duration', 'Status', 'Prescribed'],
+          'No medications recorded.',
+        ),
+      },
+      entry: [...of('MedicationStatement'), ...of('MedicationRequest')].map(ref),
+    });
+
+    const results = [...of('Observation'), ...of('DiagnosticReport')];
+    sections.push({
+      title: 'Results',
+      code: { coding: [{ system: FHIR_SYS.loinc, ...SUMMARY_LOINC.results }] },
+      text: {
+        status: 'generated',
+        div: narrative(
+          of('DiagnosticReport').map((r) => [
+            ((r.code as Json)?.text as string) ?? '—',
+            (r.status as string) ?? '—',
+            dateOnly(r.effectiveDateTime),
+          ]),
+          ['Report', 'Status', 'Date'],
+          'No results recorded.',
+        ),
+      },
+      entry: results.map(ref),
+    });
+
+    sections.push({
+      title: 'Encounters',
+      code: { coding: [{ system: FHIR_SYS.loinc, ...SUMMARY_LOINC.encounters }] },
+      text: {
+        status: 'generated',
+        div: narrative(
+          of('Encounter').map((e) => [
+            ((e.type as Json[])?.[0]?.text as string) ?? ((e.class as Json)?.code as string) ?? 'Encounter',
+            dateOnly((e.period as Json)?.start),
+          ]),
+          ['Encounter', 'Date'],
+          'No encounters recorded.',
+        ),
+      },
+      entry: of('Encounter').map(ref),
+    });
+
+    const procedures = of('Procedure');
+    if (procedures.length) {
+      sections.push({
+        title: 'Procedures',
+        code: { coding: [{ system: FHIR_SYS.loinc, ...SUMMARY_LOINC.procedures }] },
+        text: {
+          status: 'generated',
+          div: narrative(
+            procedures.map((p) => [((p.code as Json)?.text as string) ?? '—', dateOnly(p.performedDateTime)]),
+            ['Procedure', 'Date'],
+            'No procedures recorded.',
+          ),
+        },
+        entry: procedures.map(ref),
+      });
+    }
+
+    // Scheduled care — the criterion's "care plan is scheduled care for a
+    // specific clinical outcome". Built from real appointments, not invented.
+    const upcoming = appointments.filter((a) => a.status !== 'cancelled');
+    sections.push({
+      title: 'Plan of care',
+      code: { coding: [{ system: FHIR_SYS.loinc, ...SUMMARY_LOINC.carePlan }] },
+      text: {
+        status: 'generated',
+        div: narrative(
+          upcoming.map((a) => [
+            a.customReason || a.reason || 'Follow-up',
+            `${dateOnly(a.appointmentDate)} ${a.appointmentTime ?? ''}`.trim(),
+            a.status,
+          ]),
+          ['Planned care', 'When', 'Status'],
+          'No scheduled care recorded.',
+        ),
+      },
+    });
+
+    const practitioners = of('Practitioner');
+    const organization = of('Organization')[0];
+
+    const composition: Json = {
+      resourceType: 'Composition',
+      id: `summary-${patientId}`,
+      status: 'final',
+      type: { coding: [{ system: FHIR_SYS.loinc, ...SUMMARY_LOINC.document }], text: 'Clinical summary' },
+      subject: { reference: `Patient/${patientId}` },
+      date: now,
+      // Who produced it, and which facility stands behind it.
+      author: [
+        ...(organization ? [ref(organization)] : []),
+        ...practitioners.slice(0, 1).map(ref),
+      ],
+      title: `Clinical summary — ${[patient.firstName, patient.lastName].filter(Boolean).join(' ')}`,
+      custodian: organization ? ref(organization) : undefined,
+      section: sections,
+    };
+
+    return {
+      resourceType: 'Bundle',
+      type: 'document',
+      timestamp: now,
+      identifier: { system: FHIR_SYS.mrn, value: `summary-${patientId}-${now.slice(0, 10)}` },
+      // A document Bundle leads with its Composition; everything it references follows.
+      entry: [composition, ...resources].map((r) => ({
+        fullUrl: `urn:uuid:${r.id}`,
+        resource: r,
+      })),
+      meta: facility ? { source: facility.name ?? undefined } : undefined,
     };
   }
 
