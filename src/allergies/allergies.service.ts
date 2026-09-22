@@ -8,6 +8,7 @@ import { Patient } from '../patients/entities/patient.entity';
 import { Prescription } from '../prescriptions/entities/prescription.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { CurrentUserType } from '../common/decorators/current-user.decorator';
+import { daysSupply } from '../prescriptions/dosing';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -29,10 +30,17 @@ export interface MedicationListEntry {
   hptCode: string | null;
   atcCode: string | null;
   activeComponentCode: string | null;
-  /** When the course is expected to end, where a duration was written down. */
+  /** Units handed over, where the line was dispensed. */
+  dispensedQty: number | null;
+  /** How long that quantity lasts at the written dose and frequency. */
+  daysSupply: number | null;
+  /** When the course is expected to end. */
   expectedEnd: string | null;
-  /** Why we believe it is still being taken — or that we cannot tell. */
-  activeBasis: 'within-duration' | 'duration-not-recorded' | 'ended';
+  /**
+   * How the end date was arrived at: the written duration, the quantity
+   * dispensed, or neither — in which case we say so rather than guess.
+   */
+  activeBasis: 'within-duration' | 'within-supply' | 'duration-not-recorded' | 'ended';
 }
 
 /**
@@ -231,7 +239,14 @@ export class AllergiesService {
       const startDay = start ? new Date(start).toISOString().slice(0, 10) : null;
       for (const line of rx.items ?? []) {
         const item = line.itemId ? byId.get(line.itemId) : undefined;
-        const days = durationDays(line.duration);
+        const qty = line.dispenseQty != null ? Number(line.dispenseQty) : null;
+        const supply = line.dispensed ? daysSupply(qty, line.dosage, line.frequency) : null;
+
+        // Prefer the duration the prescriber wrote; fall back to how long the
+        // quantity actually handed over will last.
+        const written = durationDays(line.duration);
+        const days = written ?? supply?.days ?? null;
+        const fromSupply = written == null && supply != null;
         let expectedEnd: string | null = null;
         if (startDay && days != null) {
           const e = new Date(startDay);
@@ -239,7 +254,13 @@ export class AllergiesService {
           expectedEnd = e.toISOString().slice(0, 10);
         }
         const basis: MedicationListEntry['activeBasis'] =
-          expectedEnd == null ? 'duration-not-recorded' : expectedEnd >= now ? 'within-duration' : 'ended';
+          expectedEnd == null
+            ? 'duration-not-recorded'
+            : expectedEnd < now
+              ? 'ended'
+              : fromSupply
+                ? 'within-supply'
+                : 'within-duration';
         if (activeOnly && basis === 'ended') continue;
         rows.push({
           prescriptionId: rx.id,
@@ -253,6 +274,8 @@ export class AllergiesService {
           prescribedOn: startDay ?? '',
           prescriber: rx.doctorName ?? null,
           dispensed: !!line.dispensed,
+          dispensedQty: qty,
+          daysSupply: supply?.days ?? null,
           dispensedOn: rx.dispensedAt ? new Date(rx.dispensedAt).toISOString().slice(0, 10) : null,
           hptCode: item?.knhtsCode ?? null,
           atcCode: item?.atcCode ?? null,

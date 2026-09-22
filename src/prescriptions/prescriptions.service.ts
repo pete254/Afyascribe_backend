@@ -12,6 +12,8 @@ import { CurrentUserType } from '../common/decorators/current-user.decorator';
 import { BillingService } from '../billing/billing.service';
 import { StockService } from '../inventory/stock.service';
 import { ServiceType } from '../billing/entities/billing.entity';
+import { daysSupply, quantityForCourse } from './dosing';
+import { durationDays } from '../allergies/allergies.service';
 import { PatientVisit, VisitStatus } from '../patient-visits/entities/patient-visit.entity';
 import { Patient } from '../patients/entities/patient.entity';
 
@@ -226,6 +228,39 @@ export class PrescriptionsService {
       }
     }
     return this.getOne(facilityId, id);
+  }
+
+  /**
+   * How long each line's quantity will last, and whether it covers the course
+   * the prescriber wrote. Read-only — it informs the pharmacist, it does not
+   * block dispensing, because a short supply is often a deliberate decision.
+   */
+  async supplyCheck(facilityId: string, id: string) {
+    const rx = await this.getOne(facilityId, id);
+    return (rx.items ?? []).map((line) => {
+      const qty = line.dispenseQty != null ? Number(line.dispenseQty) : null;
+      const supply = daysSupply(qty, line.dosage, line.frequency);
+      const courseDays = durationDays(line.duration);
+      const needed = quantityForCourse(courseDays, line.dosage, line.frequency);
+      const shortfall = needed != null && qty != null && qty < needed ? Number((needed - qty).toFixed(2)) : null;
+      return {
+        itemLineId: line.id,
+        medication: line.medication,
+        dosage: line.dosage,
+        frequency: line.frequency,
+        duration: line.duration,
+        dispenseQty: qty,
+        /** Null when the dose or frequency could not be read — never a guess. */
+        daysSupply: supply?.days ?? null,
+        dosesPerDay: supply?.dosesPerDay ?? null,
+        unitsPerDose: supply?.unitsPerDose ?? null,
+        courseDays,
+        quantityForCourse: needed,
+        shortfall,
+        /** Why no figure could be given, for the pharmacist's benefit. */
+        unreadable: supply == null ? (!qty ? 'no-quantity' : 'dose-or-frequency-not-readable') : null,
+      };
+    });
   }
 
   // ── Send priced lines to billing (no stock movement yet) ────────────────────

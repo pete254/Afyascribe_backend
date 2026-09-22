@@ -9,7 +9,7 @@ import {
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { CapabilityGuard } from '../auth/guards/capability.guard';
@@ -85,6 +85,14 @@ export class PrescriptionsController {
   @Post(':id/bill')
   bill(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
     return this.service.sendToBilling(facilityOf(user), id);
+  }
+
+  @Get(':id/supply-check')
+  @ApiOperation({
+    summary: 'How long each dispensed quantity lasts, and whether it covers the prescribed course',
+  })
+  supplyCheck(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
+    return this.service.supplyCheck(facilityOf(user), id);
   }
 
   @Post(':id/dispense')
