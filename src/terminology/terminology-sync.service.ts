@@ -1,3 +1,4 @@
+import { hptTier } from '../inventory/hpt';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -16,6 +17,8 @@ export class TerminologySyncService {
   ) {}
 
   private toRow(target: SyncTarget, c: OclConcept): Partial<TerminologyConcept> {
+    // HPT is tiered; everything else is flat.
+    const tier = (target.system ?? target.source) === 'HPT' || target.source === 'HPT' ? hptTier(c.id) : null;
     const system = target.system ?? target.source;
     const synonyms = Array.from(
       new Set(
@@ -25,6 +28,7 @@ export class TerminologySyncService {
       ),
     );
     return {
+      tier,
       org: target.org,
       system,
       code: c.id,

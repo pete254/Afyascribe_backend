@@ -22,12 +22,14 @@ export class TerminologyController {
     @Query('q') q: string,
     @Query('domain') domain?: string,
     @Query('system') system?: string,
+    @Query('tier') tier?: string,
     @Query('limit') limit?: string,
   ) {
     return this.terminology.search({
       q,
       domain,
       system,
+      tier,
       limit: limit ? Number(limit) : undefined,
     });
   }

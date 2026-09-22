@@ -40,7 +40,7 @@ export class TerminologyService {
    * KNHTS service when the mirror has nothing (e.g. a source not yet synced).
    */
   async search(
-    params: { q: string; domain?: string; system?: string; limit?: number },
+    params: { q: string; domain?: string; system?: string; tier?: string; limit?: number },
   ): Promise<ConceptHit[]> {
     const q = (params.q ?? '').trim();
     const limit = Math.min(params.limit ?? 20, 100);
@@ -56,6 +56,7 @@ export class TerminologyService {
       );
     if (params.domain) qb.andWhere('c.domain = :domain', { domain: params.domain });
     if (params.system) qb.andWhere('c.system = :system', { system: params.system });
+    if (params.tier) qb.andWhere('c.tier = :tier', { tier: params.tier });
 
     const local = await qb
       .orderBy('CASE WHEN UPPER(c.code) = :ucode THEN 0 ELSE 1 END', 'ASC')

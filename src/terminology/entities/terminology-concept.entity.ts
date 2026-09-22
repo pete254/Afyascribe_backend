@@ -19,6 +19,7 @@ import {
 @Entity('terminology_concepts')
 @Index(['org', 'system', 'code'], { unique: true })
 @Index(['domain', 'system'])
+@Index(['system', 'tier'])
 export class TerminologyConcept {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -41,6 +42,15 @@ export class TerminologyConcept {
   /** Our logical domain: diagnosis | procedure | lab | drug | reference. */
   @Column({ length: 32 })
   domain: string;
+
+  /**
+   * Where the concept sits in a tiered dictionary. HPT is not a flat list:
+   * component (AC) → generic (GE) → brand (FS) → product (PH), with dose
+   * forms, units and routes as reference data. Pickers scope by this so a
+   * dose form is never offered as a stockable drug, nor a pack as an allergen.
+   */
+  @Column({ length: 20, nullable: true })
+  tier: string | null;
 
   @Column({ length: 64, nullable: true })
   concept_class: string | null;
