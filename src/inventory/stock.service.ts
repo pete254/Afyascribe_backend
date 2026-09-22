@@ -5,12 +5,12 @@ import { InventoryItem } from './entities/inventory-item.entity';
 import { StockMovement, StockMovementType } from './entities/stock-movement.entity';
 import { CurrentUserType } from '../common/decorators/current-user.decorator';
 import { ItemClass, accountsFor, classOf } from './item-classes';
-import { hptDetails, hptName, isStockableHpt } from './hpt';
+import { hptDetails, hptName, isDoseFormCode, isRouteCode, isStockableHpt } from './hpt';
 import { ControlledDrugRegisterEntry, ControlledEntryType } from './entities/controlled-drug-register.entity';
 import { StockBatch } from './entities/stock-batch.entity';
 import { CreateItemDto, UpdateItemDto, IssueStockDto, AdjustStockDto, ControlledEntryDto } from './dto/inventory.dto';
 import { HmisPostingService } from '../accounting/hmis-posting.service';
-import { OclClient } from '../terminology/ocl.client';
+import { OclClient, OclConcept } from '../terminology/ocl.client';
 
 const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
 const r3 = (v: number) => Math.round((v + Number.EPSILON) * 1000) / 1000;
@@ -93,52 +93,72 @@ export class StockService {
         .filter(Boolean) as string[],
     );
     const limit = 100;
-    let created = 0;
     let skipped = 0;
+
+    // One pass over the dictionary: buffer the generic products, and collect
+    // the dose-form and route names as they go past, since HPT states those on
+    // a product as a code (DF…, RT…) whose name is a separate concept.
+    const pending: { concept: OclConcept; details: ReturnType<typeof hptDetails> }[] = [];
+    const doseForms = new Map<string, string>();
+    const routes = new Map<string, string>();
+
     for (let page = 1; page <= 400; page++) {
       const batch = await this.ocl.concepts('MOH-PPB', 'HPT', page, limit);
       if (!batch.length) break;
-      const rows = batch
-        .filter((c) => {
-          if (existing.has(c.id)) return false;
-          if (!isStockableHpt(c.id)) {
-            skipped += 1;
-            return false;
-          }
-          return true;
-        })
-        .map((c) => {
-          const d = hptDetails(c);
-          return this.items.create({
-            facilityId,
-            name: hptName(c),
-            knhtsCode: d.knhtsCode,
-            knhtsName: d.knhtsName,
-            hptTier: d.hptTier,
-            atcCode: d.atcCode,
-            doseFormCode: d.doseFormCode,
-            routeCode: d.routeCode,
-            strength: d.strength,
-            genericCode: d.genericCode,
-            activeComponentCode: d.activeComponentCode,
-            ppbRegistrationCode: d.ppbRegistrationCode,
-            category: 'drug',
-            itemClass: 'pharmacy',
-            unit: 'unit',
-            salePrice: '0',
-            costPrice: '0',
-            reorderLevel: '0',
-            isActive: false,
-          });
-        });
-      if (rows.length) {
-        await this.items.save(rows);
-        rows.forEach((r) => existing.add(r.knhtsCode as string));
-        created += rows.length;
+      for (const c of batch) {
+        if (isDoseFormCode(c.id)) {
+          doseForms.set(c.id, c.display_name || c.id);
+          continue;
+        }
+        if (isRouteCode(c.id)) {
+          routes.set(c.id, c.display_name || c.id);
+          continue;
+        }
+        if (existing.has(c.id)) continue;
+        if (!isStockableHpt(c.id)) {
+          skipped += 1;
+          continue;
+        }
+        pending.push({ concept: c, details: hptDetails(c) });
       }
       if (batch.length < limit) break;
     }
-    this.logger.log(`HPT import: ${created} generic products, ${skipped} non-stockable concepts skipped`);
+
+    let created = 0;
+    for (let i = 0; i < pending.length; i += 200) {
+      const rows = pending.slice(i, i + 200).map(({ concept, details: d }) =>
+        this.items.create({
+          facilityId,
+          name: hptName(concept),
+          knhtsCode: d.knhtsCode,
+          knhtsName: d.knhtsName,
+          hptTier: d.hptTier,
+          atcCode: d.atcCode,
+          doseFormCode: d.doseFormCode,
+          doseForm: d.doseFormCode ? doseForms.get(d.doseFormCode) ?? null : null,
+          routeCode: d.routeCode,
+          route: d.routeCode ? routes.get(d.routeCode) ?? null : null,
+          strength: d.strength,
+          genericCode: d.genericCode,
+          activeComponentCode: d.activeComponentCode,
+          ppbRegistrationCode: d.ppbRegistrationCode,
+          category: 'drug',
+          itemClass: 'pharmacy',
+          unit: 'unit',
+          salePrice: '0',
+          costPrice: '0',
+          reorderLevel: '0',
+          isActive: false,
+        }),
+      );
+      await this.items.save(rows);
+      created += rows.length;
+    }
+
+    this.logger.log(
+      `HPT import: ${created} generic products (${doseForms.size} dose forms, ${routes.size} routes resolved), ` +
+        `${skipped} non-stockable concepts skipped`,
+    );
     return created;
   }
 

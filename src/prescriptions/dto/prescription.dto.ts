@@ -1,3 +1,4 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
   IsBoolean,
@@ -116,4 +117,22 @@ export class DispenseDto {
   /** Acknowledge dispensing despite an unpaid balance (warn-but-allow). */
   @IsOptional() @IsBoolean()
   allowUnpaid?: boolean;
+}
+
+export class SupplyPreviewDto {
+  @ApiPropertyOptional({ description: 'Units being handed over' })
+  @IsOptional() @IsNumber()
+  quantity?: number;
+
+  @ApiPropertyOptional({ example: '1 tab' })
+  @IsOptional() @IsString()
+  dosage?: string;
+
+  @ApiPropertyOptional({ example: 'TDS' })
+  @IsOptional() @IsString()
+  frequency?: string;
+
+  @ApiPropertyOptional({ example: '5/7', description: 'The course as written' })
+  @IsOptional() @IsString()
+  duration?: string;
 }

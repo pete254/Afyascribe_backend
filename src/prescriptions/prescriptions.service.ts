@@ -230,6 +230,28 @@ export class PrescriptionsService {
   }
 
   /**
+   * The same calculation for a quantity that has not been saved yet — what the
+   * pharmacist is typing. Stateless, so the rules live in one place and the
+   * figure on screen is the one this service would record.
+   */
+  supplyPreview(input: { quantity?: number; dosage?: string; frequency?: string; duration?: string }) {
+    const qty = input.quantity != null ? Number(input.quantity) : null;
+    const supply = daysSupply(qty, input.dosage, input.frequency);
+    const courseDays = durationDays(input.duration);
+    const needed = quantityForCourse(courseDays, input.dosage, input.frequency);
+    const shortfall = needed != null && qty != null && qty < needed ? Number((needed - qty).toFixed(2)) : null;
+    return {
+      daysSupply: supply?.days ?? null,
+      dosesPerDay: supply?.dosesPerDay ?? null,
+      unitsPerDose: supply?.unitsPerDose ?? null,
+      courseDays,
+      quantityForCourse: needed,
+      shortfall,
+      unreadable: supply == null ? (!qty ? 'no-quantity' : 'dose-or-frequency-not-readable') : null,
+    };
+  }
+
+  /**
    * How long each line's quantity will last, and whether it covers the course
    * the prescriber wrote. Read-only — it informs the pharmacist, it does not
    * block dispensing, because a short supply is often a deliberate decision.

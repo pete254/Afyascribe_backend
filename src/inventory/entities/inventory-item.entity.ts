@@ -49,8 +49,16 @@ export class InventoryItem {
   @Column({ name: 'dose_form_code', type: 'varchar', length: 30, nullable: true })
   doseFormCode: string | null;
 
+  /** The dose form in words — "Tablet", "Spray" — resolved from its HPT code. */
+  @Column({ name: 'dose_form', type: 'varchar', length: 80, nullable: true })
+  doseForm: string | null;
+
   @Column({ name: 'route_code', type: 'varchar', length: 30, nullable: true })
   routeCode: string | null;
+
+  /** The route in words — "Oral", "Nasal" — resolved from its HPT code. */
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  route: string | null;
 
   /** e.g. "500 mg", "100 mcg" — as KNHTS states it. */
   @Column({ type: 'varchar', length: 60, nullable: true })

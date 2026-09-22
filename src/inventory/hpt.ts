@@ -20,6 +20,10 @@ import { OclConcept } from '../terminology/ocl.client';
  */
 export type HptTier = 'generic' | 'brand' | 'product' | 'component' | 'reference';
 
+/** Dose-form and route concepts — the lookup that turns a code into words. */
+export const isDoseFormCode = (code?: string | null) => (code ?? '').startsWith('DF');
+export const isRouteCode = (code?: string | null) => (code ?? '').startsWith('RT');
+
 export function hptTier(code?: string | null): HptTier {
   const p = (code ?? '').slice(0, 2);
   if (p === 'GE') return 'generic';

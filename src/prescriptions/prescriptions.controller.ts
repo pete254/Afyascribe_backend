@@ -20,6 +20,7 @@ import { PrescriptionsService } from './prescriptions.service';
 import {
   CreatePrescriptionDto,
   UpdatePrescriptionItemsDto,
+  SupplyPreviewDto,
 } from './dto/prescription.dto';
 
 function facilityOf(user: CurrentUserType): string {
@@ -85,6 +86,14 @@ export class PrescriptionsController {
   @Post(':id/bill')
   bill(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
     return this.service.sendToBilling(facilityOf(user), id);
+  }
+
+  @Post('supply-preview')
+  @ApiOperation({
+    summary: 'How long a quantity would last, for a line still being typed (stateless)',
+  })
+  supplyPreview(@Body() dto: SupplyPreviewDto) {
+    return this.service.supplyPreview(dto);
   }
 
   @Get(':id/supply-check')
