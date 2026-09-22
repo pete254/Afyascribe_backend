@@ -1,7 +1,13 @@
 /**
- * A starter catalog of common tests with typical adult reference ranges, seeded
- * on demand for a new facility. Ranges are indicative and can be edited per
- * facility to match its own laboratory's method and population.
+ * A starter catalogue of common tests, seeded on demand for a new facility.
+ *
+ * **No numeric reference ranges are supplied.** A range depends on the
+ * analyser, method, population, age and sex, so a generic number is unsafe to
+ * flag results against — LOINC deliberately omits them for the same reason.
+ * Each laboratory enters its own ranges in the test catalogue (Lab › Catalogue
+ * shows "ranges needed" until it does). `refText` is kept only where the
+ * expected result of a qualitative screening test is categorical (Negative),
+ * which is what makes a positive result flag as abnormal.
  */
 export interface SeedAnalyte {
   name: string;
@@ -26,12 +32,12 @@ export const LAB_TEST_SEED: SeedTest[] = [
     specimen: 'blood',
     department: 'haematology',
     analytes: [
-      { name: 'WBC', unit: '10^9/L', refLow: 4, refHigh: 11 },
-      { name: 'RBC', unit: '10^12/L', refLow: 4.2, refHigh: 6.1 },
-      { name: 'Haemoglobin', unit: 'g/dL', refLow: 12, refHigh: 17 },
-      { name: 'Haematocrit', unit: '%', refLow: 36, refHigh: 50 },
-      { name: 'Platelets', unit: '10^9/L', refLow: 150, refHigh: 450 },
-      { name: 'MCV', unit: 'fL', refLow: 80, refHigh: 100 },
+      { name: 'WBC', unit: '10^9/L' },
+      { name: 'RBC', unit: '10^12/L' },
+      { name: 'Haemoglobin', unit: 'g/dL' },
+      { name: 'Haematocrit', unit: '%' },
+      { name: 'Platelets', unit: '10^9/L' },
+      { name: 'MCV', unit: 'fL' },
     ],
   },
   {
@@ -46,14 +52,14 @@ export const LAB_TEST_SEED: SeedTest[] = [
     name: 'Random Blood Sugar',
     specimen: 'blood',
     department: 'chemistry',
-    analytes: [{ name: 'Glucose (random)', unit: 'mmol/L', refLow: 3.9, refHigh: 7.8 }],
+    analytes: [{ name: 'Glucose (random)', unit: 'mmol/L' }],
   },
   {
     code: 'FBS',
     name: 'Fasting Blood Sugar',
     specimen: 'blood',
     department: 'chemistry',
-    analytes: [{ name: 'Glucose (fasting)', unit: 'mmol/L', refLow: 3.9, refHigh: 5.5 }],
+    analytes: [{ name: 'Glucose (fasting)', unit: 'mmol/L' }],
   },
   {
     code: 'UECR',
@@ -61,11 +67,11 @@ export const LAB_TEST_SEED: SeedTest[] = [
     specimen: 'serum',
     department: 'chemistry',
     analytes: [
-      { name: 'Urea', unit: 'mmol/L', refLow: 2.5, refHigh: 7.1 },
-      { name: 'Creatinine', unit: 'umol/L', refLow: 62, refHigh: 106 },
-      { name: 'Sodium', unit: 'mmol/L', refLow: 135, refHigh: 145 },
-      { name: 'Potassium', unit: 'mmol/L', refLow: 3.5, refHigh: 5.1 },
-      { name: 'Chloride', unit: 'mmol/L', refLow: 98, refHigh: 107 },
+      { name: 'Urea', unit: 'mmol/L' },
+      { name: 'Creatinine', unit: 'umol/L' },
+      { name: 'Sodium', unit: 'mmol/L' },
+      { name: 'Potassium', unit: 'mmol/L' },
+      { name: 'Chloride', unit: 'mmol/L' },
     ],
   },
   {
@@ -74,11 +80,11 @@ export const LAB_TEST_SEED: SeedTest[] = [
     specimen: 'serum',
     department: 'chemistry',
     analytes: [
-      { name: 'Total bilirubin', unit: 'umol/L', refLow: 0, refHigh: 21 },
-      { name: 'ALT', unit: 'U/L', refLow: 0, refHigh: 41 },
-      { name: 'AST', unit: 'U/L', refLow: 0, refHigh: 40 },
-      { name: 'ALP', unit: 'U/L', refLow: 40, refHigh: 129 },
-      { name: 'Albumin', unit: 'g/L', refLow: 35, refHigh: 52 },
+      { name: 'Total bilirubin', unit: 'umol/L' },
+      { name: 'ALT', unit: 'U/L' },
+      { name: 'AST', unit: 'U/L' },
+      { name: 'ALP', unit: 'U/L' },
+      { name: 'Albumin', unit: 'g/L' },
     ],
   },
   {
