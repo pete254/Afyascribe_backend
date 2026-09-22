@@ -76,6 +76,19 @@ export class InventoryController {
     return this.stock.searchItems(facilityOf(user), q ?? '', 30, (itemClass as ItemClass) || undefined);
   }
 
+  @Post('items/cleanup-hpt')
+  @Roles('facility_admin', 'super_admin')
+  @ApiOperation({
+    summary: 'Remove non-stockable HPT concepts a previous import created as stock lines',
+    description:
+      'Dose forms, units, routes, active components, brands and registered packs are not stock. ' +
+      'Only dormant, untouched items are removed — never one with stock, a price, a movement or a batch. ' +
+      'Send { "dryRun": true } first to see the counts without changing anything.',
+  })
+  cleanupHpt(@CurrentUser() user: CurrentUserType, @Body() body: { dryRun?: boolean }) {
+    return this.stock.cleanupNonStockableHpt(facilityOf(user), body?.dryRun === true);
+  }
+
   @Get('items/inactive-count')
   @ApiOperation({ summary: 'Number of imported national products not yet activated' })
   async inactiveCount(@CurrentUser() user: CurrentUserType) {

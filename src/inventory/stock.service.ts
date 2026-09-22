@@ -1,10 +1,11 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Logger, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager, Between } from 'typeorm';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { StockMovement, StockMovementType } from './entities/stock-movement.entity';
 import { CurrentUserType } from '../common/decorators/current-user.decorator';
 import { ItemClass, accountsFor, classOf } from './item-classes';
+import { hptDetails, hptName, isStockableHpt } from './hpt';
 import { ControlledDrugRegisterEntry, ControlledEntryType } from './entities/controlled-drug-register.entity';
 import { StockBatch } from './entities/stock-batch.entity';
 import { CreateItemDto, UpdateItemDto, IssueStockDto, AdjustStockDto, ControlledEntryDto } from './dto/inventory.dto';
@@ -46,6 +47,8 @@ export interface MovementParams {
 
 @Injectable()
 export class StockService {
+  private readonly logger = new Logger(StockService.name);
+
   constructor(
     @InjectRepository(InventoryItem)
     private readonly items: Repository<InventoryItem>,
@@ -77,7 +80,11 @@ export class StockService {
    * (MOH-PPB/HPT), each carrying its HPT code. Prices and stock start at zero
    * and every product is imported INACTIVE — hidden from pickers until the
    * facility activates the ones it actually stocks.
-   * Skips products already present by KNHTS code.
+   * Only the **generic** tier is imported: it is what a pharmacy stocks and a
+   * clinician prescribes, and it carries the ATC code, dose form, route and
+   * strength. Active components, brands, registered packs and the form/unit/
+   * route reference data are deliberately skipped — importing those as stock
+   * lines is what polluted the first import. Skips codes already present.
    */
   async importDrugsFromKnhts(facilityId: string): Promise<number> {
     const existing = new Set(
@@ -87,17 +94,34 @@ export class StockService {
     );
     const limit = 100;
     let created = 0;
+    let skipped = 0;
     for (let page = 1; page <= 400; page++) {
       const batch = await this.ocl.concepts('MOH-PPB', 'HPT', page, limit);
       if (!batch.length) break;
       const rows = batch
-        .filter((c) => !existing.has(c.id))
-        .map((c) =>
-          this.items.create({
+        .filter((c) => {
+          if (existing.has(c.id)) return false;
+          if (!isStockableHpt(c.id)) {
+            skipped += 1;
+            return false;
+          }
+          return true;
+        })
+        .map((c) => {
+          const d = hptDetails(c);
+          return this.items.create({
             facilityId,
-            name: c.display_name || c.id,
-            knhtsCode: c.id,
-            knhtsName: c.display_name || null,
+            name: hptName(c),
+            knhtsCode: d.knhtsCode,
+            knhtsName: d.knhtsName,
+            hptTier: d.hptTier,
+            atcCode: d.atcCode,
+            doseFormCode: d.doseFormCode,
+            routeCode: d.routeCode,
+            strength: d.strength,
+            genericCode: d.genericCode,
+            activeComponentCode: d.activeComponentCode,
+            ppbRegistrationCode: d.ppbRegistrationCode,
             category: 'drug',
             itemClass: 'pharmacy',
             unit: 'unit',
@@ -105,8 +129,8 @@ export class StockService {
             costPrice: '0',
             reorderLevel: '0',
             isActive: false,
-          }),
-        );
+          });
+        });
       if (rows.length) {
         await this.items.save(rows);
         rows.forEach((r) => existing.add(r.knhtsCode as string));
@@ -114,7 +138,46 @@ export class StockService {
       }
       if (batch.length < limit) break;
     }
+    this.logger.log(`HPT import: ${created} generic products, ${skipped} non-stockable concepts skipped`);
     return created;
+  }
+
+  /**
+   * Remove the non-stockable HPT concepts a previous import created as stock
+   * lines (dose forms, units, routes, active components, brands). Only ever
+   * touches items that are dormant and untouched — never one that has stock,
+   * a price, a movement or a batch behind it.
+   */
+  async cleanupNonStockableHpt(facilityId: string, dryRun = false): Promise<{ removed: number; kept: number; dryRun: boolean }> {
+    const candidates = await this.items.find({ where: { facilityId } });
+    const removable: InventoryItem[] = [];
+    let kept = 0;
+    for (const i of candidates) {
+      if (!i.knhtsCode || isStockableHpt(i.knhtsCode)) continue;
+      const untouched =
+        !i.isActive &&
+        Number(i.stockQty) === 0 &&
+        Number(i.stockValue) === 0 &&
+        Number(i.salePrice) === 0 &&
+        Number(i.costPrice) === 0;
+      if (!untouched) {
+        kept += 1;
+        continue;
+      }
+      const [movements, batches] = await Promise.all([
+        this.movements.count({ where: { itemId: i.id } }),
+        this.batches.count({ where: { itemId: i.id } }),
+      ]);
+      if (movements === 0 && batches === 0) removable.push(i);
+      else kept += 1;
+    }
+    if (!dryRun) {
+      for (let i = 0; i < removable.length; i += 500) {
+        await this.items.remove(removable.slice(i, i + 500));
+      }
+      this.logger.log(`HPT cleanup: removed ${removable.length} non-stockable items, kept ${kept} in use`);
+    }
+    return { removed: removable.length, kept, dryRun };
   }
 
   // ── Items ───────────────────────────────────────────────────────────────────

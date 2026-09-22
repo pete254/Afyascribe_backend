@@ -35,6 +35,37 @@ export class InventoryItem {
   knhtsCode: string | null;
 
   /** KNHTS concept display name, kept for reference and FHIR export. */
+  /**
+   * Which tier of the HPT dictionary `knhtsCode` belongs to. Only the generic
+   * tier is stockable; the rest is reference data or brand detail.
+   */
+  @Column({ name: 'hpt_tier', type: 'varchar', length: 20, nullable: true })
+  hptTier: string | null;
+
+  /** WHO ATC classification, where KNHTS carries one. */
+  @Column({ name: 'atc_code', type: 'varchar', length: 20, nullable: true })
+  atcCode: string | null;
+
+  @Column({ name: 'dose_form_code', type: 'varchar', length: 30, nullable: true })
+  doseFormCode: string | null;
+
+  @Column({ name: 'route_code', type: 'varchar', length: 30, nullable: true })
+  routeCode: string | null;
+
+  /** e.g. "500 mg", "100 mcg" — as KNHTS states it. */
+  @Column({ type: 'varchar', length: 60, nullable: true })
+  strength: string | null;
+
+  /** Parent generic and active component, for reporting that aggregates upward. */
+  @Column({ name: 'generic_code', type: 'varchar', length: 64, nullable: true })
+  genericCode: string | null;
+
+  @Column({ name: 'active_component_code', type: 'varchar', length: 64, nullable: true })
+  activeComponentCode: string | null;
+
+  @Column({ name: 'ppb_registration_code', type: 'varchar', length: 60, nullable: true })
+  ppbRegistrationCode: string | null;
+
   @Column({ name: 'knhts_name', type: 'text', nullable: true })
   knhtsName: string | null;
 
