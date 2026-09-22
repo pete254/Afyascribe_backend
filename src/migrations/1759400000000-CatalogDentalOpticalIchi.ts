@@ -18,7 +18,7 @@ export class CatalogDentalOpticalIchi1759400000000 implements MigrationInterface
       END $$;
     `);
     await queryRunner.query(`ALTER TABLE "service_catalog" ADD COLUMN IF NOT EXISTS "suggested_price" numeric(14,2)`);
-    for (const table of ['dental_treatments', 'optical_rx']) {
+    for (const table of ['dental_treatments', 'optical_prescriptions']) {
       await queryRunner.query(`ALTER TABLE "${table}" ADD COLUMN IF NOT EXISTS "service_id" uuid`);
       await queryRunner.query(`ALTER TABLE "${table}" ADD COLUMN IF NOT EXISTS "service_name" character varying(200)`);
       await queryRunner.query(`ALTER TABLE "${table}" ADD COLUMN IF NOT EXISTS "knhts_code" character varying(64)`);
@@ -26,7 +26,7 @@ export class CatalogDentalOpticalIchi1759400000000 implements MigrationInterface
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    for (const table of ['dental_treatments', 'optical_rx']) {
+    for (const table of ['dental_treatments', 'optical_prescriptions']) {
       for (const col of ['knhts_code', 'service_name', 'service_id']) {
         await queryRunner.query(`ALTER TABLE "${table}" DROP COLUMN IF EXISTS "${col}"`);
       }
