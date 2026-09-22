@@ -6,6 +6,7 @@ import { SoapNotesService } from './soap-notes.service';
 import { SoapNote } from './entities/soap-note.entity';
 import { PatientsModule } from '../patients/patients.module';
 import { PatientVisitsModule } from '../patient-visits/patient-visits.module';
+import { ProblemsModule } from '../problems/problems.module';
 import { EmailModule } from '../common/services/email.module';
 
 @Module({
@@ -14,6 +15,7 @@ import { EmailModule } from '../common/services/email.module';
     PatientsModule,
     PatientVisitsModule, // So SoapNotesService can auto-complete visits on save
     EmailModule,
+    ProblemsModule,
   ],
   controllers: [SoapNotesController],
   providers: [SoapNotesService],

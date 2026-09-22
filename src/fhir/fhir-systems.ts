@@ -51,6 +51,8 @@ export const FHIR_SYS = {
   /** Encounter / visit type code system (KNHTS Visit type). */
   visitType: env('FHIR_SYS_VISIT_TYPE', 'https://dha.go.ke/CodeSystem/visit-type'),
 
+  /** Condition severity — national Condition Severity value set. */
+  conditionSeverity: env('FHIR_SYS_CONDITION_SEVERITY', `${OCL_BASE}/orgs/MOH-KENYA/sources/ORG-00001-SRC-028`),
   /** Allergens — national Allergy Intolerance Code list. */
   allergen: env('FHIR_SYS_ALLERGEN', `${OCL_BASE}/orgs/MOH-KENYA/sources/ORG-00001-SRC-012`),
   /** Allergy reaction manifestations. */

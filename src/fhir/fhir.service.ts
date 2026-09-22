@@ -18,6 +18,7 @@ import { User } from '../users/entities/user.entity';
 import { PatientVisit } from '../patient-visits/entities/patient-visit.entity';
 import { Radiology } from '../radiology/entities/radiology.entity';
 import { PatientAllergy } from '../allergies/entities/patient-allergy.entity';
+import { PatientProblem } from '../problems/entities/patient-problem.entity';
 import { AllergiesService, MedicationListEntry } from '../allergies/allergies.service';
 import { RadiologyStatus } from '../radiology/radiology-status.enum';
 import { FHIR_PROFILE, FHIR_SYS } from './fhir-systems';
@@ -46,6 +47,7 @@ export class FhirService {
     @InjectRepository(PatientVisit) private readonly visits: Repository<PatientVisit>,
     @InjectRepository(Radiology) private readonly studies: Repository<Radiology>,
     @InjectRepository(PatientAllergy) private readonly allergies: Repository<PatientAllergy>,
+    @InjectRepository(PatientProblem) private readonly problems: Repository<PatientProblem>,
     private readonly meds: AllergiesService,
   ) {}
 
@@ -253,6 +255,50 @@ export class FhirService {
       encounter: { reference: `Encounter/enc-${note.id}` },
       recordedDate: note.createdAt ? new Date(note.createdAt).toISOString() : undefined,
     }));
+  }
+
+  /**
+   * A problem-list entry → FHIR Condition, carrying its real clinical status.
+   * Note-derived Conditions always claimed `active`, so a condition resolved
+   * years ago still exported as current; the problem list knows better.
+   */
+  buildProblemCondition(p: PatientProblem): Json {
+    return {
+      resourceType: 'Condition',
+      id: `prob-${p.id}`,
+      clinicalStatus: {
+        coding: [{ system: 'http://terminology.hl7.org/CodeSystem/condition-clinical', code: p.status }],
+      },
+      verificationStatus: {
+        coding: [
+          { system: 'http://terminology.hl7.org/CodeSystem/condition-ver-status', code: p.verificationStatus },
+        ],
+      },
+      category: [
+        {
+          coding: [
+            {
+              system: 'http://terminology.hl7.org/CodeSystem/condition-category',
+              code: p.category,
+              display: p.category === 'problem-list-item' ? 'Problem List Item' : 'Encounter Diagnosis',
+            },
+          ],
+        },
+      ],
+      severity: p.severity
+        ? { coding: [{ system: FHIR_SYS.conditionSeverity, code: p.severity, display: p.severity }] }
+        : undefined,
+      code: p.code
+        ? { coding: [{ system: FHIR_SYS.icd11, code: p.code, display: p.display }], text: p.display }
+        : { text: p.display },
+      subject: { reference: `Patient/${p.patientId}` },
+      encounter: p.sourceNoteId ? { reference: `Encounter/enc-${p.sourceNoteId}` } : undefined,
+      onsetDateTime: p.onsetDate ?? undefined,
+      abatementDateTime: p.abatementDate ?? undefined,
+      recordedDate: p.createdAt ? new Date(p.createdAt).toISOString() : undefined,
+      recorder: p.recordedByName ? { display: p.recordedByName } : undefined,
+      note: p.note ? [{ text: p.note }] : undefined,
+    };
   }
 
   buildMedicationRequests(rx: Prescription, hptByItemId: Map<string, InventoryItem>): Json[] {
@@ -694,6 +740,10 @@ export class FhirService {
     // Allergies → AllergyIntolerance, and the medication list → MedicationStatement.
     // Both are DHA certification criteria in their own right.
     const allergies = await this.allergies.find({ where: { facilityId, patientId } });
+    const problems = await this.problems.find({ where: { facilityId, patientId } });
+    // Diagnoses on notes that pre-date the problem list still need exporting;
+    // once a note has fed the list, the list is the better record.
+    const notesInList = new Set(problems.map((p) => p.sourceNoteId).filter(Boolean) as string[]);
     const medications = await this.meds.medications(facilityId, patientId);
 
     // Imaging studies → DiagnosticReports (LOINC via the exam snapshot).
@@ -733,7 +783,9 @@ export class FhirService {
     for (const note of notes) {
       const visit = visitByDay.get(dayKey(note.createdAt));
       entries.push({ resource: this.buildEncounter(note, visit) });
-      for (const c of this.buildConditions(note)) entries.push({ resource: c });
+      if (!notesInList.has(note.id)) {
+        for (const c of this.buildConditions(note)) entries.push({ resource: c });
+      }
     }
     for (const rx of rxs) {
       for (const m of this.buildMedicationRequests(rx, hptByItemId)) entries.push({ resource: m });
@@ -748,6 +800,9 @@ export class FhirService {
     }
     for (const study of imaging) {
       entries.push({ resource: this.buildImagingReport(study) });
+    }
+    for (const p of problems) {
+      entries.push({ resource: this.buildProblemCondition(p) });
     }
     for (const a of allergies) {
       entries.push({ resource: this.buildAllergyIntolerance(a) });

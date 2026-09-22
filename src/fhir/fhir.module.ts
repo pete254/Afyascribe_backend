@@ -14,6 +14,7 @@ import { User } from '../users/entities/user.entity';
 import { PatientVisit } from '../patient-visits/entities/patient-visit.entity';
 import { Radiology } from '../radiology/entities/radiology.entity';
 import { PatientAllergy } from '../allergies/entities/patient-allergy.entity';
+import { PatientProblem } from '../problems/entities/patient-problem.entity';
 import { AllergiesModule } from '../allergies/allergies.module';
 import { FhirService } from './fhir.service';
 import { FhirController } from './fhir.controller';
@@ -36,6 +37,7 @@ import { HieFhirClient } from './hie-fhir.client';
       PatientVisit,
       Radiology,
       PatientAllergy,
+      PatientProblem,
     ]),
     AllergiesModule,
   ],

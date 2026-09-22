@@ -11,6 +11,8 @@ import { SoapNoteStatus } from './enums/soap-note-status.enum';
 import { PaginatedResponse } from '../common/dto/pagination.dto';
 import { PatientsService } from '../patients/patients.service';
 import { PatientVisitsService } from '../patient-visits/patient-visits.service';
+import { ProblemsService } from '../problems/problems.service';
+import { CurrentUserType } from '../common/decorators/current-user.decorator';
 import { EmailService } from '../common/services/email.service';
 
 @Injectable()
@@ -21,6 +23,7 @@ export class SoapNotesService {
     private patientsService: PatientsService,
     private patientVisitsService: PatientVisitsService,
     private emailService: EmailService,
+    private problems: ProblemsService,
   ) {}
 
   // ── CREATE ─────────────────────────────────────────────────────────────────
@@ -38,6 +41,22 @@ export class SoapNotesService {
       dto.icd11Code = dto.icd11Codes[0].code;
       dto.icd11Description = dto.icd11Codes[0].description ?? '';
     }
+  }
+
+  /** The coded diagnoses on a note, primary first, de-duplicated. */
+  private diagnosesOf(note: SoapNote): { code?: string | null; display: string }[] {
+    const rows = (note.icd11Codes ?? []).map((d) => ({ code: d.code, display: d.description }));
+    if (!rows.length && note.icd11Code) {
+      rows.push({ code: note.icd11Code, display: note.icd11Description || note.diagnosis || note.icd11Code });
+    }
+    if (!rows.length && note.diagnosis) rows.push({ code: null, display: note.diagnosis });
+    const seen = new Set<string>();
+    return rows.filter((r) => {
+      const k = (r.code || r.display || '').toLowerCase();
+      if (!k || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
   }
 
   async create(
@@ -63,6 +82,21 @@ export class SoapNotesService {
     });
 
     const saved = await this.soapNotesRepository.save(soapNote);
+
+    // The diagnoses written here join the patient's problem list, so the list
+    // fills from ordinary consulting rather than being maintained by hand.
+    // Best-effort: a problem-list hiccup must never lose the note itself.
+    try {
+      await this.problems.recordFromNote(
+        facilityId,
+        createSoapNoteDto.patientId,
+        saved.id,
+        this.diagnosesOf(saved),
+        { id: userId } as CurrentUserType,
+      );
+    } catch (e) {
+      console.error(`Problem list update for note ${saved.id} failed: ${(e as Error).message}`);
+    }
 
     // Auto-complete the patient's active visit when a SOAP note is saved
     await this.patientVisitsService.completeVisitForPatient(

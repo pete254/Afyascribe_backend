@@ -79,6 +79,7 @@ import { AssetsModule } from './assets/assets.module';
 import { AuditModule } from './audit/audit.module';
 import { PettyCashModule } from './petty-cash/petty-cash.module';
 import { AllergiesModule } from './allergies/allergies.module';
+import { ProblemsModule } from './problems/problems.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -145,6 +146,7 @@ import { AllergiesModule } from './allergies/allergies.module';
     AuditModule,
     PettyCashModule,
     AllergiesModule,
+    ProblemsModule,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],
