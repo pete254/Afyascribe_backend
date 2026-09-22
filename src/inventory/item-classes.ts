@@ -92,3 +92,7 @@ export const ASSET_CATEGORIES = Object.keys(ASSET_CATEGORY_META);
 export const isAssetCategory = (c?: string | null) => !!c && c in ASSET_CATEGORY_META;
 export const assetCategoryMeta = (c?: string | null): AssetCategoryMeta =>
   ASSET_CATEGORY_META[c ?? ''] ?? ASSET_CATEGORY_META.asset_other;
+
+/** Controlled-drug schedules (Cap 245). A facility marks its own items. */
+export const CONTROLLED_SCHEDULES = ['narcotic', 'psychotropic'] as const;
+export type ControlledSchedule = (typeof CONTROLLED_SCHEDULES)[number];

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ControlledDrugRegisterEntry } from './entities/controlled-drug-register.entity';
 import { Asset } from '../assets/entities/asset.entity';
 import { AssetEvent } from '../assets/entities/asset-event.entity';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -43,6 +44,7 @@ import { TerminologyModule } from '../terminology/terminology.module';
       InventoryItem,
       Supplier,
       StockMovement,
+      ControlledDrugRegisterEntry,
       StockBatch,
       GoodsReceipt,
       GoodsReceiptLine,

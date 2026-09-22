@@ -3,9 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager, Between } from 'typeorm';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { StockMovement, StockMovementType } from './entities/stock-movement.entity';
+import { CurrentUserType } from '../common/decorators/current-user.decorator';
 import { ItemClass, accountsFor, classOf } from './item-classes';
+import { ControlledDrugRegisterEntry, ControlledEntryType } from './entities/controlled-drug-register.entity';
 import { StockBatch } from './entities/stock-batch.entity';
-import { CreateItemDto, UpdateItemDto, IssueStockDto, AdjustStockDto } from './dto/inventory.dto';
+import { CreateItemDto, UpdateItemDto, IssueStockDto, AdjustStockDto, ControlledEntryDto } from './dto/inventory.dto';
 import { HmisPostingService } from '../accounting/hmis-posting.service';
 import { OclClient } from '../terminology/ocl.client';
 
@@ -29,6 +31,17 @@ export interface MovementParams {
   userId?: string;
   /** Receiving department for a store issue. */
   department?: string;
+  /** Controlled drugs register context (used only for scheduled items). */
+  register?: {
+    patientName?: string | null;
+    patientNo?: string | null;
+    prescriber?: string | null;
+    prescriptionNo?: string | null;
+    witnessName?: string | null;
+    handledByName?: string | null;
+    batchNo?: string | null;
+    type?: ControlledEntryType;
+  };
 }
 
 @Injectable()
@@ -38,6 +51,8 @@ export class StockService {
     private readonly items: Repository<InventoryItem>,
     @InjectRepository(StockMovement)
     private readonly movements: Repository<StockMovement>,
+    @InjectRepository(ControlledDrugRegisterEntry)
+    private readonly register: Repository<ControlledDrugRegisterEntry>,
     @InjectRepository(StockBatch)
     private readonly batches: Repository<StockBatch>,
     private readonly dataSource: DataSource,
@@ -227,6 +242,7 @@ export class StockService {
       ...(dto.markupPct !== undefined ? { markupPct: dto.markupPct === null ? null : String(dto.markupPct) } : {}),
       ...(dto.reorderLevel !== undefined ? { reorderLevel: String(dto.reorderLevel) } : {}),
       ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+      ...(dto.controlledSchedule !== undefined ? { controlledSchedule: dto.controlledSchedule || null } : {}),
       ...(dto.inventoryAccountCode !== undefined ? { inventoryAccountCode: dto.inventoryAccountCode } : {}),
       ...(dto.cogsAccountCode !== undefined ? { cogsAccountCode: dto.cogsAccountCode } : {}),
       ...(dto.revenueAccountCode !== undefined ? { revenueAccountCode: dto.revenueAccountCode } : {}),
@@ -468,6 +484,7 @@ export class StockService {
       createdById: params.userId ?? null,
     });
     const saved = await mgr.getRepository(StockMovement).save(movement);
+    await this.appendControlledEntry(mgr, item, params, saved);
     return { movement: saved, value, unitCost };
   }
 
@@ -559,6 +576,7 @@ export class StockService {
       /** Clamp the issue to on-hand stock instead of going negative. */
       capToStock?: boolean;
       department?: string;
+      register?: MovementParams['register'];
     } = {},
   ): Promise<{ item: InventoryItem; value: number; issued: number }> {
     if (!(quantity > 0)) throw new BadRequestException('Issue quantity must be greater than 0');
@@ -588,6 +606,7 @@ export class StockService {
         note: opts.note,
         userId: opts.userId,
         department: opts.department ?? opts.costCenter,
+        register: opts.register,
       });
       await this.consumeFefo(mgr, facilityId, itemId, qty);
       return { item: it, value: Math.abs(res.value), issued: qty };
@@ -631,6 +650,122 @@ export class StockService {
       userId,
     });
     return { item: res.item, issued: res.issued, value: res.value };
+  }
+
+  // ── Controlled drugs register (Cap 245) ──────────────────────────────────────
+
+  /**
+   * Mirror a movement of a scheduled drug into the controlled drugs register.
+   * Runs inside the caller's transaction so stock and register can never
+   * disagree. Non-controlled items are ignored.
+   */
+  private async appendControlledEntry(
+    mgr: EntityManager,
+    item: InventoryItem,
+    params: MovementParams,
+    movement: StockMovement,
+  ): Promise<void> {
+    if (!item.controlledSchedule) return;
+    const qty = Number(params.quantity);
+    const ctx = params.register ?? {};
+    const type: ControlledEntryType =
+      ctx.type ??
+      (params.type === 'receipt' || params.type === 'opening' || params.type === 'transfer_in'
+        ? 'receipt'
+        : params.sourceType === 'prescription_dispense'
+          ? 'dispense'
+          : 'adjustment');
+    await mgr.getRepository(ControlledDrugRegisterEntry).save(
+      mgr.getRepository(ControlledDrugRegisterEntry).create({
+        facilityId: item.facilityId,
+        itemId: item.id,
+        itemName: item.name,
+        schedule: item.controlledSchedule,
+        date: params.date ?? today(),
+        type,
+        qtyIn: (qty > 0 ? qty : 0).toFixed(3),
+        qtyOut: (qty < 0 ? -qty : 0).toFixed(3),
+        // Stock on hand after the movement — recordMovement has already applied it.
+        balance: item.stockQty,
+        batchNo: ctx.batchNo ?? null,
+        patientName: ctx.patientName ?? null,
+        patientNo: ctx.patientNo ?? null,
+        prescriber: ctx.prescriber ?? null,
+        prescriptionNo: ctx.prescriptionNo ?? null,
+        handledById: params.userId ?? null,
+        handledByName: ctx.handledByName ?? null,
+        witnessName: ctx.witnessName ?? null,
+        reference: params.reference ?? null,
+        note: params.note ?? null,
+        movementId: movement.id,
+      }),
+    );
+  }
+
+  /** Items the facility has marked as controlled, with their current balance. */
+  controlledItems(facilityId: string): Promise<InventoryItem[]> {
+    return this.items
+      .createQueryBuilder('i')
+      .where('i.facilityId = :facilityId', { facilityId })
+      .andWhere('i.controlled_schedule IS NOT NULL')
+      .orderBy('i.name', 'ASC')
+      .getMany();
+  }
+
+  /** The register itself — oldest first, the way the book is read. */
+  async controlledRegister(
+    facilityId: string,
+    opts: { itemId?: string; from?: string; to?: string } = {},
+  ): Promise<ControlledDrugRegisterEntry[]> {
+    const qb = this.register
+      .createQueryBuilder('r')
+      .where('r.facilityId = :facilityId', { facilityId });
+    if (opts.itemId) qb.andWhere('r.item_id = :itemId', { itemId: opts.itemId });
+    if (opts.from) qb.andWhere('r.date >= :from', { from: opts.from });
+    if (opts.to) qb.andWhere('r.date <= :to', { to: opts.to });
+    return qb.orderBy('r.date', 'ASC').addOrderBy('r.created_at', 'ASC').getMany();
+  }
+
+  /**
+   * A controlled-drug write-off outside dispensing — destruction (expired,
+   * broken, spilled), a correction, or a patient return. Always two people:
+   * the handler and a named witness.
+   */
+  async controlledEntry(facilityId: string, dto: ControlledEntryDto, user?: CurrentUserType) {
+    const item = await this.getItem(facilityId, dto.itemId);
+    if (!item.controlledSchedule) {
+      throw new BadRequestException(`${item.name} is not marked as a controlled drug`);
+    }
+    const inbound = dto.type === 'return';
+    const qty = Math.abs(dto.quantity);
+    if (!inbound && qty > Number(item.stockQty)) {
+      throw new BadRequestException(`Only ${Number(item.stockQty)} ${item.unit} on hand`);
+    }
+    const handledByName = user ? `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || null : null;
+
+    await this.dataSource.transaction(async (mgr) => {
+      const it = await mgr.getRepository(InventoryItem).findOne({
+        where: { id: item.id, facilityId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!it) throw new NotFoundException('Item not found');
+      const avg = Number(it.stockQty) > 0 ? Number(it.stockValue) / Number(it.stockQty) : 0;
+      await this.recordMovement(mgr, it, {
+        type: inbound ? 'adjustment_in' : 'adjustment_out',
+        quantity: inbound ? qty : -qty,
+        unitCost: inbound ? avg : undefined,
+        date: dto.date,
+        reference: dto.reference,
+        sourceType: `controlled_${dto.type}`,
+        note: dto.note,
+        userId: user?.id,
+        register: { type: dto.type, witnessName: dto.witnessName.trim(), handledByName },
+      });
+      if (!inbound) await this.consumeFefo(mgr, facilityId, item.id, qty);
+      await mgr.getRepository(InventoryItem).save(it);
+    });
+
+    return this.getItem(facilityId, dto.itemId);
   }
 
   /**

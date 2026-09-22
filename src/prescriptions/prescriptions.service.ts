@@ -292,6 +292,16 @@ export class PrescriptionsService {
             costCenter: 'pharmacy',
             note: `Dispensed: ${line.medication}`,
             userId: user.id,
+            // Context for the controlled drugs register, used when the item is
+            // a scheduled drug: who it went to and who prescribed it.
+            register: {
+              patientName: rx.patientName,
+              patientNo: rx.patientNo,
+              prescriber: [rx.doctorName, rx.doctorNo].filter(Boolean).join(' · ') || null,
+              prescriptionNo: rx.rxNo,
+              handledByName: this.fullName(user),
+              type: 'dispense',
+            },
           },
         );
         if (issued > 0) {

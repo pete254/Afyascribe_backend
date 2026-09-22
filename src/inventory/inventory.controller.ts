@@ -26,6 +26,7 @@ import {
   UpdateItemDto,
   AdjustStockDto,
   IssueStockDto,
+  ControlledEntryDto,
   CreateSupplierDto,
   UpdateSupplierDto,
   CreateGoodsReceiptDto,
@@ -129,6 +130,31 @@ export class InventoryController {
     @Query('to') to?: string,
   ) {
     return this.stock.performanceReport(facilityOf(user), { from, to });
+  }
+
+  // ── Controlled drugs (Cap 245) ──────────────────────────────────────────────
+
+  @Get('controlled/items')
+  @ApiOperation({ summary: 'Items marked as controlled drugs, with their balance' })
+  controlledItems(@CurrentUser() user: CurrentUserType) {
+    return this.stock.controlledItems(facilityOf(user));
+  }
+
+  @Get('controlled/register')
+  @ApiOperation({ summary: 'The controlled drugs register — every movement, oldest first, with a running balance' })
+  controlledRegister(
+    @CurrentUser() user: CurrentUserType,
+    @Query('itemId') itemId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.stock.controlledRegister(facilityOf(user), { itemId, from, to });
+  }
+
+  @Post('controlled/entry')
+  @ApiOperation({ summary: 'Record a destruction / correction / patient return of a controlled drug (witness required)' })
+  controlledEntry(@CurrentUser() user: CurrentUserType, @Body() dto: ControlledEntryDto) {
+    return this.stock.controlledEntry(facilityOf(user), dto, user);
   }
 
   @Get('reports/consumption')

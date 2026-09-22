@@ -1,5 +1,6 @@
 import {
   IsString,
+  IsNotEmpty,
   IsIn,
   IsOptional,
   IsNumber,
@@ -13,7 +14,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ITEM_CATEGORIES } from '../item-classes';
+import { ITEM_CATEGORIES, CONTROLLED_SCHEDULES } from '../item-classes';
 
 export class CreateItemDto {
   @ApiProperty({ example: 'Amoxicillin 500mg' })
@@ -96,6 +97,8 @@ export class UpdateItemDto {
   @ApiPropertyOptional() @IsString() @IsOptional() knhtsName?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() sku?: string;
   @ApiPropertyOptional({ enum: ITEM_CATEGORIES }) @IsIn(ITEM_CATEGORIES) @IsOptional() category?: string;
+  @ApiPropertyOptional({ enum: CONTROLLED_SCHEDULES, nullable: true, description: 'Cap 245 schedule; null clears it' })
+  @IsIn([...CONTROLLED_SCHEDULES, null]) @IsOptional() controlledSchedule?: string | null;
   @ApiPropertyOptional() @IsString() @IsOptional() unit?: string;
   @ApiPropertyOptional() @IsNumber() @Min(0) @IsOptional() salePrice?: number;
   @ApiPropertyOptional() @IsNumber() @Min(0) @IsOptional() costPrice?: number;
@@ -281,4 +284,35 @@ export class CreateSupplierPaymentDto {
   @ApiPropertyOptional() @IsDateString() @IsOptional() date?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() reference?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() notes?: string;
+}
+
+export class ControlledEntryDto {
+  @ApiProperty({ description: 'Controlled item being written off' })
+  @IsUUID()
+  itemId: string;
+
+  @ApiProperty({ enum: ['destruction', 'adjustment', 'return'], description: 'Why stock is leaving outside a sale' })
+  @IsIn(['destruction', 'adjustment', 'return'])
+  type: 'destruction' | 'adjustment' | 'return';
+
+  @ApiProperty({ description: 'Units removed' })
+  @IsNumber()
+  @Min(0.001)
+  quantity: number;
+
+  @ApiProperty({ description: 'Second signature — required for a destruction' })
+  @IsString()
+  @IsNotEmpty()
+  witnessName: string;
+
+  @ApiProperty({ description: 'Reason (breakage, expiry, spillage, patient return…)' })
+  @IsString()
+  @IsNotEmpty()
+  note: string;
+
+  @ApiPropertyOptional({ description: 'ISO date; defaults to today' })
+  @IsString() @IsOptional() date?: string;
+
+  @ApiPropertyOptional({ description: 'Destruction certificate / reference no.' })
+  @IsString() @IsOptional() reference?: string;
 }

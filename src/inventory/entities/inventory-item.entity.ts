@@ -86,6 +86,14 @@ export class InventoryItem {
   @Column({ name: 'revenue_account_code', type: 'varchar', length: 20, default: '42001' })
   revenueAccountCode: string;
 
+  /**
+   * Controlled-drug schedule under the Narcotic Drugs and Psychotropic
+   * Substances (Control) Act, Cap 245 — 'narcotic' or 'psychotropic'. When set,
+   * every movement of this item is written to the controlled drugs register.
+   */
+  @Column({ name: 'controlled_schedule', type: 'varchar', length: 20, nullable: true })
+  controlledSchedule: string | null;
+
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
 
