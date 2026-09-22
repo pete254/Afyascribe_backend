@@ -1,4 +1,4 @@
-import { daysSupply, dosesPerDay, quantityForCourse, unitsPerDose } from './dosing';
+import { daysSupply, dosesPerDay, durationDays, quantityForCourse, unitsPerDose } from './dosing';
 
 describe('dosesPerDay', () => {
   it.each([
@@ -72,5 +72,25 @@ describe('quantityForCourse', () => {
   it('gives no answer when the course cannot be read', () => {
     expect(quantityForCourse(5, '1 tab', 'PRN')).toBeNull();
     expect(quantityForCourse(null, '1 tab', 'TDS')).toBeNull();
+  });
+});
+
+describe('durationDays', () => {
+  it.each([
+    ['5 days', 5],
+    ['5/7', 35],      // Kenyan shorthand: 5 weeks
+    ['2/12', 60],     // 2 months
+    ['1 week', 7],
+    ['2 weeks', 14],
+    ['1 month', 30],
+    ['3d', 3],
+  ])('reads %s as %s days', (text, expected) => {
+    expect(durationDays(text)).toBe(expected);
+  });
+
+  it('returns null when no duration was written', () => {
+    expect(durationDays('')).toBeNull();
+    expect(durationDays(null)).toBeNull();
+    expect(durationDays('until finished')).toBeNull();
   });
 });

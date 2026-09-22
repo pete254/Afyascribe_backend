@@ -8,6 +8,31 @@
  * and an unrecognised frequency stays unrecognised.
  */
 
+/**
+ * Read a written duration ("5 days", "2/52", "1 week") as a number of days.
+ * Returns null when it cannot be read — the list then says so rather than
+ * guessing an end date.
+ */
+export function durationDays(duration?: string | null): number | null {
+  const d = (duration ?? '').trim().toLowerCase();
+  if (!d) return null;
+  // Kenyan shorthand: n/7 = weeks, n/12 = months, n/52 = weeks.
+  const shorthand = d.match(/^(\d+)\s*\/\s*(7|12|52)$/);
+  if (shorthand) {
+    const n = Number(shorthand[1]);
+    return shorthand[2] === '12' ? n * 30 : n * 7;
+  }
+  const m = d.match(/^(\d+(?:\.\d+)?)\s*(day|days|d|week|weeks|wk|wks|w|month|months|mon|m|year|years|yr|y)\b/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  const unit = m[2];
+  if (unit.startsWith('d')) return n;
+  if (unit.startsWith('w')) return n * 7;
+  if (unit.startsWith('mon') || unit === 'm' || unit.startsWith('month')) return n * 30;
+  if (unit.startsWith('y')) return n * 365;
+  return null;
+}
+
 /** Doses per day for the abbreviations used on Kenyan prescriptions. */
 const FREQUENCY_PER_DAY: Record<string, number> = {
   od: 1, // once daily

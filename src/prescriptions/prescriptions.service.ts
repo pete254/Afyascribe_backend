@@ -12,8 +12,7 @@ import { CurrentUserType } from '../common/decorators/current-user.decorator';
 import { BillingService } from '../billing/billing.service';
 import { StockService } from '../inventory/stock.service';
 import { ServiceType } from '../billing/entities/billing.entity';
-import { daysSupply, quantityForCourse } from './dosing';
-import { durationDays } from '../allergies/allergies.service';
+import { daysSupply, durationDays, quantityForCourse } from './dosing';
 import { PatientVisit, VisitStatus } from '../patient-visits/entities/patient-visit.entity';
 import { Patient } from '../patients/entities/patient.entity';
 
