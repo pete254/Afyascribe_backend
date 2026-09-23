@@ -26,6 +26,8 @@ import { RadiologyStatus } from '../radiology/radiology-status.enum';
 import { FHIR_PROFILE, FHIR_SYS } from './fhir-systems';
 import { SUMMARY_LOINC, narrative } from './clinical-summary';
 import { Appointment } from '../appointments/entities/appointment.entity';
+import { FamilyHistory } from '../family-history/entities/family-history.entity';
+import { FAMILY_RELATIONSHIP_SYSTEM, relationshipOf } from '../family-history/family-history.enums';
 
 type Json = Record<string, unknown>;
 
@@ -53,6 +55,7 @@ export class FhirService {
     @InjectRepository(PatientAllergy) private readonly allergies: Repository<PatientAllergy>,
     @InjectRepository(PatientProblem) private readonly problems: Repository<PatientProblem>,
     @InjectRepository(Appointment) private readonly appointments: Repository<Appointment>,
+    @InjectRepository(FamilyHistory) private readonly familyHistory: Repository<FamilyHistory>,
     private readonly meds: AllergiesService,
   ) {}
 
@@ -775,6 +778,7 @@ export class FhirService {
     // Both are DHA certification criteria in their own right.
     const allergies = await this.allergies.find({ where: { facilityId, patientId } });
     const problems = await this.problems.find({ where: { facilityId, patientId } });
+    const familyHistory = await this.familyHistory.find({ where: { facilityId, patientId } });
     // Diagnoses on notes that pre-date the problem list still need exporting;
     // once a note has fed the list, the list is the better record.
     const notesInList = new Set(problems.map((p) => p.sourceNoteId).filter(Boolean) as string[]);
@@ -838,6 +842,10 @@ export class FhirService {
     for (const p of problems) {
       entries.push({ resource: this.buildProblemCondition(p) });
     }
+    for (const f of familyHistory) {
+      if (f.status === 'entered-in-error') continue;
+      entries.push({ resource: this.buildFamilyMemberHistory(f) });
+    }
     for (const a of allergies) {
       entries.push({ resource: this.buildAllergyIntolerance(a) });
     }
@@ -854,6 +862,40 @@ export class FhirService {
       timestamp: new Date().toISOString(),
       total: resources.length,
       entry: resources.map((r) => ({ fullUrl: `urn:uuid:${r.id}`, resource: r })),
+    };
+  }
+
+  /**
+   * A relative's history → FHIR FamilyMemberHistory. One resource per relative
+   * carrying all their conditions, which is how the resource is shaped: a
+   * mother with diabetes and hypertension is one relative, not two.
+   */
+  buildFamilyMemberHistory(f: FamilyHistory): Json {
+    const rel = relationshipOf(f.relationship);
+    return {
+      resourceType: 'FamilyMemberHistory',
+      id: `famhx-${f.id}`,
+      status: f.status,
+      patient: { reference: `Patient/${f.patientId}` },
+      date: f.createdAt ? new Date(f.createdAt).toISOString() : undefined,
+      name: f.name ?? undefined,
+      relationship: {
+        coding: [{ system: FAMILY_RELATIONSHIP_SYSTEM, code: f.relationship, display: rel?.label }],
+        text: rel?.label ?? f.relationship,
+      },
+      sex: f.gender ? { text: f.gender } : undefined,
+      bornDate: f.bornYear ? String(f.bornYear) : undefined,
+      deceasedAge: f.deceased && f.ageAtDeath ? { value: f.ageAtDeath, unit: 'a', system: FHIR_SYS.ucum, code: 'a' } : undefined,
+      deceasedBoolean: f.deceased && !f.ageAtDeath ? true : undefined,
+      note: f.note ? [{ text: f.note }] : undefined,
+      condition: (f.conditions ?? []).map((c) => ({
+        code: c.code
+          ? { coding: [{ system: FHIR_SYS.icd11, code: c.code, display: c.display }], text: c.display }
+          : { text: c.display },
+        contributedToDeath: c.contributedToDeath || undefined,
+        onsetAge: c.onsetAge != null ? { value: c.onsetAge, unit: 'a', system: FHIR_SYS.ucum, code: 'a' } : undefined,
+        note: c.note ? [{ text: c.note }] : undefined,
+      })),
     };
   }
 
@@ -880,6 +922,7 @@ export class FhirService {
     if (!patient) throw new NotFoundException('Patient not found');
     const facility = await this.facilities.findOne({ where: { id: facilityId } });
     const problems = await this.problems.find({ where: { facilityId, patientId } });
+    const familyHistory = await this.familyHistory.find({ where: { facilityId, patientId } });
     const allergies = await this.allergies.find({ where: { facilityId, patientId } });
     const medications = await this.meds.medications(facilityId, patientId);
     const appointments = await this.appointments.find({
@@ -1021,6 +1064,32 @@ export class FhirService {
         ),
       },
     });
+
+    // Family history sits with the clinical sections — it is background a
+    // receiving clinician reads, not an event in the record.
+    const relatives = await this.familyHistory.find({ where: { facilityId, patientId } });
+    const shownRelatives = relatives.filter((r) => r.status !== 'entered-in-error');
+    if (shownRelatives.length) {
+      sections.push({
+        title: 'Family history',
+        code: { coding: [{ system: FHIR_SYS.loinc, ...SUMMARY_LOINC.familyHistory }] },
+        text: {
+          status: 'generated',
+          div: narrative(
+            shownRelatives.map((r) => [
+              relationshipOf(r.relationship)?.label ?? r.relationship,
+              r.status === 'health-unknown'
+                ? 'Not known'
+                : (r.conditions ?? []).map((c) => c.display).join(', ') || 'No conditions reported',
+              r.deceased ? `Deceased${r.ageAtDeath ? ` at ${r.ageAtDeath}` : ''}` : 'Living',
+            ]),
+            ['Relative', 'Conditions', 'Status'],
+            'No family history recorded.',
+          ),
+        },
+        entry: of('FamilyMemberHistory').map(ref),
+      });
+    }
 
     const practitioners = of('Practitioner');
     const organization = of('Organization')[0];
