@@ -5,6 +5,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThanOrEqual } from 'typeorm';
 import { Patient } from './entities/patient.entity';
+import { PatientIdentifier } from './entities/patient-identifier.entity';
+import { NATIONAL_IDENTIFIER_SOURCE, identifierType } from './data/identifier-types';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 
 @Injectable()
@@ -12,6 +14,8 @@ export class PatientsService {
   constructor(
     @InjectRepository(Patient)
     private readonly patientRepository: Repository<Patient>,
+    @InjectRepository(PatientIdentifier)
+    private readonly identifiers: Repository<PatientIdentifier>,
   ) {}
 
   /**
@@ -59,13 +63,74 @@ export class PatientsService {
       if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
     }
 
+    const { identifiers, ...rest } = dto as Record<string, unknown> & {
+      identifiers?: { type: string; value: string; isPrimary?: boolean }[];
+    };
+
     const patient = this.patientRepository.create({
-      ...(dto as Partial<Patient>),
+      ...(rest as Partial<Patient>),
       patientId,
       age,
       facilityId, // Scoped to facility
     });
-    return this.patientRepository.save(patient);
+    const saved = await this.patientRepository.save(patient);
+    await this.saveIdentifiers(saved, identifiers, facilityId);
+    return this.withIdentifiers(saved, facilityId);
+  }
+
+  /**
+   * Replace a patient's identifiers. A patient may hold several — national ID,
+   * birth certificate, SHA number — so these live in their own table; the
+   * legacy idType/idNumber pair is kept in step with whichever is primary so
+   * nothing that still reads those fields breaks.
+   */
+  private async saveIdentifiers(
+    patient: Patient,
+    identifiers: { type: string; value: string; isPrimary?: boolean }[] | undefined,
+    facilityId: string,
+  ): Promise<void> {
+    if (!identifiers) return;
+    const clean = identifiers
+      .filter((i) => i?.type && String(i.value ?? '').trim())
+      .map((i) => ({ ...i, value: String(i.value).trim() }));
+
+    await this.identifiers.delete({ patientId: patient.id, facilityId });
+    if (!clean.length) return;
+
+    // Exactly one primary: the one marked, else the first.
+    const primaryIdx = Math.max(0, clean.findIndex((i) => i.isPrimary));
+    await this.identifiers.save(
+      clean.map((i, idx) =>
+        this.identifiers.create({
+          facilityId,
+          patientId: patient.id,
+          type: i.type,
+          typeSystem: identifierType(i.type)?.national ? NATIONAL_IDENTIFIER_SOURCE : null,
+          value: i.value,
+          isPrimary: idx === primaryIdx,
+        }),
+      ),
+    );
+
+    const primary = clean[primaryIdx];
+    const sha = clean.find((i) => i.type === 'shaNumber');
+    await this.patientRepository.update(
+      { id: patient.id },
+      {
+        idType: primary.type,
+        idNumber: primary.value,
+        ...(sha ? { shaNumber: sha.value } : {}),
+      },
+    );
+  }
+
+  /** A patient with their identifiers attached, for the API to return. */
+  private async withIdentifiers(patient: Patient, facilityId: string): Promise<Patient> {
+    const rows = await this.identifiers.find({
+      where: { patientId: patient.id, facilityId },
+      order: { isPrimary: 'DESC', createdAt: 'ASC' },
+    });
+    return Object.assign(patient, { identifiers: rows });
   }
 
   /**
@@ -180,7 +245,7 @@ export class PatientsService {
       throw new NotFoundException(`Patient with ID ${id} not found`);
     }
 
-    return patient;
+    return this.withIdentifiers(patient, facilityId);
   }
 
   /**
@@ -218,8 +283,13 @@ export class PatientsService {
     if (!patient) {
       throw new NotFoundException(`Patient with ID "${id}" not found`);
     }
-    Object.assign(patient, updateData);
-    return this.patientRepository.save(patient);
+    const { identifiers, ...rest } = updateData as UpdatePatientDto & {
+      identifiers?: { type: string; value: string; isPrimary?: boolean }[];
+    };
+    Object.assign(patient, rest);
+    const saved = await this.patientRepository.save(patient);
+    await this.saveIdentifiers(saved, identifiers, facilityId);
+    return this.withIdentifiers(saved, facilityId);
   }
 
   /**

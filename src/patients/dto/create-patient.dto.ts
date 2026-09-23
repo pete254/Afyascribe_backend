@@ -1,6 +1,22 @@
 // src/patients/dto/create-patient.dto.ts
-import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional, IsEmail } from 'class-validator';
+import { IDENTIFIER_TYPE_CODES } from '../data/identifier-types';
+import { Type } from 'class-transformer';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsString, IsNotEmpty, IsOptional, IsEmail, IsArray, ValidateNested, IsIn, IsBoolean } from 'class-validator';
+
+export class PatientIdentifierDto {
+  @ApiProperty({ enum: IDENTIFIER_TYPE_CODES, example: 'nationalID' })
+  @IsIn(IDENTIFIER_TYPE_CODES)
+  type: string;
+
+  @ApiProperty({ example: '12345678' })
+  @IsString()
+  @IsNotEmpty()
+  value: string;
+
+  @ApiPropertyOptional({ description: 'The one used to identify the patient by default' })
+  @IsBoolean() @IsOptional() isPrimary?: boolean;
+}
 
 export class CreatePatientDto {
   @ApiProperty({ example: 'Wanjiru' })
@@ -131,4 +147,23 @@ export class CreatePatientDto {
     relationship: string;
     phone: string;
   }[];
+
+  @ApiPropertyOptional({
+    description: 'All identifiers the patient holds; type is a Kenya Patient Identifiers code where one exists',
+    example: [{ type: 'nationalID', value: '12345678', isPrimary: true }],
+  })
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => PatientIdentifierDto)
+  identifiers?: PatientIdentifierDto[];
+
+  @ApiPropertyOptional({ description: 'Ward of residence' })
+  @IsString() @IsOptional() ward?: string;
+
+  @ApiPropertyOptional({ description: 'Village or estate' })
+  @IsString() @IsOptional() village?: string;
+
+  @ApiPropertyOptional({ description: 'Nearest landmark or plot number' })
+  @IsString() @IsOptional() physicalAddress?: string;
 }

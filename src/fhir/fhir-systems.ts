@@ -37,6 +37,9 @@ export const FHIR_SYS = {
   nationalId: env('FHIR_SYS_NATIONAL_ID', 'https://dha.go.ke/identifier/national-id'),
   shaId: env('FHIR_SYS_SHA', 'https://sha.go.ke/identifier/beneficiary'),
 
+  /** Base for nationally-coded patient identifier types; the type code is appended. */
+  patientIdentifier: env('FHIR_SYS_PATIENT_IDENTIFIER', 'https://dha.go.ke/identifier/patient'),
+
   /** Facility identifier (KMHFL code when available). */
   facility: env('FHIR_SYS_FACILITY', 'https://kmhfl.health.go.ke/identifier/facility-code'),
 

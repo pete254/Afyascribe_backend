@@ -19,6 +19,8 @@ import { PatientVisit } from '../patient-visits/entities/patient-visit.entity';
 import { Radiology } from '../radiology/entities/radiology.entity';
 import { PatientAllergy } from '../allergies/entities/patient-allergy.entity';
 import { PatientProblem } from '../problems/entities/patient-problem.entity';
+import { PatientIdentifier } from '../patients/entities/patient-identifier.entity';
+import { identifierType } from '../patients/data/identifier-types';
 import { AllergiesService, MedicationListEntry } from '../allergies/allergies.service';
 import { RadiologyStatus } from '../radiology/radiology-status.enum';
 import { FHIR_PROFILE, FHIR_SYS } from './fhir-systems';
@@ -79,10 +81,39 @@ export class FhirService {
         value: p.shaNumber,
       });
 
+    // Kenya's residence hierarchy maps onto FHIR as county → state,
+    // sub-county → district, ward and village/landmark → address lines.
+    const lines = [p.physicalAddress, p.village, p.ward].filter(Boolean) as string[];
     const address =
-      p.county || p.subCounty
-        ? [{ district: p.subCounty || undefined, state: p.county || undefined, country: p.nationality || 'KE' }]
+      p.county || p.subCounty || lines.length
+        ? [
+            {
+              line: lines.length ? lines : undefined,
+              district: p.subCounty || undefined,
+              state: p.county || undefined,
+              postalCode: p.postalCode || undefined,
+              country: p.nationality || 'KE',
+            },
+          ]
         : undefined;
+    // Every identifier the patient holds, typed against the national Kenya
+    // Patient Identifiers list where it publishes a code. De-duplicated so a
+    // value already emitted above (national ID, SHA) is not repeated.
+    const seen = new Set(identifiers.map((i) => String(i.value)));
+    for (const extra of (p as Patient & { identifiers?: PatientIdentifier[] }).identifiers ?? []) {
+      if (!extra.value || seen.has(extra.value)) continue;
+      seen.add(extra.value);
+      const meta = identifierType(extra.type);
+      identifiers.push({
+        use: extra.isPrimary ? 'official' : 'secondary',
+        type: meta?.fhirType ? this.idType(meta.fhirType, meta.label) : { text: meta?.label ?? extra.type },
+        system: extra.typeSystem
+          ? `${FHIR_SYS.patientIdentifier}/${extra.type}`
+          : `${FHIR_SYS.mrn}/${extra.type}`,
+        value: extra.value,
+      });
+    }
+
 
     return {
       resourceType: 'Patient',

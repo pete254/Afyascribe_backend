@@ -88,6 +88,18 @@ export class Patient {
   @Column({ nullable: true })
   subCounty: string;
 
+  /** Ward and village/estate complete the Kenyan residence hierarchy:
+   *  county → sub-county → ward → village/estate. */
+  @Column({ nullable: true })
+  ward: string;
+
+  @Column({ nullable: true })
+  village: string;
+
+  /** Nearest landmark or plot — how a community health worker actually finds a home. */
+  @Column({ name: 'physical_address', nullable: true })
+  physicalAddress: string;
+
   @Column({ nullable: true })
   postalCode: string;
 

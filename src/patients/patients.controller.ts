@@ -20,6 +20,7 @@ import {
 } from '@nestjs/swagger';
 import { plainToInstance } from 'class-transformer';
 
+import { PATIENT_IDENTIFIER_TYPES, NATIONAL_IDENTIFIER_SOURCE } from './data/identifier-types';
 import { PatientsService } from './patients.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PatientResponseDto } from './dto/patient-response.dto';
@@ -60,6 +61,18 @@ export class PatientsController {
   }
 
   // ── SEARCH ────────────────────────────────────────────────────────────────
+
+  @Get('identifier-types')
+  @ApiOperation({
+    summary: 'The identifier types a patient may hold — national codes where the value set publishes one',
+  })
+  identifierTypes() {
+    return PATIENT_IDENTIFIER_TYPES.map((t) => ({
+      ...t,
+      // Say plainly which codes are nationally published and which are ours.
+      system: t.national ? NATIONAL_IDENTIFIER_SOURCE : null,
+    }));
+  }
 
   @Get('search')
   @ApiOperation({ summary: 'Search patients by name or patient ID (scoped to your facility)' })
