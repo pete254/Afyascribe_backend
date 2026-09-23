@@ -105,6 +105,10 @@ export class PatientVisit {
     spO2?: string;
     respiratoryRate?: string;
     notes?: string;
+    /** Worked out from height and weight when both are recorded — never typed. */
+    bmi?: number;
+    /** WHO adult category; absent for a child, where adult cut-offs do not apply. */
+    bmiCategory?: string | null;
   } | null;
 
   // ── Timestamps ─────────────────────────────────────────────────────────────

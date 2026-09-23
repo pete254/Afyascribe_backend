@@ -7,6 +7,8 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { bmiFrom } from '../common/clinical/anthropometry';
+import { Patient } from '../patients/entities/patient.entity';
 import { PatientVisit, VisitStatus } from './entities/patient-visit.entity';
 import { Billing, BillingStatus } from '../billing/entities/billing.entity';
 import { Facility } from '../facilities/entities/facility.entity';
@@ -43,6 +45,8 @@ export class PatientVisitsService {
     private readonly facilitiesRepository: Repository<Facility>,
     @InjectRepository(Prescription)
     private readonly prescriptionsRepository: Repository<Prescription>,
+    @InjectRepository(Patient)
+    private readonly patients: Repository<Patient>,
   ) {}
 
   /**
@@ -195,7 +199,15 @@ export class PatientVisitsService {
       throw new BadRequestException('Cannot triage a completed or cancelled visit');
     }
 
-    visit.triageData = { ...dto };
+    // BMI is derived, never typed: two clinicians reading the same height and
+    // weight should never see different numbers. Withheld for children, whose
+    // BMI is read against the growth reference rather than adult cut-offs.
+    const patient = await this.patients.findOne({ where: { id: visit.patientId } });
+    const bmi = bmiFrom(dto.weight, dto.height, patient?.age ?? null);
+    visit.triageData = {
+      ...dto,
+      ...(bmi ? { bmi: bmi.value, bmiCategory: bmi.category } : {}),
+    };
     visit.triageCompleted = true;
     visit.triagedById = triagedById;
     visit.triagedAt = new Date();
