@@ -82,6 +82,7 @@ import { AllergiesModule } from './allergies/allergies.module';
 import { ProblemsModule } from './problems/problems.module';
 import { ServiceOrdersModule } from './service-orders/service-orders.module';
 import { FamilyHistoryModule } from './family-history/family-history.module';
+import { GrowthModule } from './growth/growth.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -151,6 +152,7 @@ import { FamilyHistoryModule } from './family-history/family-history.module';
     ProblemsModule,
     ServiceOrdersModule,
     FamilyHistoryModule,
+    GrowthModule,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],
