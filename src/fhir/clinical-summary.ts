@@ -19,6 +19,30 @@ export const SUMMARY_LOINC = {
   carePlan: { code: '18776-5', display: 'Plan of care note' },
   familyHistory: { code: '10157-6', display: 'History of family member diseases note' },
   immunisations: { code: '11369-6', display: 'History of Immunization note' },
+  pregnancy: { code: '10162-6', display: 'History of pregnancies Narrative' },
+} as const;
+
+/**
+ * Observation codes for the obstetric record. Each one was checked against
+ * Regenstrief/LOINC on the national terminology service.
+ *
+ * Fetal heart rate is deliberately absent: the only LOINC that fits is
+ * "Fetal Heart rate US", which asserts an ultrasound method, and a rate counted
+ * with a Pinard stethoscope is not that. The figure stays in the record.
+ */
+export const OBSTETRIC_LOINC = {
+  pregnancyStatus: { code: '11449-6', display: 'Pregnancy status - Reported' },
+  lmp: { code: '8665-2', display: 'Last menstrual period start date' },
+  edd: { code: '11778-8', display: 'Delivery date Estimated' },
+  gestationalAge: { code: '11884-4', display: 'Gestational age Estimated' },
+  gravida: { code: '11996-6', display: '[#] Pregnancies' },
+  para: { code: '11977-6', display: '[#] Parity' },
+  fundalHeight: { code: '11881-0', display: 'Uterus Fundal height Tape measure' },
+  systolic: { code: '8480-6', display: 'Systolic blood pressure' },
+  diastolic: { code: '8462-4', display: 'Diastolic blood pressure' },
+  haemoglobin: { code: '718-7', display: 'Hemoglobin [Mass/volume] in Blood' },
+  bodyWeight: { code: '29463-7', display: 'Body weight' },
+  breastfeeding: { code: '63895-7', display: 'Breastfeeding status' },
 } as const;
 
 /** Escape text before it goes into the narrative XHTML. */

@@ -24,12 +24,17 @@ import { identifierType } from '../patients/data/identifier-types';
 import { AllergiesService, MedicationListEntry } from '../allergies/allergies.service';
 import { RadiologyStatus } from '../radiology/radiology-status.enum';
 import { FHIR_PROFILE, FHIR_SYS } from './fhir-systems';
-import { SUMMARY_LOINC, narrative } from './clinical-summary';
+import { OBSTETRIC_LOINC, SUMMARY_LOINC, narrative } from './clinical-summary';
 import { Appointment } from '../appointments/entities/appointment.entity';
 import { FamilyHistory } from '../family-history/entities/family-history.entity';
 import { FAMILY_RELATIONSHIP_SYSTEM, relationshipOf } from '../family-history/family-history.enums';
 import { Immunisation } from '../immunisation/entities/immunisation.entity';
 import { vaccineLabel } from '../immunisation/data/schedule';
+import { Pregnancy } from '../maternity/entities/pregnancy.entity';
+import { AncContact } from '../maternity/entities/anc-contact.entity';
+import { PncContact } from '../maternity/entities/pnc-contact.entity';
+import { gestationOn, resolveDating } from '../maternity/gestation';
+import { PNC_WINDOW_LABEL } from '../maternity/data/schedules';
 
 type Json = Record<string, unknown>;
 
@@ -59,6 +64,9 @@ export class FhirService {
     @InjectRepository(Appointment) private readonly appointments: Repository<Appointment>,
     @InjectRepository(FamilyHistory) private readonly familyHistory: Repository<FamilyHistory>,
     @InjectRepository(Immunisation) private readonly immunisations: Repository<Immunisation>,
+    @InjectRepository(Pregnancy) private readonly pregnancies: Repository<Pregnancy>,
+    @InjectRepository(AncContact) private readonly ancContacts: Repository<AncContact>,
+    @InjectRepository(PncContact) private readonly pncContacts: Repository<PncContact>,
     private readonly meds: AllergiesService,
   ) {}
 
@@ -783,6 +791,16 @@ export class FhirService {
     const problems = await this.problems.find({ where: { facilityId, patientId } });
     const familyHistory = await this.familyHistory.find({ where: { facilityId, patientId } });
     const immunisations = await this.immunisations.find({ where: { facilityId, patientId } });
+    const pregnancies = await this.pregnancies.find({
+      where: { facilityId, patientId },
+      order: { createdAt: 'DESC' },
+    });
+    const [ancContacts, pncVisits] = pregnancies.length
+      ? await Promise.all([
+          this.ancContacts.find({ where: { facilityId, pregnancyId: In(pregnancies.map((x) => x.id)) } }),
+          this.pncContacts.find({ where: { facilityId, pregnancyId: In(pregnancies.map((x) => x.id)) } }),
+        ])
+      : [[] as AncContact[], [] as PncContact[]];
     // Diagnoses on notes that pre-date the problem list still need exporting;
     // once a note has fed the list, the list is the better record.
     const notesInList = new Set(problems.map((p) => p.sourceNoteId).filter(Boolean) as string[]);
@@ -852,6 +870,15 @@ export class FhirService {
     }
     for (const i of immunisations) {
       entries.push({ resource: this.buildImmunization(i) });
+    }
+    for (const preg of pregnancies) {
+      for (const r of this.buildPregnancyObservations(preg)) entries.push({ resource: r });
+    }
+    for (const c of ancContacts) {
+      for (const r of this.buildAncContact(c)) entries.push({ resource: r });
+    }
+    for (const c of pncVisits) {
+      for (const r of this.buildPncContact(c)) entries.push({ resource: r });
     }
     for (const a of allergies) {
       entries.push({ resource: this.buildAllergyIntolerance(a) });
@@ -932,6 +959,211 @@ export class FhirService {
     };
   }
 
+  /**
+   * A pregnancy → the observations that describe it: status, dating, gestation
+   * and obstetric history. FHIR has no Pregnancy resource; the IPS carries the
+   * same facts as Observations against the patient, which is what is built here.
+   */
+  buildPregnancyObservations(p: Pregnancy): Json[] {
+    const dated = resolveDating(p);
+    const on = p.status === 'active' ? new Date().toISOString().slice(0, 10) : (p.outcomeDate ?? null);
+    const g = on ? gestationOn(p, on) : null;
+    const subject = { reference: `Patient/${p.patientId}` };
+    const effective = p.status === 'active' ? new Date().toISOString().slice(0, 10) : p.outcomeDate;
+
+    const obs = (suffix: string, code: { code: string; display: string }, value: Json): Json => ({
+      resourceType: 'Observation',
+      id: `preg-${p.id}-${suffix}`,
+      meta: { profile: [FHIR_PROFILE.observation] },
+      status: 'final',
+      category: [
+        {
+          coding: [
+            {
+              system: 'http://terminology.hl7.org/CodeSystem/observation-category',
+              code: 'social-history',
+            },
+          ],
+        },
+      ],
+      code: { coding: [{ system: FHIR_SYS.loinc, ...code }], text: code.display },
+      subject,
+      effectiveDateTime: effective ?? undefined,
+      ...value,
+    });
+
+    const out: Json[] = [
+      obs('status', OBSTETRIC_LOINC.pregnancyStatus, {
+        valueCodeableConcept: { text: p.status === 'active' ? 'Pregnant' : `Ended — ${p.outcome ?? 'not recorded'}` },
+      }),
+    ];
+
+    if (p.lmp) out.push(obs('lmp', OBSTETRIC_LOINC.lmp, { valueDateTime: p.lmp }));
+    if (dated) out.push(obs('edd', OBSTETRIC_LOINC.edd, { valueDateTime: dated.edd }));
+    if (g) {
+      out.push(
+        obs('ga', OBSTETRIC_LOINC.gestationalAge, {
+          valueQuantity: { value: g.weeks, unit: 'weeks', system: FHIR_SYS.ucum, code: 'wk' },
+        }),
+      );
+    }
+    if (p.gravida != null) {
+      out.push(obs('gravida', OBSTETRIC_LOINC.gravida, { valueQuantity: { value: p.gravida, unit: '{#}' } }));
+    }
+    if (p.para != null) {
+      out.push(obs('para', OBSTETRIC_LOINC.para, { valueQuantity: { value: p.para, unit: '{#}' } }));
+    }
+    return out;
+  }
+
+  /**
+   * An antenatal contact → an Encounter plus the observations taken at it.
+   * Gestation is the figure recorded on the day, not one recomputed from a
+   * later revision of the dates.
+   */
+  buildAncContact(c: AncContact): Json[] {
+    const subject = { reference: `Patient/${c.patientId}` };
+    const encounterId = `anc-${c.id}`;
+    const out: Json[] = [
+      {
+        resourceType: 'Encounter',
+        id: encounterId,
+        status: 'finished',
+        class: { system: 'http://terminology.hl7.org/CodeSystem/v3-ActCode', code: 'AMB', display: 'ambulatory' },
+        type: [{ text: `Antenatal contact ${c.contactNumber}` }],
+        subject,
+        period: { start: c.contactDate, end: c.contactDate },
+        participant: c.recordedByName ? [{ individual: { display: c.recordedByName } }] : undefined,
+        reasonCode: [{ text: 'Antenatal care' }],
+      },
+    ];
+
+    const obs = (suffix: string, code: { code: string; display: string }, value: Json): Json => ({
+      resourceType: 'Observation',
+      id: `anc-${c.id}-${suffix}`,
+      meta: { profile: [FHIR_PROFILE.observation] },
+      status: 'final',
+      code: { coding: [{ system: FHIR_SYS.loinc, ...code }], text: code.display },
+      subject,
+      encounter: { reference: `Encounter/${encounterId}` },
+      effectiveDateTime: c.contactDate,
+      ...value,
+    });
+
+    if (c.gestationDays != null) {
+      out.push(
+        obs('ga', OBSTETRIC_LOINC.gestationalAge, {
+          valueQuantity: { value: Math.floor(c.gestationDays / 7), unit: 'weeks', system: FHIR_SYS.ucum, code: 'wk' },
+        }),
+      );
+    }
+    if (c.bpSystolic != null) {
+      out.push(
+        obs('bp-sys', OBSTETRIC_LOINC.systolic, {
+          valueQuantity: { value: c.bpSystolic, unit: 'mm[Hg]', system: FHIR_SYS.ucum, code: 'mm[Hg]' },
+        }),
+      );
+    }
+    if (c.bpDiastolic != null) {
+      out.push(
+        obs('bp-dia', OBSTETRIC_LOINC.diastolic, {
+          valueQuantity: { value: c.bpDiastolic, unit: 'mm[Hg]', system: FHIR_SYS.ucum, code: 'mm[Hg]' },
+        }),
+      );
+    }
+    if (c.weight != null) {
+      out.push(
+        obs('weight', OBSTETRIC_LOINC.bodyWeight, {
+          valueQuantity: { value: Number(c.weight), unit: 'kg', system: FHIR_SYS.ucum, code: 'kg' },
+        }),
+      );
+    }
+    if (c.fundalHeight != null) {
+      out.push(
+        obs('sfh', OBSTETRIC_LOINC.fundalHeight, {
+          valueQuantity: { value: c.fundalHeight, unit: 'cm', system: FHIR_SYS.ucum, code: 'cm' },
+        }),
+      );
+    }
+    if (c.hb != null) {
+      out.push(
+        obs('hb', OBSTETRIC_LOINC.haemoglobin, {
+          valueQuantity: { value: Number(c.hb), unit: 'g/dL', system: FHIR_SYS.ucum, code: 'g/dL' },
+        }),
+      );
+    }
+    return out;
+  }
+
+  /** A postnatal contact → an Encounter, with the mother's and baby's findings. */
+  buildPncContact(c: PncContact): Json[] {
+    const subject = { reference: `Patient/${c.patientId}` };
+    const encounterId = `pnc-${c.id}`;
+    const out: Json[] = [
+      {
+        resourceType: 'Encounter',
+        id: encounterId,
+        status: 'finished',
+        class: { system: 'http://terminology.hl7.org/CodeSystem/v3-ActCode', code: 'AMB', display: 'ambulatory' },
+        type: [{ text: `Postnatal contact — ${PNC_WINDOW_LABEL[c.window] ?? c.window}` }],
+        subject,
+        period: { start: c.contactDate, end: c.contactDate },
+        participant: c.recordedByName ? [{ individual: { display: c.recordedByName } }] : undefined,
+        reasonCode: [{ text: 'Postnatal care' }],
+      },
+    ];
+
+    const obs = (suffix: string, code: { code: string; display: string }, value: Json, who = subject): Json => ({
+      resourceType: 'Observation',
+      id: `pnc-${c.id}-${suffix}`,
+      meta: { profile: [FHIR_PROFILE.observation] },
+      status: 'final',
+      code: { coding: [{ system: FHIR_SYS.loinc, ...code }], text: code.display },
+      subject: who,
+      encounter: { reference: `Encounter/${encounterId}` },
+      effectiveDateTime: c.contactDate,
+      ...value,
+    });
+
+    if (c.bpSystolic != null) {
+      out.push(
+        obs('bp-sys', OBSTETRIC_LOINC.systolic, {
+          valueQuantity: { value: c.bpSystolic, unit: 'mm[Hg]', system: FHIR_SYS.ucum, code: 'mm[Hg]' },
+        }),
+      );
+    }
+    if (c.bpDiastolic != null) {
+      out.push(
+        obs('bp-dia', OBSTETRIC_LOINC.diastolic, {
+          valueQuantity: { value: c.bpDiastolic, unit: 'mm[Hg]', system: FHIR_SYS.ucum, code: 'mm[Hg]' },
+        }),
+      );
+    }
+    if (c.hb != null) {
+      out.push(
+        obs('hb', OBSTETRIC_LOINC.haemoglobin, {
+          valueQuantity: { value: Number(c.hb), unit: 'g/dL', system: FHIR_SYS.ucum, code: 'g/dL' },
+        }),
+      );
+    }
+    if (c.feedingMethod) {
+      out.push(obs('feeding', OBSTETRIC_LOINC.breastfeeding, { valueCodeableConcept: { text: c.feedingMethod } }));
+    }
+    // The baby's weight belongs to the baby, and is only exportable once the
+    // newborn has a patient record of their own to hang it on.
+    if (c.babyWeight != null && c.babyPatientId) {
+      out.push(
+        obs(
+          'baby-weight',
+          OBSTETRIC_LOINC.bodyWeight,
+          { valueQuantity: { value: Number(c.babyWeight), unit: 'kg', system: FHIR_SYS.ucum, code: 'kg' } },
+          { reference: `Patient/${c.babyPatientId}` },
+        ),
+      );
+    }
+    return out;
+  }
+
   // ── Clinical summary (IPS-style document) ────────────────────────────────────
 
   /**
@@ -957,6 +1189,13 @@ export class FhirService {
     const problems = await this.problems.find({ where: { facilityId, patientId } });
     const familyHistory = await this.familyHistory.find({ where: { facilityId, patientId } });
     const immunisations = await this.immunisations.find({ where: { facilityId, patientId } });
+    const pregnancies = await this.pregnancies.find({
+      where: { facilityId, patientId },
+      order: { createdAt: 'DESC' },
+    });
+    const pncVisits = pregnancies.length
+      ? await this.pncContacts.find({ where: { facilityId, pregnancyId: In(pregnancies.map((x) => x.id)) } })
+      : [];
     const allergies = await this.allergies.find({ where: { facilityId, patientId } });
     const medications = await this.meds.medications(facilityId, patientId);
     const appointments = await this.appointments.find({
@@ -1144,6 +1383,41 @@ export class FhirService {
           ),
         },
         entry: of('Immunization').map(ref),
+      });
+    }
+
+    if (pregnancies.length) {
+      const today = new Date().toISOString().slice(0, 10);
+      sections.push({
+        title: 'Pregnancy',
+        code: { coding: [{ system: FHIR_SYS.loinc, ...SUMMARY_LOINC.pregnancy }] },
+        text: {
+          status: 'generated',
+          div: narrative(
+            pregnancies.map((p) => {
+              const dated = resolveDating(p);
+              const g = gestationOn(p, p.status === 'active' ? today : (p.outcomeDate ?? today));
+              const pnc = pncVisits.filter((v) => v.pregnancyId === p.id).length;
+              return [
+                p.ancNumber ?? '—',
+                p.status === 'active' ? 'Ongoing' : `Ended ${p.outcomeDate ?? ''} — ${p.outcome ?? 'not recorded'}`,
+                dated ? `EDD ${dated.edd} (${dated.basis})` : 'Not dated',
+                g ? `${g.weeks}w ${g.days}d` : '—',
+                [p.gravida != null ? `G${p.gravida}` : '', p.para != null ? `P${p.para}` : '']
+                  .filter(Boolean)
+                  .join(' ') || '—',
+                // Postnatal contacts belong on the summary: a referral needs to
+                // know whether the puerperium was followed up at all.
+                p.status === 'ended' ? `${pnc} postnatal contact${pnc === 1 ? '' : 's'}` : '—',
+              ];
+            }),
+            ['ANC no.', 'Status', 'Dating', 'Gestation', 'Obstetric history', 'Postnatal'],
+            'No pregnancy recorded.',
+          ),
+        },
+        entry: of('Observation')
+          .filter((r) => String(r.id ?? '').startsWith('preg-'))
+          .map(ref),
       });
     }
 
