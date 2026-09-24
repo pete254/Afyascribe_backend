@@ -28,6 +28,8 @@ import { SUMMARY_LOINC, narrative } from './clinical-summary';
 import { Appointment } from '../appointments/entities/appointment.entity';
 import { FamilyHistory } from '../family-history/entities/family-history.entity';
 import { FAMILY_RELATIONSHIP_SYSTEM, relationshipOf } from '../family-history/family-history.enums';
+import { Immunisation } from '../immunisation/entities/immunisation.entity';
+import { vaccineLabel } from '../immunisation/data/schedule';
 
 type Json = Record<string, unknown>;
 
@@ -56,6 +58,7 @@ export class FhirService {
     @InjectRepository(PatientProblem) private readonly problems: Repository<PatientProblem>,
     @InjectRepository(Appointment) private readonly appointments: Repository<Appointment>,
     @InjectRepository(FamilyHistory) private readonly familyHistory: Repository<FamilyHistory>,
+    @InjectRepository(Immunisation) private readonly immunisations: Repository<Immunisation>,
     private readonly meds: AllergiesService,
   ) {}
 
@@ -779,6 +782,7 @@ export class FhirService {
     const allergies = await this.allergies.find({ where: { facilityId, patientId } });
     const problems = await this.problems.find({ where: { facilityId, patientId } });
     const familyHistory = await this.familyHistory.find({ where: { facilityId, patientId } });
+    const immunisations = await this.immunisations.find({ where: { facilityId, patientId } });
     // Diagnoses on notes that pre-date the problem list still need exporting;
     // once a note has fed the list, the list is the better record.
     const notesInList = new Set(problems.map((p) => p.sourceNoteId).filter(Boolean) as string[]);
@@ -846,6 +850,9 @@ export class FhirService {
       if (f.status === 'entered-in-error') continue;
       entries.push({ resource: this.buildFamilyMemberHistory(f) });
     }
+    for (const i of immunisations) {
+      entries.push({ resource: this.buildImmunization(i) });
+    }
     for (const a of allergies) {
       entries.push({ resource: this.buildAllergyIntolerance(a) });
     }
@@ -899,6 +906,32 @@ export class FhirService {
     };
   }
 
+  /**
+   * A dose given → FHIR Immunization, coded to the vaccine code Kenya's
+   * national schedule uses. `primarySource` is false for a dose brought in on
+   * a home-based card: the record is real, but this facility did not give it.
+   */
+  buildImmunization(i: Immunisation): Json {
+    return {
+      resourceType: 'Immunization',
+      id: `imm-${i.id}`,
+      status: 'completed',
+      vaccineCode: {
+        coding: [{ system: FHIR_SYS.vaccine, code: i.vaccine, display: vaccineLabel(i.vaccine) }],
+        text: vaccineLabel(i.vaccine),
+      },
+      patient: { reference: `Patient/${i.patientId}` },
+      occurrenceDateTime: i.givenDate,
+      primarySource: i.givenHere,
+      lotNumber: i.batchNo ?? undefined,
+      expirationDate: i.expiryDate ?? undefined,
+      site: i.site ? { text: i.site } : undefined,
+      performer: i.givenByName ? [{ actor: { display: i.givenByName } }] : undefined,
+      protocolApplied: [{ doseNumberPositiveInt: i.dose }],
+      note: i.note ? [{ text: i.note }] : undefined,
+    };
+  }
+
   // ── Clinical summary (IPS-style document) ────────────────────────────────────
 
   /**
@@ -923,6 +956,7 @@ export class FhirService {
     const facility = await this.facilities.findOne({ where: { id: facilityId } });
     const problems = await this.problems.find({ where: { facilityId, patientId } });
     const familyHistory = await this.familyHistory.find({ where: { facilityId, patientId } });
+    const immunisations = await this.immunisations.find({ where: { facilityId, patientId } });
     const allergies = await this.allergies.find({ where: { facilityId, patientId } });
     const medications = await this.meds.medications(facilityId, patientId);
     const appointments = await this.appointments.find({
@@ -1088,6 +1122,28 @@ export class FhirService {
           ),
         },
         entry: of('FamilyMemberHistory').map(ref),
+      });
+    }
+
+    if (immunisations.length) {
+      sections.push({
+        title: 'Immunisations',
+        code: { coding: [{ system: FHIR_SYS.loinc, ...SUMMARY_LOINC.immunisations }] },
+        text: {
+          status: 'generated',
+          div: narrative(
+            immunisations.map((i) => [
+              vaccineLabel(i.vaccine),
+              `Dose ${i.dose}`,
+              i.givenDate,
+              // Whether this facility gave it matters on a referral.
+              i.givenHere ? 'Given here' : 'Reported (card)',
+            ]),
+            ['Vaccine', 'Dose', 'Date', 'Source'],
+            'No immunisations recorded.',
+          ),
+        },
+        entry: of('Immunization').map(ref),
       });
     }
 

@@ -54,6 +54,9 @@ export const FHIR_SYS = {
   /** Encounter / visit type code system (KNHTS Visit type). */
   visitType: env('FHIR_SYS_VISIT_TYPE', 'https://dha.go.ke/CodeSystem/visit-type'),
 
+  /** Vaccines — the codes Kenya's national schedule uses, as WHO records them. */
+  vaccine: env('FHIR_SYS_VACCINE', 'https://xmart-api-public.who.int/WIISE/vaccine-code'),
+
   /** Condition severity — national Condition Severity value set. */
   conditionSeverity: env('FHIR_SYS_CONDITION_SEVERITY', `${OCL_BASE}/orgs/MOH-KENYA/sources/ORG-00001-SRC-028`),
   /** Allergens — national Allergy Intolerance Code list. */

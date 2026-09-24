@@ -17,6 +17,7 @@ import { PatientAllergy } from '../allergies/entities/patient-allergy.entity';
 import { PatientProblem } from '../problems/entities/patient-problem.entity';
 import { Appointment } from '../appointments/entities/appointment.entity';
 import { FamilyHistory } from '../family-history/entities/family-history.entity';
+import { Immunisation } from '../immunisation/entities/immunisation.entity';
 import { AllergiesModule } from '../allergies/allergies.module';
 import { FhirService } from './fhir.service';
 import { FhirController } from './fhir.controller';
@@ -42,6 +43,7 @@ import { HieFhirClient } from './hie-fhir.client';
       PatientProblem,
       Appointment,
       FamilyHistory,
+      Immunisation,
     ]),
     AllergiesModule,
   ],

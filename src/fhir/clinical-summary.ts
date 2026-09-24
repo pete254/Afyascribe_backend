@@ -18,6 +18,7 @@ export const SUMMARY_LOINC = {
   procedures: { code: '47519-4', display: 'History of Procedures Document' },
   carePlan: { code: '18776-5', display: 'Plan of care note' },
   familyHistory: { code: '10157-6', display: 'History of family member diseases note' },
+  immunisations: { code: '11369-6', display: 'History of Immunization note' },
 } as const;
 
 /** Escape text before it goes into the narrative XHTML. */
