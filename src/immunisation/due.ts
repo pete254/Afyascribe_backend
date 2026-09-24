@@ -113,9 +113,14 @@ export function doseStatuses(
         state: 'due',
       };
 
-      // A vaccine given only to girls is not "missed" for a boy.
+      // A vaccine given only to girls is not "missed" for a boy — but a dose
+      // that was actually recorded still counts as given, whatever the rule says.
       if (row.target === 'FEMALE' && !female) {
-        out.push({ ...base, state: 'not-applicable', reason: 'Given to girls only' });
+        out.push(
+          hit
+            ? { ...base, state: 'given', reason: 'Recorded outside the usual target group' }
+            : { ...base, state: 'not-applicable', reason: 'Given to girls only' },
+        );
         continue;
       }
 

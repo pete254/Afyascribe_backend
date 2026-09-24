@@ -80,6 +80,18 @@ describe('what a child is due', () => {
     expect(girl.find((d) => d.vaccine === 'HPV4' && d.dose === 1)!.state).not.toBe('not-applicable');
   });
 
+  it('still reports a dose that was actually given outside its target group', () => {
+    const boy = doseStatuses('2015-01-01', [{ vaccine: 'HPV4', dose: 1, givenDate: '2026-02-01' }], {
+      sex: 'Male',
+      today: '2026-06-01',
+    });
+    const hpv = boy.find((d) => d.vaccine === 'HPV4' && d.dose === 1)!;
+    // What happened outranks what the rule expected; losing the record would be worse.
+    expect(hpv.state).toBe('given');
+    expect(hpv.givenDate).toBe('2026-02-01');
+    expect(hpv.reason).toContain('outside the usual target');
+  });
+
   it('counts a relative dose from when the previous one was actually given', () => {
     // HPV 2 is "+M6" — six months after dose 1, not six months after it was due.
     const s = doseStatuses('2015-01-01', [{ vaccine: 'HPV4', dose: 1, givenDate: '2026-03-01' }], {
