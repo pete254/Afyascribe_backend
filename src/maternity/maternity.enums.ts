@@ -74,3 +74,51 @@ export const FEEDING_LABEL: Record<FeedingMethod, string> = {
 export type ScreenResult = 'not-asked' | 'negative' | 'positive' | 'declined';
 
 export const SCREEN_RESULTS: ScreenResult[] = ['not-asked', 'negative', 'positive', 'declined'];
+
+// ── Labour and delivery ─────────────────────────────────────────────────────
+
+/** How labour started. */
+export type LabourOnset = 'spontaneous' | 'induced' | 'no-labour';
+export const LABOUR_ONSETS: LabourOnset[] = ['spontaneous', 'induced', 'no-labour'];
+
+/**
+ * How a birth ended, as MOH 333 records it. Stillbirths are separated into
+ * fresh and macerated because the distinction says roughly when the baby died
+ * and so whether the death was plausibly preventable in this facility.
+ */
+export type BirthOutcome = 'live-birth' | 'fresh-stillbirth' | 'macerated-stillbirth';
+export const BIRTH_OUTCOMES: BirthOutcome[] = ['live-birth', 'fresh-stillbirth', 'macerated-stillbirth'];
+
+export const BIRTH_OUTCOME_LABEL: Record<BirthOutcome, string> = {
+  'live-birth': 'Live birth',
+  'fresh-stillbirth': 'Fresh stillbirth',
+  'macerated-stillbirth': 'Macerated stillbirth',
+};
+
+/** Where mother or baby had got to when the record was closed. */
+export type DischargeStatus = 'alive' | 'died' | 'referred' | 'absconded' | 'still-admitted';
+export const DISCHARGE_STATUSES: DischargeStatus[] = ['alive', 'died', 'referred', 'absconded', 'still-admitted'];
+
+export const DISCHARGE_STATUS_LABEL: Record<DischargeStatus, string> = {
+  alive: 'Alive and well',
+  died: 'Died',
+  referred: 'Referred out',
+  absconded: 'Absconded',
+  'still-admitted': 'Still admitted',
+};
+
+/** The state of the perineum after a vaginal birth. */
+export type PerineumState = 'intact' | 'tear-1' | 'tear-2' | 'tear-3' | 'tear-4' | 'episiotomy';
+export const PERINEUM_STATES: PerineumState[] = ['intact', 'tear-1', 'tear-2', 'tear-3', 'tear-4', 'episiotomy'];
+
+export const PERINEUM_LABEL: Record<PerineumState, string> = {
+  intact: 'Intact',
+  'tear-1': 'First-degree tear',
+  'tear-2': 'Second-degree tear',
+  'tear-3': 'Third-degree tear',
+  'tear-4': 'Fourth-degree tear',
+  episiotomy: 'Episiotomy',
+};
+
+/** Which chart the unit draws. The observations underneath are the same. */
+export type LabourTool = 'labour-care-guide' | 'partograph';

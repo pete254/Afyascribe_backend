@@ -43,6 +43,12 @@ export const OBSTETRIC_LOINC = {
   haemoglobin: { code: '718-7', display: 'Hemoglobin [Mass/volume] in Blood' },
   bodyWeight: { code: '29463-7', display: 'Body weight' },
   breastfeeding: { code: '63895-7', display: 'Breastfeeding status' },
+  birthWeight: { code: '8339-4', display: 'Birth weight Measured' },
+  apgar1: { code: '9272-6', display: '1 minute Apgar Score' },
+  apgar5: { code: '9274-2', display: '5 minute Apgar Score' },
+  apgar10: { code: '9271-8', display: '10 minute Apgar Score' },
+  liveBirths: { code: '11636-8', display: '[#] Births.live' },
+  stillbirths: { code: '57062-2', display: '[#] Births.stillborn' },
 } as const;
 
 /** Escape text before it goes into the narrative XHTML. */

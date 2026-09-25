@@ -40,6 +40,9 @@ export const FHIR_SYS = {
   /** Base for nationally-coded patient identifier types; the type code is appended. */
   patientIdentifier: env('FHIR_SYS_PATIENT_IDENTIFIER', 'https://dha.go.ke/identifier/patient'),
 
+  /** The ANC clinic number the maternity register assigns. */
+  ancNumber: env('FHIR_SYS_ANC_NUMBER', 'https://afyascribe.health/identifier/anc-number'),
+
   /** Facility identifier (KMHFL code when available). */
   facility: env('FHIR_SYS_FACILITY', 'https://kmhfl.health.go.ke/identifier/facility-code'),
 

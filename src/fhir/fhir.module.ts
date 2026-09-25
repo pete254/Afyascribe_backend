@@ -21,6 +21,8 @@ import { Immunisation } from '../immunisation/entities/immunisation.entity';
 import { Pregnancy } from '../maternity/entities/pregnancy.entity';
 import { AncContact } from '../maternity/entities/anc-contact.entity';
 import { PncContact } from '../maternity/entities/pnc-contact.entity';
+import { Delivery } from '../maternity/entities/delivery.entity';
+import { Birth } from '../maternity/entities/birth.entity';
 import { AllergiesModule } from '../allergies/allergies.module';
 import { FhirService } from './fhir.service';
 import { FhirController } from './fhir.controller';
@@ -50,6 +52,8 @@ import { HieFhirClient } from './hie-fhir.client';
       Pregnancy,
       AncContact,
       PncContact,
+      Delivery,
+      Birth,
     ]),
     AllergiesModule,
   ],
