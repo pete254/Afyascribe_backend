@@ -15,7 +15,7 @@ import { Billing, ServiceType } from '../billing/entities/billing.entity';
 import { ServiceCatalogItem } from '../service-catalog/entities/service-catalog.entity';
 import { Facility } from '../facilities/entities/facility.entity';
 import { User } from '../users/entities/user.entity';
-import { PatientVisit } from '../patient-visits/entities/patient-visit.entity';
+import { PatientVisit, VisitStatus } from '../patient-visits/entities/patient-visit.entity';
 import { Radiology } from '../radiology/entities/radiology.entity';
 import { PatientAllergy } from '../allergies/entities/patient-allergy.entity';
 import { PatientProblem } from '../problems/entities/patient-problem.entity';
@@ -25,6 +25,10 @@ import { AllergiesService, MedicationListEntry } from '../allergies/allergies.se
 import { RadiologyStatus } from '../radiology/radiology-status.enum';
 import { FHIR_PROFILE, FHIR_SYS } from './fhir-systems';
 import { OBSTETRIC_LOINC, SUMMARY_LOINC, narrative } from './clinical-summary';
+import { collectionBundle, stampEncounter, validateShrBundle } from './shr';
+
+/** The EpisodeOfCare id for a visit — one place, so references cannot drift. */
+const visitEpisodeId = (visitId: string) => `visit-episode-${visitId}`;
 import { Appointment } from '../appointments/entities/appointment.entity';
 import { FamilyHistory } from '../family-history/entities/family-history.entity';
 import { FAMILY_RELATIONSHIP_SYSTEM, relationshipOf } from '../family-history/family-history.enums';
@@ -181,6 +185,10 @@ export class FhirService {
           ]
         : undefined,
       subject: { reference: `Patient/${note.patientId}` },
+      // The Shared Health Record requires every Encounter to reference the
+      // visit's EpisodeOfCare; without it the record arrives as a loose
+      // encounter belonging to nothing.
+      episodeOfCare: visit ? [{ reference: `EpisodeOfCare/${visitEpisodeId(visit.id)}` }] : undefined,
       participant: note.createdById
         ? [{ individual: { reference: `Practitioner/prac-${note.createdById}` } }]
         : undefined,
@@ -881,7 +889,7 @@ export class FhirService {
     }
     for (const preg of pregnancies) {
       // The episode first: the encounters below all hang off it.
-      entries.push({ resource: this.buildEpisodeOfCare(preg) });
+      entries.push({ resource: this.buildPregnancyEpisode(preg) });
       for (const r of this.buildPregnancyObservations(preg)) entries.push({ resource: r });
     }
     for (const d of deliveries) {
@@ -1191,7 +1199,161 @@ export class FhirService {
    * Without it each contact would arrive at the national record unrelated to
    * the others.
    */
-  buildEpisodeOfCare(p: Pregnancy): Json {
+  /**
+   * A visit as a FHIR EpisodeOfCare.
+   *
+   * The Shared Health Record opens a visit against a verified consent and hands
+   * back its own `visit_id`; where we have been given one it travels as an
+   * identifier, so the national record and this one are talking about the same
+   * visit rather than two that merely coincide.
+   */
+  buildVisitEpisode(visit: PatientVisit, hieVisitId?: string | null): Json {
+    const start = (visit as unknown as { checkedInAt?: Date }).checkedInAt ?? visit.createdAt;
+    return {
+      resourceType: 'EpisodeOfCare',
+      id: visitEpisodeId(visit.id),
+      identifier: [
+        { system: FHIR_SYS.visit, value: visit.id },
+        ...(hieVisitId ? [{ system: FHIR_SYS.hieVisit, value: hieVisitId }] : []),
+      ],
+      status:
+        visit.status === VisitStatus.COMPLETED
+          ? 'finished'
+          : visit.status === VisitStatus.CANCELLED
+            ? 'cancelled'
+            : 'active',
+      type: visit.visitType
+        ? [
+            {
+              coding: [
+                { system: FHIR_SYS.visitType, code: visit.visitType, display: visit.visitType.replace(/_/g, ' ') },
+              ],
+              text: visit.visitType.replace(/_/g, ' '),
+            },
+          ]
+        : undefined,
+      patient: { reference: `Patient/${visit.patientId}` },
+      managingOrganization: visit.facilityId
+        ? { reference: `Organization/org-${visit.facilityId}` }
+        : undefined,
+      period: { start: start ? new Date(start).toISOString() : undefined },
+    };
+  }
+
+  /**
+   * One visit's clinical record, shaped the way the Shared Health Record takes
+   * it: a collection Bundle whose Encounter references the visit's
+   * EpisodeOfCare, and in which every clinical resource references that
+   * Encounter.
+   *
+   * This is deliberately per visit rather than per patient. The SHR's rules
+   * only make sense against a single encounter, and submitting a patient's
+   * whole history as one undifferentiated pile — which is what this system did
+   * before — produces resources that reference nothing.
+   */
+  async visitShrBundle(
+    visitId: string,
+    facilityId: string,
+    opts: { hieVisitId?: string | null } = {},
+  ): Promise<{ bundle: Json; validation: ReturnType<typeof validateShrBundle> }> {
+    const visit = await this.visits.findOne({ where: { id: visitId, facilityId } });
+    if (!visit) throw new NotFoundException('Visit not found');
+    const patient = await this.patients.findOne({ where: { id: visit.patientId, facilityId } });
+    if (!patient) throw new NotFoundException('Patient not found');
+    const facility = await this.facilities.findOne({ where: { id: facilityId } });
+
+    // Notes carry no visit id, so the day's note is the visit's note — the same
+    // rule the reports and claims paths already use.
+    const dayKey = (d?: Date | string | null) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+    const vDay = dayKey((visit as unknown as { checkedInAt?: Date }).checkedInAt ?? visit.createdAt);
+    const allNotes = await this.notes.find({ where: { patientId: visit.patientId, facilityId } });
+    const notes = allNotes.filter((n) => dayKey(n.createdAt) === vDay);
+
+    const [prescriptions, labOrders, studies] = await Promise.all([
+      this.prescriptions.find({ where: { visitId, facilityId } }),
+      this.labOrders.find({ where: { visitId, facilityId } }),
+      this.studies.find({ where: { visitId } }),
+    ]);
+
+    const context: Json[] = [this.buildPatient(patient), this.buildVisitEpisode(visit, opts.hieVisitId)];
+    if (facility) context.push(this.buildOrganization(facility));
+
+    const authorIds = [...new Set(notes.map((n) => n.createdById).filter(Boolean))] as string[];
+    if (authorIds.length) {
+      const staff = await this.users.find({ where: { id: In(authorIds) } });
+      for (const u of staff) context.push(this.buildPractitioner(u));
+    }
+
+    // One Encounter for the visit. Where the visit was documented, it is built
+    // from the note; where it was not, the visit itself still happened and is
+    // reported rather than dropped.
+    const encounter = notes.length
+      ? this.buildEncounter(notes[0], visit)
+      : {
+          resourceType: 'Encounter',
+          id: `enc-visit-${visit.id}`,
+          status: 'finished',
+          class: this.encounterClass(visit.visitType),
+          subject: { reference: `Patient/${patient.id}` },
+          episodeOfCare: [{ reference: `EpisodeOfCare/${visitEpisodeId(visit.id)}` }],
+          period: {
+            start: dayKey(visit.createdAt) ? new Date(visit.createdAt).toISOString() : undefined,
+          },
+          serviceProvider: facility ? { reference: `Organization/org-${facility.id}` } : undefined,
+        };
+    const encounterId = String(encounter.id);
+
+    const clinical: Json[] = [];
+    for (const note of notes) clinical.push(...this.buildConditions(note));
+
+    if (prescriptions.length) {
+      const itemIds = [...new Set(prescriptions.flatMap((rx) => (rx.items ?? []).map((i) => i.itemId)))].filter(
+        Boolean,
+      ) as string[];
+      const items = itemIds.length ? await this.items.find({ where: { id: In(itemIds) } }) : [];
+      const byId = new Map(items.map((i) => [i.id, i]));
+      for (const rx of prescriptions) clinical.push(...this.buildMedicationRequests(rx, byId));
+    }
+
+    for (const study of studies) {
+      if (study.status === RadiologyStatus.COMPLETED) clinical.push(this.buildImagingReport(study));
+    }
+
+    if (labOrders.length) {
+      // Order items and their results come back with the order; the LOINC
+      // mappings are looked up the same way the patient bundle does.
+      const testIds = [
+        ...new Set(labOrders.flatMap((o) => (o.items ?? []).map((i) => i.labTestId).filter(Boolean))),
+      ] as string[];
+      const analyteIds = [
+        ...new Set(
+          labOrders.flatMap((o) =>
+            (o.items ?? []).flatMap((i) =>
+              (i.results ?? []).map((r) => r.analyteId).filter((x): x is string => !!x),
+            ),
+          ),
+        ),
+      ];
+      const [tests, analytes] = await Promise.all([
+        testIds.length ? this.labTests.find({ where: { id: In(testIds) } }) : Promise.resolve([]),
+        analyteIds.length ? this.labAnalytes.find({ where: { id: In(analyteIds) } }) : Promise.resolve([]),
+      ]);
+      const byTest = new Map(tests.map((t) => [t.id, t]));
+      const byAnalyte = new Map(analytes.map((a) => [a.id, a]));
+      for (const order of labOrders) {
+        for (const item of order.items ?? []) {
+          clinical.push(...this.buildObservations(order, item, byTest, byAnalyte));
+        }
+      }
+    }
+
+    const bundle = collectionBundle([...context, encounter, ...stampEncounter(clinical, encounterId)]);
+    // Checked here rather than trusted: a submission that breaks the SHR's own
+    // rules should be caught before it is sent, not after it is rejected.
+    return { bundle, validation: validateShrBundle(bundle) };
+  }
+
+  buildPregnancyEpisode(p: Pregnancy): Json {
     const dated = resolveDating(p);
     return {
       resourceType: 'EpisodeOfCare',

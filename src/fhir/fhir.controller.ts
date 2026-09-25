@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -47,17 +47,74 @@ export class FhirController {
     return this.fhir.visitClaimBundle(visitId, user.facilityId);
   }
 
-  @Post('Patient/:id/$submit')
+  @Get('visits/:visitId/$shr-bundle')
   @UseGuards(RolesGuard)
   @Roles('facility_admin', 'super_admin', 'doctor')
   @ApiOperation({
-    summary: "Submit a patient's record to the national HIE (FHIR transaction)",
+    summary: "A visit's record shaped for the Shared Health Record, with the conformance check",
     description:
-      'Builds the transaction Bundle and POSTs it to HIE_FHIR_BASE. Requires HIE credentials (HIE_AUTH_TOKEN) to be configured.',
+      'Builds the collection Bundle and runs it against the SHR\'s stated rules without sending it, so the shape can be inspected before any credentials exist.',
   })
-  async submit(@Param('id') id: string, @CurrentUser() user: CurrentUserType) {
-    const bundle = await this.fhir.patientBundle(id, user.facilityId, 'transaction');
-    const result = await this.hie.submit(bundle);
-    return { submittedTo: this.hie.base, status: result.status, response: result.body };
+  async shrBundle(@Param('visitId') visitId: string, @CurrentUser() user: CurrentUserType) {
+    return this.fhir.visitShrBundle(visitId, user.facilityId);
+  }
+
+  @Post('visits/:visitId/$submit')
+  @UseGuards(RolesGuard)
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({
+    summary: "Submit a visit's record to the national Shared Health Record",
+    description:
+      'POSTs a collection Bundle to /shr/bundles. Requires HIE credentials, and the consent token returned when the visit was opened.',
+  })
+  async submitVisit(
+    @Param('visitId') visitId: string,
+    @CurrentUser() user: CurrentUserType,
+    @Body() body: { consentToken?: string; hieVisitId?: string } = {},
+  ) {
+    const { bundle, validation } = await this.fhir.visitShrBundle(visitId, user.facilityId, {
+      hieVisitId: body.hieVisitId ?? null,
+    });
+
+    // A bundle that breaks the SHR's own rules is not worth sending: it would
+    // be rejected, and the reason would come back less clearly than this.
+    if (!validation.ok) {
+      throw new BadRequestException({
+        message: 'The bundle does not satisfy the Shared Health Record\'s rules',
+        problems: validation.problems,
+      });
+    }
+    if (!this.hie.configured) {
+      throw new BadRequestException(
+        'No HIE credentials are configured. The bundle is ready — fetch it with $shr-bundle to inspect it.',
+      );
+    }
+
+    const result = await this.hie.submitBundle(bundle, body.consentToken);
+    return { submittedTo: `${this.hie.base}/shr/bundles`, status: result.status, response: result.body };
+  }
+
+  @Get('shr/open-visits')
+  @UseGuards(RolesGuard)
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({ summary: 'Visits already open at the HIE with valid consent' })
+  openVisits() {
+    return this.hie.openVisits();
+  }
+
+  @Post('shr/consents')
+  @UseGuards(RolesGuard)
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({ summary: "Ask the patient for consent; an OTP goes to them" })
+  requestConsent(@Body() body: unknown) {
+    return this.hie.requestConsent(body);
+  }
+
+  @Post('shr/consents/:consentId/verify')
+  @UseGuards(RolesGuard)
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({ summary: 'Verify the OTP; returns the consent token and the visit id' })
+  verifyConsent(@Param('consentId') consentId: string, @Body() body: { otp: string }) {
+    return this.hie.verifyConsent(consentId, body?.otp);
   }
 }
