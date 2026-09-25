@@ -7,13 +7,21 @@ import {
 } from 'typeorm';
 
 /**
- * One line of the system audit ledger — a single write action performed by a
- * user, captured at the HTTP layer by the AuditInterceptor. Request bodies are
- * never stored, so no passwords or clinical detail leak into the log; only who
- * did what (method + route), to which record, and when.
+ * One line of the system audit ledger — a single action performed by a user,
+ * captured at the HTTP layer by the AuditInterceptor. Request bodies are never
+ * stored, so no passwords or clinical detail leak into the log; only who did
+ * what (method + route), to which record, and when.
+ *
+ * Reads are recorded as well as writes: Kenya's Digital Health (Health
+ * Information Management Procedures) Regulations, 2025 require "all user
+ * actions and data access" to be logged, and who *looked* at a record is the
+ * question an investigation usually starts from.
+ *
+ * Each line carries the hash of the line before it. See `chain.ts` for why.
  */
 @Entity('audit_events')
 @Index('IDX_audit_facility_created', ['facilityId', 'createdAt'])
+@Index('IDX_audit_patient', ['patientId', 'createdAt'])
 export class AuditEvent {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -50,6 +58,28 @@ export class AuditEvent {
 
   @Column({ name: 'status_code', type: 'int', nullable: true })
   statusCode: number | null;
+
+  /** Whether this line records a read or a write. */
+  @Column({ type: 'varchar', length: 10, default: 'write' })
+  category: string;
+
+  /** The patient whose record was touched, so access to one can be traced. */
+  @Column({ name: 'patient_id', type: 'uuid', nullable: true })
+  patientId: string | null;
+
+  /**
+   * The ledger's position. Monotonic across the whole system, so a line
+   * removed anywhere leaves a gap that verification finds.
+   */
+  @Column({ type: 'bigint', nullable: true })
+  seq: string | null;
+
+  /** SHA-256 of this line's content chained to the one before it. */
+  @Column({ type: 'char', length: 64, nullable: true })
+  hash: string | null;
+
+  @Column({ name: 'prev_hash', type: 'char', length: 64, nullable: true })
+  prevHash: string | null;
 
   @Column({ name: 'ip', type: 'varchar', length: 60, nullable: true })
   ip: string | null;

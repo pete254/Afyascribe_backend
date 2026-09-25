@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditEvent } from './entities/audit-event.entity';
+import { AuditReview } from './entities/audit-review.entity';
 import { AuditService } from './audit.service';
 import { AuditController } from './audit.controller';
 import { AuditInterceptor } from './audit.interceptor';
@@ -12,7 +13,7 @@ import { AuditInterceptor } from './audit.interceptor';
  * needing to know about auditing.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([AuditEvent])],
+  imports: [TypeOrmModule.forFeature([AuditEvent, AuditReview])],
   controllers: [AuditController],
   providers: [
     AuditService,
