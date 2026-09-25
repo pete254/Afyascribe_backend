@@ -31,6 +31,30 @@ import { OUTCOMES_WITH_PNC, PregnancyOutcome } from './maternity.enums';
 import { CurrentUserType } from '../common/decorators/current-user.decorator';
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+/** Whole days from one ISO date to another; negative when `to` is earlier. */
+const daysBetween = (from: string, to: string): number =>
+  Math.round(
+    (new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) / 86_400_000,
+  );
+
+/** After six months the postnatal schedule is finished, so the row leaves the list. */
+const PNC_HORIZON_DAYS = 183;
+
+/** A row of the clinic's worklist — enough to call the woman without opening her record. */
+export interface WorklistEntry {
+  pregnancyId: string;
+  patientId: string;
+  patientName: string;
+  patientNumber: string | null;
+  phone: string | null;
+  ancNumber: string | null;
+  edd: string | null;
+  gestationWeeks: number | null;
+  outcomeDate: string | null;
+  next: { label: string; dueDate: string; state: 'due' | 'overdue'; daysLate: number };
+  overdue: number;
+}
 const num = (v: string | null | undefined): number | null => (v == null ? null : Number(v));
 
 /** A profile test that has a result, and the column it lives in. */
@@ -542,42 +566,112 @@ export class MaternityService {
 
   // ── The clinic's worklist ─────────────────────────────────────────────────
 
-  /** Open pregnancies with a contact due or overdue, soonest first. */
-  async worklist(facilityId: string): Promise<
-    {
-      pregnancy: Pregnancy;
-      patientName: string;
-      gestationWeeks: number | null;
-      next: AncContactStatus | null;
-      overdue: number;
-    }[]
-  > {
-    const open = await this.pregnancies.find({ where: { facilityId, status: 'active' } });
-    if (!open.length) return [];
+  /**
+   * Who the clinic should be chasing today, on both halves of the schedule.
+   *
+   * Antenatal and postnatal are returned together because they are one clinic's
+   * work: leaving the postnatal side out would quietly drop the mother who is
+   * three days from a birth and has not come back, which is the defaulter the
+   * list most needs to surface.
+   */
+  async worklist(facilityId: string): Promise<{
+    antenatal: WorklistEntry[];
+    postnatal: WorklistEntry[];
+  }> {
+    const pregnancies = await this.pregnancies.find({ where: { facilityId } });
+    if (!pregnancies.length) return { antenatal: [], postnatal: [] };
 
-    const ids = open.map((p) => p.id);
-    const contacts = await this.ancContacts.find({ where: { facilityId, pregnancyId: In(ids) } });
-    const patients = await this.patients.find({ where: { id: In(open.map((p) => p.patientId)) } });
-    const nameOf = new Map(patients.map((p) => [p.id, `${p.firstName ?? ''} ${p.lastName ?? ''}`.trim()]));
+    const now = today();
+    const active = pregnancies.filter((p) => p.status === 'active');
+    // The last postnatal window closes at six months; beyond that the record is
+    // history, not work outstanding.
+    const postnatalOpen = pregnancies.filter(
+      (p) =>
+        p.status === 'ended' &&
+        p.outcome != null &&
+        OUTCOMES_WITH_PNC.includes(p.outcome) &&
+        !!p.outcomeDate &&
+        daysBetween(p.outcomeDate, now) <= PNC_HORIZON_DAYS,
+    );
 
-    const rows = open.map((p) => {
-      const mine = contacts.filter((c) => c.pregnancyId === p.id);
+    const relevant = [...active, ...postnatalOpen];
+    if (!relevant.length) return { antenatal: [], postnatal: [] };
+
+    const ids = relevant.map((p) => p.id);
+    const [ancRows, pncRows, patients] = await Promise.all([
+      this.ancContacts.find({ where: { facilityId, pregnancyId: In(ids) } }),
+      this.pncContacts.find({ where: { facilityId, pregnancyId: In(ids) } }),
+      this.patients.find({ where: { id: In(relevant.map((p) => p.patientId)) } }),
+    ]);
+    const byPatient = new Map(patients.map((p) => [p.id, p]));
+
+    const describe = (p: Pregnancy): Omit<WorklistEntry, 'next' | 'overdue'> => {
+      const pt = byPatient.get(p.patientId);
+      const g = gestationOn(p, now);
+      return {
+        pregnancyId: p.id,
+        patientId: p.patientId,
+        patientName: `${pt?.firstName ?? ''} ${pt?.lastName ?? ''}`.trim(),
+        patientNumber: pt?.patientId ?? null,
+        phone: pt?.phoneNumber ?? null,
+        ancNumber: p.ancNumber,
+        edd: resolveDating(p)?.edd ?? null,
+        gestationWeeks: g?.weeks ?? null,
+        outcomeDate: p.outcomeDate,
+      };
+    };
+
+    const antenatal: WorklistEntry[] = [];
+    for (const p of active) {
+      const mine = ancRows.filter((c) => c.pregnancyId === p.id);
       const statuses = ancContactStatuses(
         p,
         mine.map((c) => ({ contactNumber: c.contactNumber, contactDate: c.contactDate })),
+        { today: now },
       );
-      const g = gestationOn(p, today());
-      return {
-        pregnancy: p,
-        patientName: nameOf.get(p.patientId) ?? '',
-        gestationWeeks: g?.weeks ?? null,
-        next: statuses.find((s) => s.state === 'overdue' || s.state === 'due') ?? null,
+      // The earliest thing outstanding, so a woman who missed contact 2 is
+      // chased for that rather than for the one that happens to be due now.
+      const next = statuses.find((s) => s.state === 'overdue') ?? statuses.find((s) => s.state === 'due');
+      if (!next) continue;
+      antenatal.push({
+        ...describe(p),
+        next: {
+          label: `Contact ${next.contact} — ${next.weeks} weeks`,
+          dueDate: next.dueDate,
+          state: next.state as 'due' | 'overdue',
+          daysLate: Math.max(0, daysBetween(next.dueDate, now)),
+        },
         overdue: statuses.filter((s) => s.state === 'overdue').length,
-      };
-    });
+      });
+    }
 
-    return rows
-      .filter((r) => r.next)
-      .sort((a, b) => (a.next!.dueDate < b.next!.dueDate ? -1 : 1));
+    const postnatal: WorklistEntry[] = [];
+    for (const p of postnatalOpen) {
+      const mine = pncRows.filter((c) => c.pregnancyId === p.id);
+      const statuses = pncContactStatuses(
+        p.outcomeDate!,
+        mine.map((c) => ({ window: c.window, contactDate: c.contactDate })),
+        { today: now },
+      );
+      const next = statuses.find((s) => s.state === 'overdue') ?? statuses.find((s) => s.state === 'due');
+      if (!next) continue;
+      postnatal.push({
+        ...describe(p),
+        next: {
+          label: next.label,
+          dueDate: next.toDate,
+          state: next.state as 'due' | 'overdue',
+          daysLate: Math.max(0, daysBetween(next.toDate, now)),
+        },
+        overdue: statuses.filter((s) => s.state === 'overdue').length,
+      });
+    }
+
+    // Most overdue first: the list is worked from the top down.
+    const order = (a: WorklistEntry, b: WorklistEntry) =>
+      b.next.daysLate - a.next.daysLate || (a.next.dueDate < b.next.dueDate ? -1 : 1);
+    antenatal.sort(order);
+    postnatal.sort(order);
+    return { antenatal, postnatal };
   }
 }
