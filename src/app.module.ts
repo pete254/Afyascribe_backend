@@ -85,6 +85,7 @@ import { FamilyHistoryModule } from './family-history/family-history.module';
 import { GrowthModule } from './growth/growth.module';
 import { ImmunisationModule } from './immunisation/immunisation.module';
 import { MaternityModule } from './maternity/maternity.module';
+import { CdsModule } from './cds/cds.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -157,6 +158,7 @@ import { MaternityModule } from './maternity/maternity.module';
     GrowthModule,
     ImmunisationModule,
     MaternityModule,
+    CdsModule,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],
