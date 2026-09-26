@@ -54,6 +54,8 @@ type Json = Record<string, unknown>;
 export class FhirService {
   constructor(
     @InjectRepository(Patient) private readonly patients: Repository<Patient>,
+    @InjectRepository(PatientIdentifier)
+    private readonly patientIdentifiers: Repository<PatientIdentifier>,
     @InjectRepository(SoapNote) private readonly notes: Repository<SoapNote>,
     @InjectRepository(Prescription) private readonly prescriptions: Repository<Prescription>,
     @InjectRepository(InventoryItem) private readonly items: Repository<InventoryItem>,
@@ -84,6 +86,20 @@ export class FhirService {
   }
 
   // ── Resource builders ──────────────────────────────────────────────────────
+
+  /**
+   * Load the patient with the identifiers they hold.
+   *
+   * `patient_identifiers` is a table of its own rather than a relation, so a
+   * plain findOne leaves them behind — which silently dropped every national
+   * ID, passport and birth certificate from the FHIR export.
+   */
+  private async patientWithIdentifiers(patientId: string, facilityId: string): Promise<Patient | null> {
+    const patient = await this.patients.findOne({ where: { id: patientId, facilityId } });
+    if (!patient) return null;
+    const identifiers = await this.patientIdentifiers.find({ where: { patientId } });
+    return Object.assign(patient, { identifiers });
+  }
 
   buildPatient(p: Patient): Json {
     const identifiers: Json[] = [
@@ -634,7 +650,7 @@ export class FhirService {
   async visitClaimBundle(visitId: string, facilityId: string): Promise<Json> {
     const visit = await this.visits.findOne({ where: { id: visitId, facilityId } });
     if (!visit) throw new NotFoundException('Visit not found');
-    const patient = await this.patients.findOne({ where: { id: visit.patientId, facilityId } });
+    const patient = await this.patientWithIdentifiers(visit.patientId, facilityId);
     if (!patient) throw new NotFoundException('Patient not found');
     const facility = await this.facilities.findOne({ where: { id: facilityId } });
 
@@ -752,7 +768,7 @@ export class FhirService {
     facilityId: string,
     mode: 'collection' | 'transaction' = 'collection',
   ): Promise<Json> {
-    const patient = await this.patients.findOne({ where: { id: patientId, facilityId } });
+    const patient = await this.patientWithIdentifiers(patientId, facilityId);
     if (!patient) throw new NotFoundException('Patient not found');
 
     const notes = await this.notes.find({
@@ -1258,7 +1274,7 @@ export class FhirService {
   ): Promise<{ bundle: Json; validation: ReturnType<typeof validateShrBundle> }> {
     const visit = await this.visits.findOne({ where: { id: visitId, facilityId } });
     if (!visit) throw new NotFoundException('Visit not found');
-    const patient = await this.patients.findOne({ where: { id: visit.patientId, facilityId } });
+    const patient = await this.patientWithIdentifiers(visit.patientId, facilityId);
     if (!patient) throw new NotFoundException('Patient not found');
     const facility = await this.facilities.findOne({ where: { id: facilityId } });
 
@@ -1516,7 +1532,7 @@ export class FhirService {
     const resources = (collection.entry ?? []).map((e) => e.resource);
     const of = (type: string) => resources.filter((r) => r.resourceType === type);
 
-    const patient = await this.patients.findOne({ where: { id: patientId, facilityId } });
+    const patient = await this.patientWithIdentifiers(patientId, facilityId);
     if (!patient) throw new NotFoundException('Patient not found');
     const facility = await this.facilities.findOne({ where: { id: facilityId } });
     const problems = await this.problems.find({ where: { facilityId, patientId } });
@@ -1545,6 +1561,48 @@ export class FhirService {
 
     // Each section: its code, its narrative, and what it points at.
     const sections: Json[] = [];
+
+    // Biodata first. The Patient resource carries the same facts structurally,
+    // but a clinician reading the narrative needs to see whose record this is
+    // before they read a word of it — and the certification asks for biodata
+    // and a human-readable format as two separate things.
+    //
+    // No section code: there is no LOINC for patient demographics, and
+    // `Composition.section.code` is optional. Mis-coding it would be worse
+    // than leaving it uncoded.
+    const age = (() => {
+      if (!patient.dateOfBirth) return null;
+      const born = new Date(patient.dateOfBirth);
+      if (Number.isNaN(born.getTime())) return null;
+      return Math.floor((Date.now() - born.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+    })();
+    const residence = [patient.village, patient.ward, patient.subCounty, patient.county]
+      .map((v) => (v ?? '').trim())
+      .filter(Boolean)
+      .join(', ');
+
+    sections.push({
+      title: 'Patient',
+      text: {
+        status: 'generated',
+        div: narrative(
+          [
+            ['Name', `${patient.firstName ?? ''} ${patient.lastName ?? ''}`.trim() || '—'],
+            ['Patient number', patient.patientId ?? '—'],
+            ['Date of birth', patient.dateOfBirth ? `${dateOnly(patient.dateOfBirth)}${age != null ? ` (${age})` : ''}` : '—'],
+            ['Sex', patient.gender ?? '—'],
+            ...((patient as Patient & { identifiers?: PatientIdentifier[] }).identifiers ?? [])
+              .filter((i) => i.value?.trim())
+              .map((i) => [identifierType(i.type)?.label ?? i.type, i.value] as string[]),
+            ['Telephone', patient.phoneNumber ?? '—'],
+            ['Residence', residence || patient.physicalAddress || '—'],
+          ],
+          ['Field', 'Value'],
+          'No demographic details recorded.',
+        ),
+      },
+      entry: of('Patient').map(ref),
+    });
 
     sections.push({
       title: 'Problems',

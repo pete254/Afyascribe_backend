@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Patient } from '../patients/entities/patient.entity';
+import { PatientIdentifier } from '../patients/entities/patient-identifier.entity';
 import { SoapNote } from '../soap-notes/entities/soap-note.entity';
 import { Prescription } from '../prescriptions/entities/prescription.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
@@ -32,6 +33,7 @@ import { HieFhirClient } from './hie-fhir.client';
   imports: [
     TypeOrmModule.forFeature([
       Patient,
+      PatientIdentifier,
       SoapNote,
       Prescription,
       InventoryItem,
