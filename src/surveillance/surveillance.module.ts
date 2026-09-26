@@ -8,6 +8,7 @@ import { Facility } from '../facilities/entities/facility.entity';
 import { SurveillanceService } from './surveillance.service';
 import { WeeklyReturnService } from './weekly.service';
 import { WeeklyReturn } from './entities/weekly-return.entity';
+import { PublicHealthSignal } from './entities/public-health-signal.entity';
 import { Delivery } from '../maternity/entities/delivery.entity';
 import { Birth } from '../maternity/entities/birth.entity';
 import { SurveillanceController } from './surveillance.controller';
@@ -17,6 +18,7 @@ import { SurveillanceController } from './surveillance.controller';
   imports: [TypeOrmModule.forFeature([
       DiseaseNotification,
       WeeklyReturn,
+      PublicHealthSignal,
       SoapNote,
       PatientProblem,
       Patient,

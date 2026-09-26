@@ -11,6 +11,9 @@ import { Facility } from '../facilities/entities/facility.entity';
 import { AGE_SPLIT_YEARS, MOH505_LAB_SECTIONS, MOH505_ROWS, MOH505_SOURCE, emptyCounts } from './data/moh505';
 import { EpiWeek, epiWeekOf, inWeek, lastCompleteWeek, weekBounds } from './epiweek';
 import { CurrentUserType } from '../common/decorators/current-user.decorator';
+import { PublicHealthSignal } from './entities/public-health-signal.entity';
+import { THRESHOLD_SOURCE, evaluateWeek } from './thresholds';
+import { IDSR_CONDITIONS } from './data/idsr';
 
 const YEAR_MS = 365.25 * 24 * 60 * 60 * 1000;
 
@@ -18,6 +21,7 @@ const YEAR_MS = 365.25 * 24 * 60 * 60 * 1000;
 export class WeeklyReturnService {
   constructor(
     @InjectRepository(WeeklyReturn) private readonly returns: Repository<WeeklyReturn>,
+    @InjectRepository(PublicHealthSignal) private readonly signals: Repository<PublicHealthSignal>,
     @InjectRepository(DiseaseNotification)
     private readonly notifications: Repository<DiseaseNotification>,
     @InjectRepository(Patient) private readonly patients: Repository<Patient>,
@@ -359,5 +363,112 @@ export class WeeklyReturnService {
     }
     return out;
   }
-}
 
+  // ── Public health events ──────────────────────────────────────────────────
+
+  /**
+   * Look at a week against the guidelines' thresholds.
+   *
+   * Runs over the computed figures rather than the corrected ones: a threshold
+   * should be judged on what the record holds, not on a number someone typed.
+   * The preceding weeks come from the record too, so a trend is a trend in
+   * cases and not in paperwork.
+   */
+  async evaluate(facilityId: string, year?: number, week?: number, lookBackWeeks = 4) {
+    const epi = this.resolveWeek(year, week);
+    const current = await this.compute(facilityId, epi.year, epi.week);
+
+    const history: { conditionCode: string; cases: number }[][] = [];
+    let cursor = epi;
+    for (let i = 0; i < lookBackWeeks; i += 1) {
+      const previousDay = new Date(`${cursor.start}T00:00:00Z`).getTime() - 86_400_000;
+      const prev = epiWeekOf(new Date(previousDay).toISOString().slice(0, 10));
+      if (!prev) break;
+      const computed = await this.compute(facilityId, prev.year, prev.week);
+      history.push(this.asCounts(computed.rows));
+      cursor = prev;
+    }
+
+    const found = evaluateWeek(IDSR_CONDITIONS, this.asCounts(current.rows), history);
+    return { ...epi, signals: found, source: THRESHOLD_SOURCE, weeksCompared: history.length };
+  }
+
+  private asCounts(rows: { conditionCode: string | null; under5Cases: number; over5Cases: number }[]) {
+    return rows
+      .filter((r) => r.conditionCode)
+      .map((r) => ({ conditionCode: r.conditionCode as string, cases: r.under5Cases + r.over5Cases }));
+  }
+
+  /**
+   * Evaluate a week and keep what it found.
+   *
+   * A signal already recorded for the same condition, week and rule is left
+   * alone: re-raising it would reset the acknowledgement, and "someone looked
+   * at this" is the fact worth keeping.
+   */
+  async raiseSignals(facilityId: string, year?: number, week?: number): Promise<PublicHealthSignal[]> {
+    const { signals: found, year: y, week: w } = await this.evaluate(facilityId, year, week);
+    const existing = await this.signals.find({ where: { facilityId, year: y, week: w } });
+
+    const out: PublicHealthSignal[] = [];
+    for (const signal of found) {
+      const already = existing.find(
+        (e) => e.conditionCode === signal.conditionCode && e.rule === signal.rule,
+      );
+      if (already) {
+        out.push(already);
+        continue;
+      }
+      out.push(
+        await this.signals.save(
+          this.signals.create({
+            facilityId,
+            year: y,
+            week: w,
+            conditionCode: signal.conditionCode,
+            conditionName: signal.conditionName,
+            level: signal.level,
+            rule: signal.rule,
+            detail: signal.detail,
+            count: signal.count,
+            threshold: signal.threshold,
+            published: signal.published,
+            status: 'open',
+          }),
+        ),
+      );
+    }
+    return out;
+  }
+
+  async listSignals(facilityId: string, status?: string): Promise<PublicHealthSignal[]> {
+    const qb = this.signals
+      .createQueryBuilder('s')
+      .where('s.facility_id = :facilityId', { facilityId })
+      .orderBy("CASE WHEN s.level = 'action' THEN 0 ELSE 1 END", 'ASC')
+      .addOrderBy('s.year', 'DESC')
+      .addOrderBy('s.week', 'DESC');
+    if (status) qb.andWhere('s.status = :status', { status });
+    return qb.getMany();
+  }
+
+  /** Record that someone looked, and what they found. */
+  async acknowledgeSignal(
+    facilityId: string,
+    id: string,
+    response: string,
+    close: boolean,
+    user?: CurrentUserType,
+  ): Promise<PublicHealthSignal> {
+    const row = await this.signals.findOne({ where: { id, facilityId } });
+    if (!row) throw new NotFoundException('Signal not found');
+    if (!response?.trim()) {
+      throw new BadRequestException('Say what was found. A signal closed without a finding records nothing.');
+    }
+    row.status = close ? 'closed' : 'acknowledged';
+    row.response = response.trim();
+    row.acknowledgedAt = new Date();
+    row.acknowledgedByName = this.name(user);
+    return this.signals.save(row);
+  }
+}

@@ -169,4 +169,35 @@ export class SurveillanceController {
   ) {
     return this.weekly.exportWeek(facilityOf(user), Number(year), Number(week));
   }
+
+  // ── Public health events ────────────────────────────────────────────────
+
+  @Get('signals')
+  @ApiOperation({ summary: 'Thresholds crossed, and what was done about them' })
+  signals(@CurrentUser() user: CurrentUserType, @Query('status') status?: string) {
+    return this.weekly.listSignals(facilityOf(user), status);
+  }
+
+  @Post('signals/evaluate')
+  @ApiOperation({
+    summary: "Check a week against the guidelines' thresholds and keep what it finds",
+    description:
+      'Judged on the computed figures rather than corrected ones, and against the preceding weeks from the record.',
+  })
+  evaluateSignals(
+    @CurrentUser() user: CurrentUserType,
+    @Body() body: { year?: number; week?: number },
+  ) {
+    return this.weekly.raiseSignals(facilityOf(user), body?.year, body?.week);
+  }
+
+  @Patch('signals/:id')
+  @ApiOperation({ summary: 'Record that someone looked, and what they found' })
+  acknowledge(
+    @CurrentUser() user: CurrentUserType,
+    @Param('id') id: string,
+    @Body() body: { response: string; close?: boolean },
+  ) {
+    return this.weekly.acknowledgeSignal(facilityOf(user), id, body?.response, !!body?.close, user);
+  }
 }
