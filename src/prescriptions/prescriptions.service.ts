@@ -73,6 +73,11 @@ export class PrescriptionsService {
       doctorNo: user.practitionerNo ?? null,
       diagnosis: dto.diagnosis ?? null,
       notes: dto.notes ?? null,
+      // The clinical context the prescriber was working from, kept with the
+      // order rather than left on the screen it was written on.
+      problems: dto.problems ?? [],
+      diagnosticTests: dto.diagnosticTests ?? [],
+      medicationsAtPrescribing: dto.medicationsAtPrescribing ?? [],
       status: 'pending',
       items: items.map((i, idx) => {
         const line = new PrescriptionItem();

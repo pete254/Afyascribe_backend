@@ -67,6 +67,18 @@ export class CreatePrescriptionDto {
   @IsOptional() @IsString()
   notes?: string;
 
+  /** Coded problems this is prescribed for, from the patient's problem list. */
+  @IsOptional() @IsArray()
+  problems?: { id?: string; code?: string | null; display: string }[];
+
+  /** Lab or imaging orders from this visit that bear on the prescription. */
+  @IsOptional() @IsArray()
+  diagnosticTests?: { id?: string; kind: 'lab' | 'imaging'; name: string; result?: string | null }[];
+
+  /** What the patient was already taking, as the prescriber saw it. */
+  @IsOptional() @IsArray()
+  medicationsAtPrescribing?: { name: string; code?: string | null; since?: string | null }[];
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => PrescriptionItemDto)

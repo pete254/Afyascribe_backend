@@ -386,6 +386,34 @@ export class FhirService {
           ? { coding: [{ system: FHIR_SYS.hpt, code: item.knhtsCode, display: item.knhtsName || it.medication }], text: it.medication }
           : { text: it.medication };
       const dosageText = [it.dosage, it.frequency, it.duration].filter(Boolean).join(' · ') || undefined;
+
+      // Why it was prescribed, and what informed it. Coded problems first; the
+      // prescriber's free text is used only when there is no code, because a
+      // sentence is not a diagnosis a receiving system can act on.
+      const coded = (rx.problems ?? []).filter((p) => p.code);
+      const reasonCode: Json[] = coded.map((p) => ({
+        coding: [{ system: FHIR_SYS.icd11, code: p.code as string, display: p.display || undefined }],
+        text: p.display || undefined,
+      }));
+      if (!coded.length && rx.diagnosis?.trim()) reasonCode.push({ text: rx.diagnosis.trim() });
+
+      const reasonReference = (rx.problems ?? [])
+        .filter((p) => p.id)
+        .map((p) => ({ reference: `Condition/problem-${p.id}` }));
+
+      const supportingInformation = [
+        ...(rx.diagnosticTests ?? []).map((t) => ({
+          display: `${t.name}${t.result ? ` — ${t.result}` : ''}`,
+        })),
+        ...(rx.medicationsAtPrescribing ?? []).map((m) => ({ display: `Already taking: ${m.name}` })),
+      ];
+
+      const context = {
+        reasonCode: reasonCode.length ? reasonCode : undefined,
+        reasonReference: reasonReference.length ? reasonReference : undefined,
+        supportingInformation: supportingInformation.length ? supportingInformation : undefined,
+      };
+
       return {
         resourceType: 'MedicationRequest',
         id: `medreq-${rx.id}-${i}`,
@@ -400,6 +428,7 @@ export class FhirService {
             ? { display: rx.doctorName }
             : undefined,
         dosageInstruction: dosageText ? [{ text: dosageText }] : undefined,
+        ...context,
       };
     });
   }

@@ -65,6 +65,34 @@ export class Prescription {
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
+  /**
+   * The problems this prescription is for, coded, taken from the patient's
+   * problem list at the moment of prescribing.
+   *
+   * `diagnosis` above is free text a prescriber typed. That is not the problem
+   * list, and a pharmacist reviewing the order — or a receiving system reading
+   * the FHIR — needs the coded condition, not a sentence.
+   */
+  @Column({ name: 'problems', type: 'jsonb', default: () => "'[]'::jsonb" })
+  problems: { id?: string | null; code: string | null; display: string }[];
+
+  /**
+   * Diagnostic tests that bear on this prescription — the lab and imaging
+   * orders from the same visit that the prescriber attached.
+   */
+  @Column({ name: 'diagnostic_tests', type: 'jsonb', default: () => "'[]'::jsonb" })
+  diagnosticTests: { id?: string | null; kind: 'lab' | 'imaging'; name: string; result?: string | null }[];
+
+  /**
+   * What the patient was already taking when this was written.
+   *
+   * A snapshot rather than a reference: the medication list changes, and the
+   * question a pharmacist or a reviewer asks later is what the prescriber
+   * could see at the time, not what is true now.
+   */
+  @Column({ name: 'medications_at_prescribing', type: 'jsonb', default: () => "'[]'::jsonb" })
+  medicationsAtPrescribing: { name: string; code?: string | null; since?: string | null }[];
+
   @Column({ type: 'varchar', length: 20, default: 'pending' })
   status: PrescriptionStatus;
 
