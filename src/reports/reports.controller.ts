@@ -1,4 +1,12 @@
-import { Controller, Get, Query, Res, UseGuards, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  ForbiddenException,
+  Get,
+  Query,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { Response } from 'express';
 import { ReportsService } from './reports.service';
@@ -6,6 +14,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { PERIOD_PRESETS, resolvePeriod } from '../common/reporting/periods';
 
 /**
  * Guard helper — user is allowed to view reports if they are:
@@ -28,6 +37,24 @@ export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
   // ── PATIENTS TODAY ─────────────────────────────────────────────────────────
+  @Get('periods')
+  @ApiOperation({
+    summary: 'The reporting periods a report can be run over',
+    description:
+      'Routine reporting runs monthly, quarterly and annually. Resolving the period here means every report takes the same dates rather than each one working out a quarter for itself.',
+  })
+  @ApiQuery({ name: 'spec', required: false, description: 'A preset, or month:YYYY-MM, quarter:YYYY-Qn, year:YYYY' })
+  periods(@Query('spec') spec?: string) {
+    if (!spec) return { presets: PERIOD_PRESETS };
+    const resolved = resolvePeriod(spec);
+    if (!resolved) {
+      throw new BadRequestException(
+        'Not a period this system knows. Use a preset, or month:YYYY-MM, quarter:YYYY-Qn, or year:YYYY.',
+      );
+    }
+    return resolved;
+  }
+
   @Get('patients-today')
   @Roles('facility_admin', 'super_admin', 'receptionist', 'doctor')
   @ApiOperation({ summary: 'All patients at the facility today with visit status' })
