@@ -50,7 +50,7 @@ describe('not crying wolf', () => {
   });
 
   it('ignores a past episode', () => {
-    expect(codes('History of tuberculosis')).toEqual([]);
+    expect(codes('History of MDR TB')).toEqual([]);
     expect(codes('Previous malaria')).toEqual([]);
   });
 
@@ -104,7 +104,7 @@ describe("the Ministry's lists, as transcribed", () => {
   it('carries both lists and their overlap', () => {
     expect(immediateConditions()).toHaveLength(15);
     expect(weeklyConditions()).toHaveLength(23);
-    expect(IDSR_CONDITIONS).toHaveLength(25); // the union: 13 on both lists, 2 immediate-only, 10 weekly-only
+    expect(IDSR_CONDITIONS).toHaveLength(24); // the union: 14 on both lists, 1 immediate-only, 9 weekly-only
   });
 
   it('gives every condition a case definition and something to match on', () => {

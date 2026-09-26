@@ -172,11 +172,19 @@ export const IDSR_CONDITIONS: readonly IdsrCondition[] = [
     code: 'MDR_TB',
     name: 'Tuberculosis (MDR/XDR)',
     immediate: true,
-    weekly: false,
+    weekly: true,
     suspectedCase:
       'Any patient with tuberculosis whose results show multi-drug or extensively drug-resistant disease.',
-    terms: ['mdr tb', 'mdr-tb', 'xdr tb', 'xdr-tb', 'drug resistant tuberculosis', 'multidrug resistant tuberculosis'],
-    note: 'Reported by laboratories with testing competence.',
+    terms: [
+      'mdr tb',
+      'mdr-tb',
+      'xdr tb',
+      'xdr-tb',
+      'drug resistant tuberculosis',
+      'multidrug resistant tuberculosis',
+    ],
+    note:
+      'Reported by laboratories with testing competence. MOH 505 carries this as "Suspected MDR/XDR TB" — the weekly form has no row for drug-sensitive tuberculosis.',
   },
   {
     code: 'VHF',
@@ -272,14 +280,6 @@ export const IDSR_CONDITIONS: readonly IdsrCondition[] = [
     suspectedCase:
       'A person with an animal bite or scratch, or contact with the saliva of a suspected rabid animal, with or without headache, neck pain, nausea, fever, fear of water, anxiety or agitation.',
     terms: ['rabies', 'dog bite', 'animal bite'],
-  },
-  {
-    code: 'TB',
-    name: 'Tuberculosis',
-    immediate: false,
-    weekly: true,
-    suspectedCase: 'Any patient presenting with tuberculosis.',
-    terms: ['tuberculosis', 'pulmonary tb'],
   },
   {
     code: 'TYPHOID',

@@ -15,6 +15,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.decorator';
 import { SurveillanceService } from './surveillance.service';
+import { WeeklyReturnService } from './weekly.service';
 import { DismissNotificationDto, NotifyDto, RecordNotificationDto } from './dto/surveillance.dto';
 
 function facilityOf(user: CurrentUserType): string {
@@ -29,7 +30,10 @@ function facilityOf(user: CurrentUserType): string {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('doctor', 'nurse', 'clinical_officer', 'lab_technician', 'facility_admin', 'super_admin')
 export class SurveillanceController {
-  constructor(private readonly service: SurveillanceService) {}
+  constructor(
+    private readonly service: SurveillanceService,
+    private readonly weekly: WeeklyReturnService,
+  ) {}
 
   @Get('conditions')
   @ApiOperation({ summary: "The Ministry's IDSR conditions and case definitions, with their source" })
@@ -109,5 +113,60 @@ export class SurveillanceController {
   @ApiOperation({ summary: 'One case as MOH 502, for printing or sending on' })
   exportCase(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
     return this.service.exportCase(facilityOf(user), id);
+  }
+
+  // ── MOH 505, the weekly return ──────────────────────────────────────────
+
+  @Get('weekly')
+  @ApiOperation({
+    summary: "A week's MOH 505, computed from the record",
+    description:
+      'Defaults to the week that has just ended, which is the one the form reports on. Figures are worked out from notified cases and the maternity and newborn registers.',
+  })
+  @ApiQuery({ name: 'year', required: false })
+  @ApiQuery({ name: 'week', required: false })
+  weeklyReturn(
+    @CurrentUser() user: CurrentUserType,
+    @Query('year') year?: string,
+    @Query('week') week?: string,
+  ) {
+    return this.weekly.forWeek(facilityOf(user), year ? Number(year) : undefined, week ? Number(week) : undefined);
+  }
+
+  @Post('weekly')
+  @ApiOperation({ summary: 'Save the week as a draft, keeping any figure corrected by hand' })
+  saveWeekly(@CurrentUser() user: CurrentUserType, @Body() body: Record<string, any>) {
+    return this.weekly.saveDraft(facilityOf(user), body, user);
+  }
+
+  @Post('weekly/submit')
+  @ApiOperation({ summary: 'Submit the week to the sub-county' })
+  submitWeekly(
+    @CurrentUser() user: CurrentUserType,
+    @Body() body: { year?: number; week?: number },
+  ) {
+    return this.weekly.submit(facilityOf(user), body?.year, body?.week, user);
+  }
+
+  @Get('weekly/history')
+  @ApiOperation({ summary: 'Recent returns, and whether each one got out' })
+  weeklyHistory(@CurrentUser() user: CurrentUserType, @Query('limit') limit?: string) {
+    return this.weekly.history(facilityOf(user), limit ? Number(limit) : undefined);
+  }
+
+  @Get('weekly/missing')
+  @ApiOperation({ summary: 'Weeks with no return at all' })
+  weeklyMissing(@CurrentUser() user: CurrentUserType, @Query('weeks') weeks?: string) {
+    return this.weekly.missing(facilityOf(user), weeks ? Number(weeks) : undefined);
+  }
+
+  @Get('weekly/:year/:week/export')
+  @ApiOperation({ summary: 'One week as MOH 505' })
+  exportWeekly(
+    @CurrentUser() user: CurrentUserType,
+    @Param('year') year: string,
+    @Param('week') week: string,
+  ) {
+    return this.weekly.exportWeek(facilityOf(user), Number(year), Number(week));
   }
 }
