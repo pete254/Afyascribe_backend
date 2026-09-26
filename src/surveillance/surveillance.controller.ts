@@ -15,7 +15,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.decorator';
 import { SurveillanceService } from './surveillance.service';
-import { DismissNotificationDto, RecordNotificationDto } from './dto/surveillance.dto';
+import { DismissNotificationDto, NotifyDto, RecordNotificationDto } from './dto/surveillance.dto';
 
 function facilityOf(user: CurrentUserType): string {
   if (!user.facilityId) throw new BadRequestException('Your account is not linked to a facility');
@@ -80,5 +80,34 @@ export class SurveillanceController {
     @Body() dto: DismissNotificationDto,
   ) {
     return this.service.dismiss(facilityOf(user), id, dto.reason, user);
+  }
+
+  @Get('outstanding')
+  @ApiOperation({
+    summary: 'Cases not yet notified, most overdue first',
+    description: "The Ministry's window for an immediate condition is 24 hours from suspicion.",
+  })
+  outstanding(@CurrentUser() user: CurrentUserType) {
+    return this.service.outstanding(facilityOf(user));
+  }
+
+  @Patch('notifications/:id/notify')
+  @ApiOperation({
+    summary: 'Complete MOH 502 and tell the sub-county',
+    description:
+      'Attempts the alert as part of notifying and reports whether it got out, because if it did not the case still has to be phoned through.',
+  })
+  notify(
+    @CurrentUser() user: CurrentUserType,
+    @Param('id') id: string,
+    @Body() dto: NotifyDto,
+  ) {
+    return this.service.notify(facilityOf(user), id, dto, user);
+  }
+
+  @Get('notifications/:id/moh502')
+  @ApiOperation({ summary: 'One case as MOH 502, for printing or sending on' })
+  exportCase(@CurrentUser() user: CurrentUserType, @Param('id') id: string) {
+    return this.service.exportCase(facilityOf(user), id);
   }
 }
