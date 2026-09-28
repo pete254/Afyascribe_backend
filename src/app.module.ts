@@ -88,6 +88,7 @@ import { MaternityModule } from './maternity/maternity.module';
 import { CdsModule } from './cds/cds.module';
 import { QualityModule } from './quality/quality.module';
 import { SurveillanceModule } from './surveillance/surveillance.module';
+import { SignaturesModule } from './signatures/signatures.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -172,6 +173,7 @@ import { SurveillanceModule } from './surveillance/surveillance.module';
     CdsModule,
     QualityModule,
     SurveillanceModule,
+    SignaturesModule,
   ],
   controllers: [AppController],
   providers: [AppService, KeepAliveService],

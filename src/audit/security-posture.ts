@@ -98,10 +98,43 @@ export function securityPosture(opts: {
           'Backups and point-in-time recovery are properties of the managed database. Frequency, retention, recovery objectives and the date recovery was last tested are the operator’s to state and to verify — this system cannot observe them.',
       },
       {
+        control: 'Checksum verification',
+        status: 'implemented',
+        detail:
+          'Each signed record carries the SHA-256 of its canonical form, so a record altered after signing is detectable. The audit ledger is chained by the same means.',
+        evidence: 'GET /signatures/verify/{entity}/{id}',
+      },
+      {
+        control: 'Digital signatures',
+        status: 'implemented',
+        detail:
+          'Ed25519, with a key per practitioner whose private half is encrypted under a PIN only they know. Nobody can sign as a practitioner without that PIN — not an administrator, not anyone holding the database. The PIN does reach the server to sign, so this attests the practitioner rather than their hardware; a smartcard would be stronger.',
+        evidence: 'GET /signatures/public-key/{fingerprint} lets a signature be checked without this system.',
+      },
+      {
         control: 'Access control',
         status: 'implemented',
         detail:
           'Role-based, with per-user capability overrides; the audit ledger is restricted to facility administrators.',
+      },
+      {
+        control: 'Automatic logoff',
+        status: 'implemented',
+        detail:
+          'A session lapses after a period without interaction. A client in use extends it as the user works; one nobody has touched does not, and the session ends.',
+        evidence: 'AUTH_SESSION_MINUTES.',
+      },
+      {
+        control: 'Emergency access procedures',
+        status: 'implemented',
+        detail:
+          'A restricted record opens to anyone who states a reason. Nobody is refused — the reason is the control. Access is time-boxed, lapses on its own, and is put in front of an administrator afterwards.',
+        evidence: 'GET /emergency-access lists grants awaiting review.',
+      },
+      {
+        control: 'Multi-factor authentication',
+        status: 'implemented',
+        detail: 'A one-time code is emailed after a correct password, with attempt limits and expiry.',
       },
     ],
   };
