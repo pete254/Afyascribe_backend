@@ -1,8 +1,10 @@
 // src/auth/auth.controller.ts
 // UPDATED: Added register-with-invite and validate-invite-code endpoints
-import { Controller, Post, Body, HttpCode, HttpStatus, Get, Param } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, Get, Param, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { LoginDto } from './dto/login.dto';
 import { LoginWithCodeDto } from './dto/login-with-code.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -29,6 +31,19 @@ export class AuthController {
   })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto.email, loginDto.password);
+  }
+
+  @Post('refresh')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Extend a session that is still alive',
+    description:
+      'Sessions lapse after a period of inactivity. A client that is being used refreshes; one nobody has touched does not, and the terminal closes itself.',
+  })
+  refresh(@CurrentUser() user: any) {
+    return this.authService.refreshSession(user);
   }
 
   @Post('login-with-code')

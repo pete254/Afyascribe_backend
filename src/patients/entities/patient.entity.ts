@@ -97,6 +97,17 @@ export class Patient {
   village: string;
 
   /** Nearest landmark or plot — how a community health worker actually finds a home. */
+  /**
+   * Withheld from ordinary clinical access — a member of staff, a public
+   * figure, a colleague's family. Opening it needs a stated reason, which is
+   * recorded and reviewed.
+   */
+  @Column({ type: 'boolean', default: false })
+  restricted: boolean;
+
+  @Column({ name: 'restricted_reason', type: 'varchar', length: 300, nullable: true })
+  restrictedReason: string | null;
+
   @Column({ name: 'physical_address', nullable: true })
   physicalAddress: string;
 

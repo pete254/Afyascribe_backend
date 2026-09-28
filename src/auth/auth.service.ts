@@ -8,6 +8,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
 import { EmailService } from '../common/services/email.service';
 import { InviteCodesService } from '../facilities/invite-codes.service';
@@ -37,6 +38,7 @@ export class AuthService {
     private facilitiesService: FacilitiesService,
     private facilityCodesService: FacilityCodesService,
     private platformSettings: PlatformSettingsService,
+    private configService: ConfigService,
   ) {}
 
   async validateUser(email: string, password: string): Promise<any> {
@@ -519,6 +521,25 @@ export class AuthService {
         facilityLogoUrl: facility.logoUrl ?? null,
       },
       inviteCode: inviteCode.code,
+    };
+  }
+
+  /**
+   * Extend a session that is still alive.
+   *
+   * Sliding rather than fixed: a clinician working through a shift should not
+   * be thrown out mid-consultation, but a terminal nobody has touched should
+   * close on its own. The guard has already proved the token is valid, so this
+   * only re-signs what it carried — no new privileges can be acquired here.
+   */
+  refreshSession(user: Record<string, unknown>): { access_token: string; expiresInSeconds: number } {
+    const { iat, exp, ...claims } = user as Record<string, unknown> & { iat?: number; exp?: number };
+    void iat;
+    void exp;
+    const minutes = Math.max(5, Number(this.configService.get<string>('AUTH_SESSION_MINUTES') ?? 60));
+    return {
+      access_token: this.jwtService.sign(claims),
+      expiresInSeconds: minutes * 60,
     };
   }
 }
