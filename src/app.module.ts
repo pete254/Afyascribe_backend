@@ -114,8 +114,17 @@ import { SurveillanceModule } from './surveillance/surveillance.module';
           migrationsRun: true,
         };
         if (isProduction) {
-          config.ssl = { rejectUnauthorized: false };
-          config.extra = { sslmode: 'require' };
+          // Verify the server's certificate. Encrypting the connection without
+          // checking who is on the other end of it leaves exactly the gap a
+          // data-protection review looks for — the traffic is unreadable to a
+          // passive listener but not to one that can stand in the middle.
+          //
+          // The managed database presents a publicly-trusted chain, so Node's
+          // own trust store is enough. The escape hatch is for a self-signed
+          // certificate in a private deployment, and has to be set on purpose.
+          const verify = configService.get<string>('DB_SSL_REJECT_UNAUTHORIZED') !== 'false';
+          config.ssl = { rejectUnauthorized: verify };
+          config.extra = { sslmode: verify ? 'verify-full' : 'require' };
         }
         return config;
       },

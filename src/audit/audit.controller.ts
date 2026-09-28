@@ -1,6 +1,10 @@
 import { BadRequestException, Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AUDIT_RETENTION_YEARS, AuditService } from './audit.service';
+import { RecordVersionService } from './version.service';
+import { securityPosture } from './security-posture';
+import { VERSIONED_ENTITY_COUNT } from './version.subscriber';
+import { ConfigService } from '@nestjs/config';
 import { RecordAuditReviewDto } from './dto/audit-review.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -12,7 +16,11 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('audit')
 export class AuditController {
-  constructor(private readonly service: AuditService) {}
+  constructor(
+    private readonly service: AuditService,
+    private readonly versions: RecordVersionService,
+    private readonly config: ConfigService,
+  ) {}
 
   @Get()
   @Roles('facility_admin', 'super_admin')
@@ -119,5 +127,77 @@ export class AuditController {
         'Lines written before this ledger was hardened are unhashed, and verification reports them as such rather than pretending otherwise.',
       ],
     };
+  }
+
+  // ── Record versions: what a change did ──────────────────────────────────
+
+  @Get('versions/:entityName/:entityId')
+  @Roles('facility_admin', 'super_admin', 'doctor', 'nurse', 'clinical_officer')
+  @ApiOperation({
+    summary: "One record's history — every version, with what changed",
+    description:
+      'The ledger says a record was written to. This says what the writing did.',
+  })
+  recordHistory(@Param('entityName') entityName: string, @Param('entityId') entityId: string) {
+    return this.versions.forRecord(entityName, entityId);
+  }
+
+  @Get('versions/patient/:patientId')
+  @Roles('facility_admin', 'super_admin', 'doctor', 'nurse', 'clinical_officer')
+  @ApiOperation({ summary: "Everything that has changed about one patient's record" })
+  patientHistory(
+    @CurrentUser() user: any,
+    @Param('patientId') patientId: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.versions.forPatient(user.facilityId, patientId, {
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
+  }
+
+  @Get('changes')
+  @Roles('facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Recent changes across the facility' })
+  changes(
+    @CurrentUser() user: any,
+    @Query('entityName') entityName?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.versions.recent(user.facilityId, {
+      entityName,
+      from: from ? new Date(from) : undefined,
+      to: to ? new Date(to) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('amendments')
+  @Roles('facility_admin', 'super_admin')
+  @ApiOperation({
+    summary: 'Changes made after the fact, with the reason given',
+    description:
+      'Not the ordinary course of filling a record in, but somebody going back to alter what it said.',
+  })
+  amendments(@CurrentUser() user: any, @Query('limit') limit?: string) {
+    return this.versions.amendments(user.facilityId, limit ? Number(limit) : undefined);
+  }
+
+  @Get('security-posture')
+  @Roles('facility_admin', 'super_admin')
+  @ApiOperation({
+    summary: 'What this system does about security, for the attestation',
+    description:
+      'Nothing is claimed that the code does not do. Anything that depends on hosting is marked as the provider\'s or the operator\'s rather than asserted here.',
+  })
+  posture() {
+    return securityPosture({
+      retentionYears: AUDIT_RETENTION_YEARS,
+      versionedEntities: VERSIONED_ENTITY_COUNT,
+      transitVerified: this.config.get<string>('DB_SSL_REJECT_UNAUTHORIZED') !== 'false',
+    });
   }
 }

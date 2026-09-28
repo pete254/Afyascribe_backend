@@ -7,6 +7,7 @@ import {
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { AuditService } from './audit.service';
+import { runWithActor } from './request-context';
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -113,6 +114,18 @@ export class AuditInterceptor implements NestInterceptor {
 
     if (!user || (firstSeg && SKIP_PREFIXES.has(firstSeg))) return next.handle();
 
+    // Carry the actor down to the version subscriber, which runs below the
+    // HTTP layer and has no request to ask who is writing.
+    const actor = {
+      id: user.id ?? null,
+      name: `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || user.email || null,
+      role: Array.isArray(user.roles) && user.roles.length ? user.roles[0] : (user.role ?? null),
+      facilityId: user.facilityId ?? null,
+      // A caller amending a record says why in this header; the reason lands
+      // on the version rather than being lost in a free-text note.
+      reason: (req.headers?.['x-change-reason'] as string) || null,
+    };
+
     const isWrite = WRITE_METHODS.has(method);
     // A read is auditable when it reaches patient data. Reads of catalogues,
     // price lists and reference data are not, and logging them would bury the
@@ -120,11 +133,13 @@ export class AuditInterceptor implements NestInterceptor {
     const isPhiRead = method === 'GET' && !!firstSeg && PHI_PREFIXES.has(firstSeg);
     if (!isWrite && !isPhiRead) return next.handle();
 
-    return next.handle().pipe(
-      tap({
-        next: () => this.record(context, req, user, method, isWrite ? 'write' : 'read'),
-        // Only successful actions are recorded; failures fall through untouched.
-      }),
+    return runWithActor(actor, () =>
+      next.handle().pipe(
+        tap({
+          next: () => this.record(context, req, user, method, isWrite ? 'write' : 'read'),
+          // Only successful actions are recorded; failures fall through untouched.
+        }),
+      ),
     );
   }
 
