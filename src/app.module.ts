@@ -88,6 +88,7 @@ import { MaternityModule } from './maternity/maternity.module';
 import { CdsModule } from './cds/cds.module';
 import { QualityModule } from './quality/quality.module';
 import { SurveillanceModule } from './surveillance/surveillance.module';
+import { AdxModule } from './adx/adx.module';
 import { SignaturesModule } from './signatures/signatures.module';
 @Module({
   imports: [
@@ -173,6 +174,7 @@ import { SignaturesModule } from './signatures/signatures.module';
     CdsModule,
     QualityModule,
     SurveillanceModule,
+    AdxModule,
     SignaturesModule,
   ],
   controllers: [AppController],

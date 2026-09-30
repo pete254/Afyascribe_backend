@@ -28,5 +28,7 @@ import { ReportsController } from './reports.controller';
   ],
   controllers: [ReportsController],
   providers: [ReportsService],
+  // The ADX module reads these same figures rather than recomputing them.
+  exports: [ReportsService],
 })
 export class ReportsModule {}
