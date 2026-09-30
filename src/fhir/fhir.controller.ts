@@ -1,5 +1,5 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { BadRequestException, Body, Controller, Get, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiHeader } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -94,6 +94,16 @@ export class FhirController {
     return { submittedTo: `${this.hie.base}/shr/bundles`, status: result.status, response: result.body };
   }
 
+  @Get('shr/status')
+  @ApiOperation({
+    summary: 'Whether this facility can talk to the Shared Health Record yet',
+    description:
+      'Reports the endpoint and whether credentials are present. It does not call the HIE, so it answers even when nothing is configured — which is what lets a screen say so plainly instead of failing.',
+  })
+  shrStatus() {
+    return { base: this.hie.base, configured: this.hie.configured };
+  }
+
   @Get('shr/open-visits')
   @UseGuards(RolesGuard)
   @Roles('facility_admin', 'super_admin', 'doctor')
@@ -116,5 +126,46 @@ export class FhirController {
   @ApiOperation({ summary: 'Verify the OTP; returns the consent token and the visit id' })
   verifyConsent(@Param('consentId') consentId: string, @Body() body: { otp: string }) {
     return this.hie.verifyConsent(consentId, body?.otp);
+  }
+
+  @Get('shr/patient-records')
+  @UseGuards(RolesGuard)
+  @Roles('facility_admin', 'super_admin', 'doctor', 'nurse', 'clinical_officer')
+  @ApiHeader({
+    name: 'X-Consent-Token',
+    required: true,
+    description: 'The token returned when the visit was opened against a verified consent.',
+  })
+  @ApiOperation({
+    summary: "Read a patient's record back from the national Shared Health Record",
+    description:
+      "The receiving half of the exchange. The consent token is the patient's permission to look, and it is taken as a header rather than a query parameter so that it stays out of URLs, browser history and this system's own audit ledger, which records the path of every request.",
+  })
+  async patientRecords(
+    @Headers('x-consent-token') consentToken: string,
+    @Query('patientId') patientId?: string,
+    @Query('visitId') visitId?: string,
+  ) {
+    if (!consentToken?.trim()) {
+      throw new BadRequestException(
+        'A consent token is required. Verify the patient\'s consent first, and send the token it returns in the X-Consent-Token header.',
+      );
+    }
+    if (!this.hie.configured) {
+      throw new BadRequestException(
+        'No HIE credentials are configured, so the national record cannot be read.',
+      );
+    }
+
+    const params: Record<string, string> = {};
+    if (patientId?.trim()) params.patientId = patientId.trim();
+    if (visitId?.trim()) params.visitId = visitId.trim();
+
+    const result = await this.hie.patientRecords(consentToken.trim(), params);
+    return {
+      readFrom: `${this.hie.base}/shr/patient-records`,
+      status: result.status,
+      records: result.body,
+    };
   }
 }
