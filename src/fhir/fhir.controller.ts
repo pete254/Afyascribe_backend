@@ -101,15 +101,24 @@ export class FhirController {
       'Reports the endpoint and whether credentials are present. It does not call the HIE, so it answers even when nothing is configured — which is what lets a screen say so plainly instead of failing.',
   })
   shrStatus() {
-    return { base: this.hie.base, configured: this.hie.configured };
+    return { base: this.hie.base, configured: this.hie.configured, authMode: this.hie.authMode };
   }
 
   @Get('shr/open-visits')
   @UseGuards(RolesGuard)
   @Roles('facility_admin', 'super_admin', 'doctor')
-  @ApiOperation({ summary: 'Visits already open at the HIE with valid consent' })
-  openVisits() {
-    return this.hie.openVisits();
+  @ApiOperation({
+    summary: 'Visits already open at the HIE with valid consent',
+    description:
+      'Check this before asking for consent. A visit that comes back already holds an open consent — carry on with it and refresh its token rather than putting the patient through another OTP.',
+  })
+  openVisits(@Query('patientId') patientId: string, @Query('facilityId') facilityId: string) {
+    if (!patientId?.trim() || !facilityId?.trim()) {
+      throw new BadRequestException(
+        "Both the patient's Client Registry id and the facility's Facility Registry code are required.",
+      );
+    }
+    return this.hie.openVisits(patientId.trim(), facilityId.trim());
   }
 
   @Post('shr/consents')
@@ -120,12 +129,81 @@ export class FhirController {
     return this.hie.requestConsent(body);
   }
 
+  @Post('shr/consents/:consentId/status')
+  @UseGuards(RolesGuard)
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({ summary: 'Where a consent request has got to' })
+  consentStatus(@Param('consentId') consentId: string) {
+    return this.hie.consentStatus(consentId);
+  }
+
+  @Post('shr/consents/:consentId/resend-otp')
+  @UseGuards(RolesGuard)
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({
+    summary: 'Send the code again',
+    description: 'Returns a new otp_record. Verify against that one, not the record from the original request.',
+  })
+  resendOtp(@Param('consentId') consentId: string) {
+    return this.hie.resendOtp(consentId);
+  }
+
   @Post('shr/consents/:consentId/verify')
   @UseGuards(RolesGuard)
   @Roles('facility_admin', 'super_admin', 'doctor')
-  @ApiOperation({ summary: 'Verify the OTP; returns the consent token and the visit id' })
-  verifyConsent(@Param('consentId') consentId: string, @Body() body: { otp: string }) {
-    return this.hie.verifyConsent(consentId, body?.otp);
+  @ApiOperation({
+    summary: "Record the patient's decision",
+    description:
+      'Approving returns the consent token and visit id. A refusal goes through this same call with decision Reject and a reason — abandoning the request instead records no refusal and leaves it Pending.',
+  })
+  verifyConsent(
+    @Param('consentId') consentId: string,
+    @Body()
+    body: { otpRecord?: string; otp?: string; decision?: 'Approve' | 'Reject'; rejectionReason?: string },
+  ) {
+    if (!body?.otpRecord?.trim()) {
+      throw new BadRequestException(
+        'The otp_record from the consent request (or from a resend) is required.',
+      );
+    }
+    if (body.decision === 'Reject' && !body.rejectionReason?.trim()) {
+      throw new BadRequestException('A refusal needs a reason, so that the record shows why.');
+    }
+    return this.hie.verifyConsent(consentId, {
+      otpRecord: body.otpRecord.trim(),
+      otp: body.otp?.trim(),
+      decision: body.decision,
+      rejectionReason: body.rejectionReason?.trim(),
+    });
+  }
+
+  @Post('shr/visits/:visitId/refresh')
+  @UseGuards(RolesGuard)
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({ summary: 'A fresh consent token for a visit that is still open' })
+  refreshVisit(@Param('visitId') visitId: string) {
+    return this.hie.refreshVisit(visitId);
+  }
+
+  @Post('shr/visits/:visitId/close')
+  @UseGuards(RolesGuard)
+  @Roles('facility_admin', 'super_admin', 'doctor')
+  @ApiOperation({
+    summary: 'Close the visit at the end of the encounter',
+    description:
+      'Usually dispatches a closure OTP and returns an otp_record; the visit stays open until that is verified. An end_date coming back instead means it is already closed. Leaving visits open keeps a consent live for longer than the encounter justifies.',
+  })
+  closeVisit(
+    @Param('visitId') visitId: string,
+    @Body() body: { patientIncapable?: boolean; incapacityReason?: string } = {},
+  ) {
+    if (body?.patientIncapable && !body.incapacityReason?.trim()) {
+      throw new BadRequestException('Closing without the patient needs a reason recorded.');
+    }
+    return this.hie.closeVisit(visitId, {
+      patientIncapable: body?.patientIncapable,
+      incapacityReason: body?.incapacityReason?.trim(),
+    });
   }
 
   @Get('shr/patient-records')
@@ -137,35 +215,47 @@ export class FhirController {
     description: 'The token returned when the visit was opened against a verified consent.',
   })
   @ApiOperation({
-    summary: "Read a patient's record back from the national Shared Health Record",
+    summary: "Read a patient's record from the national Shared Health Record",
     description:
-      "The receiving half of the exchange. The consent token is the patient's permission to look, and it is taken as a header rather than a query parameter so that it stays out of URLs, browser history and this system's own audit ledger, which records the path of every request.",
+      "The consent token is the patient's permission to look. It is taken as a header rather than a query parameter so that it stays out of URLs, browser history and this system's own audit ledger, which records the path of every request. Every read is attributed to a practitioner: crId is the patient's Client Registry id, and practitionerId identifies the clinician from the Health Worker Registry.",
   })
   async patientRecords(
+    @CurrentUser() user: CurrentUserType,
     @Headers('x-consent-token') consentToken: string,
-    @Query('patientId') patientId?: string,
-    @Query('visitId') visitId?: string,
+    @Query('crId') crId?: string,
+    @Query('practitionerId') practitionerId?: string,
+    @Query('resources') resources?: string,
+    @Query('pageToken') pageToken?: string,
   ) {
     if (!consentToken?.trim()) {
       throw new BadRequestException(
-        'A consent token is required. Verify the patient\'s consent first, and send the token it returns in the X-Consent-Token header.',
+        "A consent token is required. Verify the patient's consent first, and send the token it returns in the X-Consent-Token header.",
+      );
+    }
+    if (!crId?.trim()) {
+      throw new BadRequestException(
+        "The patient's Client Registry id is required. Resolve it through Patient Search if you do not hold it — consent is against a CR id, not a national ID.",
+      );
+    }
+    // The registry identifier of whoever is looking. Defaults to the logged-in
+    // clinician's registration number; overridable because the Health Worker
+    // Registry id is not necessarily the same as the regulator's number.
+    const practitioner = practitionerId?.trim() || user.practitionerNo?.trim();
+    if (!practitioner) {
+      throw new BadRequestException(
+        'Every read is attributed to a practitioner, and this account has no registration number recorded. Add one, or pass practitionerId.',
       );
     }
     if (!this.hie.configured) {
-      throw new BadRequestException(
-        'No HIE credentials are configured, so the national record cannot be read.',
-      );
+      throw new BadRequestException('No HIE credentials are configured, so the national record cannot be read.');
     }
 
-    const params: Record<string, string> = {};
-    if (patientId?.trim()) params.patientId = patientId.trim();
-    if (visitId?.trim()) params.visitId = visitId.trim();
-
-    const result = await this.hie.patientRecords(consentToken.trim(), params);
-    return {
-      readFrom: `${this.hie.base}/shr/patient-records`,
-      status: result.status,
-      records: result.body,
-    };
+    const result = await this.hie.patientRecords(consentToken.trim(), {
+      crId: crId.trim(),
+      practitionerId: practitioner,
+      resources: resources?.trim(),
+      pageToken: pageToken?.trim(),
+    });
+    return { readFrom: `${this.hie.base}/shr/patient-records`, status: result.status, records: result.body };
   }
 }
