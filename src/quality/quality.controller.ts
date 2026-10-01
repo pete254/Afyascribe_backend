@@ -16,6 +16,7 @@ import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.
 import { QualityService } from './quality.service';
 import { periodFor } from './quality';
 import { CaptureMeasureDto } from './dto/quality.dto';
+import { FHIR_JSON } from '../fhir/fhir-systems';
 
 function facilityOf(user: CurrentUserType): string {
   if (!user.facilityId) throw new BadRequestException('Your account is not linked to a facility');
@@ -109,6 +110,7 @@ export class QualityController {
   }
 
   @Get('export/fhir')
+  @Header('Content-Type', FHIR_JSON)
   @ApiOperation({ summary: 'The period as FHIR MeasureReports, one per measure' })
   exportFhir(
     @CurrentUser() user: CurrentUserType,

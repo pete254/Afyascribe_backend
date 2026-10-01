@@ -14,6 +14,16 @@ const OCL_BASE = env('KNHTS_API_BASE', 'https://ilm-hie.dha.go.ke/ocl').replace(
 /** Kenya Core IG profile canonicals (fhir.dha.go.ke/ig). */
 const KENYA_CORE = env('FHIR_KENYA_CORE_BASE', 'https://fhir.dha.go.ke/core/StructureDefinition');
 
+/**
+ * The media type for FHIR content, with the version pinned.
+ *
+ * `application/json` is not the same claim: a FHIR server is entitled to
+ * reject it, and if it does, a perfectly good bundle fails for a reason that
+ * looks nothing like a content problem. 4.0.1 is R4, which is what the Kenya
+ * HIE requires.
+ */
+export const FHIR_JSON = 'application/fhir+json; fhirVersion=4.0.1';
+
 export const FHIR_PROFILE = {
   observation: `${KENYA_CORE}/kenya-core-observation`,
   diagnosticReport: `${KENYA_CORE}/kenya-core-diagnosticreport`,

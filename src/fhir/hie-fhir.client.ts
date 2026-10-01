@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { FHIR_JSON } from './fhir-systems';
 
 /**
  * Client for Kenya's Shared Health Record.
@@ -118,9 +119,11 @@ export class HieFhirClient {
     const res = await fetch(url, {
       method,
       headers: {
-        'Content-Type': 'application/json',
+        // A GET has no body, so it has no content type to declare.
+        ...(opts.body === undefined ? {} : { 'Content-Type': 'application/json' }),
         Accept: 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        // Last, so a FHIR call can override both.
         ...(opts.headers ?? {}),
       },
       body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
@@ -245,7 +248,11 @@ export class HieFhirClient {
     this.logger.log(`Submitting a collection Bundle to ${this.base}/shr/bundles`);
     return this.call('POST', '/shr/bundles', {
       body: bundle,
-      headers: consentToken ? { 'X-Consent-Token': consentToken } : {},
+      headers: {
+        'Content-Type': FHIR_JSON,
+        Accept: FHIR_JSON,
+        ...(consentToken ? { 'X-Consent-Token': consentToken } : {}),
+      },
     });
   }
 
@@ -263,7 +270,7 @@ export class HieFhirClient {
     params: { crId: string; practitionerId: string; resources?: string; pageToken?: string },
   ): Promise<{ status: number; body: unknown }> {
     return this.call('GET', '/shr/patient-records', {
-      headers: { 'X-Consent-Token': consentToken },
+      headers: { Accept: FHIR_JSON, 'X-Consent-Token': consentToken },
       query: {
         cr_id: params.crId,
         practitioner_id: params.practitionerId,
@@ -283,7 +290,7 @@ export class HieFhirClient {
     query: Record<string, string | undefined> = {},
   ): Promise<{ status: number; body: unknown }> {
     return this.call('GET', '/shr/Observation', {
-      headers: { 'X-Consent-Token': consentToken, 'X-PUID': puid },
+      headers: { Accept: FHIR_JSON, 'X-Consent-Token': consentToken, 'X-PUID': puid },
       query,
     });
   }
@@ -295,7 +302,7 @@ export class HieFhirClient {
    * `requester:Organization` for the ones raised here.
    */
   serviceRequests(query: Record<string, string | undefined>): Promise<{ status: number; body: unknown }> {
-    return this.call('GET', '/shr/ServiceRequest', { query });
+    return this.call('GET', '/shr/ServiceRequest', { headers: { Accept: FHIR_JSON }, query });
   }
 
   // ── Security labels ───────────────────────────────────────────────────────

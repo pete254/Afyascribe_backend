@@ -1,4 +1,15 @@
-import { BadRequestException, Body, Controller, Get, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Header,
+  Headers,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiHeader } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -6,6 +17,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.decorator';
 import { FhirService } from './fhir.service';
 import { HieFhirClient } from './hie-fhir.client';
+import { FHIR_JSON } from './fhir-systems';
 
 @ApiTags('fhir')
 @ApiBearerAuth('JWT-auth')
@@ -18,6 +30,7 @@ export class FhirController {
   ) {}
 
   @Get('Patient/:id')
+  @Header('Content-Type', FHIR_JSON)
   @ApiOperation({
     summary: "A patient's coded record as a FHIR R4 Bundle (SHR/HIE export)",
     description: 'mode=collection (default, readable) or mode=transaction (submission-ready).',
@@ -31,6 +44,7 @@ export class FhirController {
   }
 
   @Get('Composition/:patientId')
+  @Header('Content-Type', FHIR_JSON)
   @ApiOperation({
     summary: "A patient's clinical summary — an IPS-style FHIR document, human-readable and exchangeable",
   })
@@ -39,6 +53,7 @@ export class FhirController {
   }
 
   @Get('Claim/:visitId')
+  @Header('Content-Type', FHIR_JSON)
   @ApiOperation({
     summary: "A visit's charges as a FHIR R4 Claim bundle (SHA eClaims)",
     description: 'Claim + referenced Patient, Coverage and Organization, coded for SHA.',
