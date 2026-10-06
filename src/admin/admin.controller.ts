@@ -30,6 +30,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.decorator';
+import { PASSWORD_HASH_ROUNDS } from '../auth/password.policy';
 
 @ApiTags('admin')
 @Controller('admin')
@@ -80,7 +81,7 @@ export class AdminController {
     }
 
     // 4. Create super_admin
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const hashedPassword = await bcrypt.hash(dto.password, PASSWORD_HASH_ROUNDS);
     return this.adminService.createSuperAdmin({
       email: dto.email,
       password: hashedPassword,
@@ -115,7 +116,7 @@ export class AdminController {
       );
     }
 
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const hashedPassword = await bcrypt.hash(dto.password, PASSWORD_HASH_ROUNDS);
     return this.adminService.createUser({
       email: dto.email,
       password: hashedPassword,

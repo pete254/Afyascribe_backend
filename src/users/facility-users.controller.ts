@@ -31,6 +31,7 @@ import { UsersService } from './users.service';
 import { InviteCodesService } from '../facilities/invite-codes.service';
 import { CreateStaffDto } from './dto/create-staff.dto';
 import { UserRole } from './entities/user.entity';
+import { PASSWORD_HASH_ROUNDS } from '../auth/password.policy';
 
 /**
  * Guard helper — user is allowed to manage staff if they are:
@@ -91,7 +92,7 @@ export class FacilityUsersController {
     @CurrentUser() user: CurrentUserType,
   ) {
     assertCanManageStaff(user);
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const hashedPassword = await bcrypt.hash(dto.password, PASSWORD_HASH_ROUNDS);
     return this.usersService.create({
       email: dto.email,
       password: hashedPassword,

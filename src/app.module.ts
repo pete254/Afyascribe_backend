@@ -89,6 +89,8 @@ import { CdsModule } from './cds/cds.module';
 import { QualityModule } from './quality/quality.module';
 import { SurveillanceModule } from './surveillance/surveillance.module';
 import { AdxModule } from './adx/adx.module';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 import { SignaturesModule } from './signatures/signatures.module';
 @Module({
   imports: [
@@ -175,9 +177,28 @@ import { SignaturesModule } from './signatures/signatures.module';
     QualityModule,
     SurveillanceModule,
     AdxModule,
+    /**
+     * Rate limiting. DHA's Technical Specifications ask for it per endpoint and
+     * per IP or user; without it, a sign-in form is an open invitation to
+     * guess passwords at machine speed.
+     *
+     * Three named tiers so a route can pick the one that fits: `short` absorbs
+     * bursts, `medium` is the general ceiling, and `strict` is for the handful
+     * of routes where repetition is itself the attack — sign-in, codes,
+     * password resets. Those carry @Throttle({ strict: ... }) individually.
+     */
+    ThrottlerModule.forRoot([
+      { name: 'short', ttl: 1_000, limit: 20 },
+      { name: 'medium', ttl: 60_000, limit: 200 },
+      { name: 'strict', ttl: 300_000, limit: 10 },
+    ]),
     SignaturesModule,
   ],
   controllers: [AppController],
-  providers: [AppService, KeepAliveService],
+  providers: [AppService, KeepAliveService,
+    // Applies the `short` and `medium` tiers everywhere; routes that need
+    // the `strict` tier opt in with @Throttle.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
 })
 export class AppModule {}

@@ -23,6 +23,14 @@ import {
   PlatformSettingsService,
 } from '../platform/platform-settings.service';
 import * as bcrypt from 'bcrypt';
+import { AuditService, AuthEventName } from '../audit/audit.service';
+import { PASSWORD_HASH_ROUNDS } from './password.policy';
+
+/** Where a sign-in came from, so the ledger can say so. */
+export interface AuthContext {
+  ip?: string | null;
+  path?: string | null;
+}
 
 @Injectable()
 export class AuthService {
@@ -39,7 +47,42 @@ export class AuthService {
     private facilityCodesService: FacilityCodesService,
     private platformSettings: PlatformSettingsService,
     private configService: ConfigService,
+    private audit: AuditService,
   ) {}
+
+  /**
+   * Record an authentication event, never letting the recording break the
+   * sign-in it describes. A failed write is already logged loudly by the audit
+   * service itself.
+   */
+  private async trail(
+    event: AuthEventName,
+    ctx: AuthContext | undefined,
+    extra: {
+      user?: { id: string; email: string; role?: string; facilityId?: string | null } | null;
+      attemptedIdentifier?: string | null;
+      statusCode?: number | null;
+      detail?: string | null;
+    } = {},
+  ): Promise<void> {
+    try {
+      await this.audit.recordAuth({
+        event,
+        actorId: extra.user?.id ?? null,
+        actorName: extra.user?.email ?? null,
+        actorRole: extra.user?.role ?? null,
+        facilityId: extra.user?.facilityId ?? null,
+        attemptedIdentifier: extra.attemptedIdentifier ?? null,
+        ip: ctx?.ip ?? null,
+        path: ctx?.path ?? '/auth/login',
+        method: 'POST',
+        statusCode: extra.statusCode ?? null,
+        detail: extra.detail ?? null,
+      });
+    } catch {
+      // Never block a sign-in on the ledger.
+    }
+  }
 
   async validateUser(email: string, password: string): Promise<any> {
     const user = await this.usersService.findByEmail(email);
@@ -56,14 +99,34 @@ export class AuthService {
    * Validate credentials and account/facility state, returning the full user
    * (with facility) ready to be turned into a token. Throws on any failure.
    */
-  private async assertLoginable(email: string, password: string) {
+  private async assertLoginable(email: string, password: string, ctx?: AuthContext) {
     const user = await this.usersService.findByEmailWithFacility(email);
 
-    if (!user) throw new UnauthorizedException('Invalid credentials');
-    if (user.isDeactivated) throw new UnauthorizedException('Account has been deactivated');
+    if (!user) {
+      // No account resolved, so the ledger carries what was typed — that is
+      // the only way the line answers "who tried". Never the password.
+      await this.trail('login.failed', ctx, {
+        attemptedIdentifier: email,
+        statusCode: 401,
+        detail: 'no such account',
+      });
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    if (user.isDeactivated) {
+      await this.trail('login.blocked', ctx, { user, statusCode: 401, detail: 'account deactivated' });
+      throw new UnauthorizedException('Account has been deactivated');
+    }
 
     const passwordValid = await bcrypt.compare(password, user.password);
-    if (!passwordValid) throw new UnauthorizedException('Invalid credentials');
+    if (!passwordValid) {
+      await this.trail('login.failed', ctx, {
+        user,
+        attemptedIdentifier: email,
+        statusCode: 401,
+        detail: 'wrong password',
+      });
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
     // AfyaScribe can pause or deactivate a facility (e.g. for non-payment).
     // When that happens, its staff cannot sign in. super_admin is exempt — they
@@ -74,6 +137,11 @@ export class AuthService {
       facilityStatus &&
       facilityStatus !== FacilityStatus.ACTIVE
     ) {
+      await this.trail('login.blocked', ctx, {
+        user,
+        statusCode: 401,
+        detail: `facility ${String(facilityStatus).toLowerCase()}`,
+      });
       throw new UnauthorizedException(
         facilityStatus === FacilityStatus.SUSPENDED
           ? 'Your facility’s access is currently paused. Please contact AfyaScribe to restore it.'
@@ -185,8 +253,8 @@ export class AuthService {
     }
   }
 
-  async login(email: string, password: string) {
-    const user = await this.assertLoginable(email, password);
+  async login(email: string, password: string, ctx?: AuthContext) {
+    const user = await this.assertLoginable(email, password, ctx);
 
     if (await this.isOtpRequired(user)) {
       const { code, isNew } = await this.issueLoginCode(user);
@@ -202,12 +270,14 @@ export class AuthService {
       };
     }
 
+    // No second factor in play for this account, so the password completed it.
+    await this.trail('login.success', ctx, { user, statusCode: 200, detail: 'password only' });
     return this.buildAuthResponse(user);
   }
 
   /** Resend today's code (or make one if none) after a correct password. */
-  async resendLoginCode(email: string, password: string): Promise<{ message: string }> {
-    const user = await this.assertLoginable(email, password);
+  async resendLoginCode(email: string, password: string, ctx?: AuthContext): Promise<{ message: string }> {
+    const user = await this.assertLoginable(email, password, ctx);
     if (!(await this.isOtpRequired(user))) {
       return { message: 'No sign-in code is required for this account.' };
     }
@@ -217,28 +287,46 @@ export class AuthService {
   }
 
   /** Complete a sign-in with the daily code (password re-checked as the 1st factor). */
-  async loginWithCode(email: string, password: string, code: string) {
-    const user = await this.assertLoginable(email, password);
+  async loginWithCode(email: string, password: string, code: string, ctx?: AuthContext) {
+    const user = await this.assertLoginable(email, password, ctx);
 
     // If OTP isn't in play for this account, the password alone is enough.
-    if (!(await this.isOtpRequired(user))) return this.buildAuthResponse(user);
+    if (!(await this.isOtpRequired(user))) {
+      await this.trail('login.success', ctx, { user, statusCode: 200, detail: 'password only' });
+      return this.buildAuthResponse(user);
+    }
 
     if (!user.loginCode || !user.loginCodeExpiresAt) {
+      await this.trail('mfa.failed', ctx, { user, statusCode: 401, detail: 'no active code' });
       throw new UnauthorizedException('No active sign-in code. Please request a new one.');
     }
     if (new Date() > new Date(user.loginCodeExpiresAt)) {
+      await this.trail('mfa.failed', ctx, { user, statusCode: 401, detail: 'code expired' });
       throw new UnauthorizedException('Your sign-in code has expired. Please request a new one.');
     }
     if (user.loginCodeAttempts >= this.LOGIN_CODE_MAX_ATTEMPTS) {
       await this.usersService.clearLoginCode(user.id);
+      await this.trail('mfa.locked', ctx, {
+        user,
+        statusCode: 401,
+        detail: `${this.LOGIN_CODE_MAX_ATTEMPTS} failed attempts`,
+      });
       throw new UnauthorizedException('Too many attempts. Please request a new code.');
     }
     if (user.loginCode !== code) {
       const attempts = await this.usersService.incrementLoginCodeAttempts(user.id);
+      await this.trail('mfa.failed', ctx, {
+        user,
+        statusCode: 401,
+        detail: `wrong code, attempt ${attempts} of ${this.LOGIN_CODE_MAX_ATTEMPTS}`,
+      });
       throw new UnauthorizedException(
         `Invalid code. ${this.LOGIN_CODE_MAX_ATTEMPTS - attempts} attempt(s) remaining.`,
       );
     }
+
+    await this.trail('mfa.success', ctx, { user, statusCode: 200 });
+    await this.trail('login.success', ctx, { user, statusCode: 200, detail: 'password and code' });
 
     // Correct — keep the code (valid all day) but clear the failed-attempt count.
     if (user.loginCodeAttempts > 0) {
@@ -271,7 +359,7 @@ export class AuthService {
       );
     }
 
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const hashedPassword = await bcrypt.hash(dto.password, PASSWORD_HASH_ROUNDS);
     const user = await this.usersService.create({
       email: dto.email,
       password: hashedPassword,
@@ -340,7 +428,7 @@ export class AuthService {
     role: UserRole = UserRole.DOCTOR,
     facilityId?: string,
   ) {
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, PASSWORD_HASH_ROUNDS);
     const user = await this.usersService.create({
       email,
       password: hashedPassword,
@@ -434,7 +522,7 @@ export class AuthService {
     if (!verification.valid) throw new BadRequestException(verification.message);
     const user = await this.usersService.findByEmail(email);
     if (!user) throw new BadRequestException('User not found');
-    await this.usersService.updatePassword(user.id, await bcrypt.hash(newPassword, 10));
+    await this.usersService.updatePassword(user.id, await bcrypt.hash(newPassword, PASSWORD_HASH_ROUNDS));
     await this.usersService.clearResetCode(user.id);
     return { message: 'Password reset successfully' };
   }
@@ -468,7 +556,7 @@ export class AuthService {
     }
 
     // Create owner-doctor with isOwner flag
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const hashedPassword = await bcrypt.hash(dto.password, PASSWORD_HASH_ROUNDS);
     const user = await this.usersService.create({
       email: dto.email,
       password: hashedPassword,

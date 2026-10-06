@@ -35,6 +35,63 @@ export interface LogAuditInput {
   patientId?: string | null;
 }
 
+/**
+ * The authentication and authorisation events DHA's Audit Trail Specification
+ * marks "Must Log". They do not arrive through the request interceptor: that
+ * runs after a guard has already admitted the caller, so by construction it
+ * never sees a sign-in that failed, and the `auth` prefix is excluded from it
+ * in any case to keep routine sign-in traffic out of the clinical ledger.
+ *
+ * These are recorded from the auth service instead, where the outcome is known.
+ */
+export type AuthEventName =
+  | 'login.success'
+  | 'login.failed'
+  | 'login.blocked'
+  | 'logout'
+  | 'mfa.success'
+  | 'mfa.failed'
+  | 'mfa.locked'
+  | 'password.changed'
+  | 'password.reset_requested'
+  | 'password.reset_completed'
+  | 'access.denied';
+
+/** How each event reads in the ledger. */
+const AUTH_EVENT_LABEL: Record<AuthEventName, string> = {
+  'login.success': 'Signed in',
+  'login.failed': 'Failed sign-in attempt',
+  'login.blocked': 'Sign-in blocked',
+  logout: 'Signed out',
+  'mfa.success': 'Second factor accepted',
+  'mfa.failed': 'Second factor rejected',
+  'mfa.locked': 'Locked out after repeated second-factor failures',
+  'password.changed': 'Password changed',
+  'password.reset_requested': 'Password reset requested',
+  'password.reset_completed': 'Password reset completed',
+  'access.denied': 'Access denied',
+};
+
+export interface AuthEventInput {
+  event: AuthEventName;
+  /**
+   * The identifier someone typed, for an attempt that never resolved to an
+   * account. Never a password, and nothing derived from one — an audit ledger
+   * that captured credentials would be a liability rather than a control.
+   */
+  attemptedIdentifier?: string | null;
+  actorId?: string | null;
+  actorName?: string | null;
+  actorRole?: string | null;
+  facilityId?: string | null;
+  ip?: string | null;
+  path?: string | null;
+  method?: string | null;
+  statusCode?: number | null;
+  /** Why, where a refusal has a stated reason worth keeping. */
+  detail?: string | null;
+}
+
 @Injectable()
 export class AuditService {
   private readonly logger = new Logger(AuditService.name);
@@ -106,6 +163,39 @@ export class AuditService {
    * Reads in batches so a ledger years long can still be verified without
    * pulling it all into memory at once.
    */
+  /**
+   * Record an authentication or authorisation event.
+   *
+   * Goes into the same hash-chained ledger as everything else, under the
+   * category 'auth' so these lines can be read on their own without being
+   * lost among clinical activity.
+   */
+  async recordAuth(input: AuthEventInput): Promise<void> {
+    const subject =
+      input.actorName ?? input.attemptedIdentifier ?? null;
+    const action = input.detail
+      ? `${AUTH_EVENT_LABEL[input.event]} — ${input.detail}`
+      : AUTH_EVENT_LABEL[input.event];
+
+    await this.log({
+      facilityId: input.facilityId ?? null,
+      actorId: input.actorId ?? null,
+      // For a failed attempt there is no account, so the ledger carries what
+      // was typed. That is the only way the line answers "who tried".
+      actorName: subject,
+      actorRole: input.actorRole ?? null,
+      method: input.method ?? 'POST',
+      path: input.path ?? '/auth',
+      action,
+      entityType: 'Authentication',
+      entityId: input.actorId ?? null,
+      statusCode: input.statusCode ?? null,
+      ip: input.ip ?? null,
+      category: 'auth',
+      patientId: null,
+    });
+  }
+
   async verify(
     opts: { from?: number; to?: number } = {},
   ): Promise<ChainVerdict & { retentionYears: number; unchained: number }> {

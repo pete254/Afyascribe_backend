@@ -1,5 +1,6 @@
 import { IsString, IsEmail, IsEnum, MinLength, Length } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { IsAcceptablePassword, PASSWORD_MIN_LENGTH } from '../password.policy';
 
 export class CreateClinicDto {
   @ApiProperty({
@@ -28,7 +29,7 @@ export class CreateClinicDto {
 
   @ApiProperty()
   @IsString()
-  @MinLength(8)
+  @IsAcceptablePassword()
   password: string;
 
   @ApiProperty()

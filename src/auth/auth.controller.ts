@@ -1,6 +1,6 @@
 // src/auth/auth.controller.ts
 // UPDATED: Added register-with-invite and validate-invite-code endpoints
-import { Controller, Post, Body, HttpCode, HttpStatus, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, Get, Param, UseGuards, Req } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -13,6 +13,19 @@ import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
 import { ResetPasswordWithCodeDto } from './dto/reset-password-with-code.dto';
 import { UseInviteCodeDto } from '../facilities/dto/use-invite-code.dto';
 import { CreateClinicDto } from './dto/create-clinic.dto';
+import { Throttle } from '@nestjs/throttler';
+
+/**
+ * Where the request came from.
+ *
+ * Render terminates TLS at its proxy, so `req.ip` is the proxy unless the
+ * forwarded header is read. The left-most entry is the original client.
+ */
+const callerIp = (req: any): string | null => {
+  const fwd = req?.headers?.['x-forwarded-for'];
+  if (typeof fwd === 'string' && fwd.trim()) return fwd.split(',')[0].trim();
+  return req?.ip ?? null;
+};
 
 @ApiTags('auth')
 @Controller('auth')
@@ -29,8 +42,12 @@ export class AuthController {
       'On success returns a token, unless the daily OTP is required — then it ' +
       'emails a 6-digit code and returns { otpRequired: true }. Complete with /auth/login-with-code.',
   })
-  async login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto.email, loginDto.password);
+  @Throttle({ strict: { limit: 10, ttl: 300_000 } })
+  async login(@Body() loginDto: LoginDto, @Req() req: any) {
+    return this.authService.login(loginDto.email, loginDto.password, {
+      ip: callerIp(req),
+      path: '/auth/login',
+    });
   }
 
   @Post('refresh')
@@ -49,15 +66,23 @@ export class AuthController {
   @Post('login-with-code')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Finish sign-in with the daily 6-digit code (2nd factor)' })
-  async loginWithCode(@Body() dto: LoginWithCodeDto) {
-    return this.authService.loginWithCode(dto.email, dto.password, dto.code);
+  @Throttle({ strict: { limit: 10, ttl: 300_000 } })
+  async loginWithCode(@Body() dto: LoginWithCodeDto, @Req() req: any) {
+    return this.authService.loginWithCode(dto.email, dto.password, dto.code, {
+      ip: callerIp(req),
+      path: '/auth/login-with-code',
+    });
   }
 
   @Post('resend-login-code')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Re-send today’s sign-in code (requires correct password)' })
-  async resendLoginCode(@Body() dto: LoginDto) {
-    return this.authService.resendLoginCode(dto.email, dto.password);
+  @Throttle({ strict: { limit: 5, ttl: 300_000 } })
+  async resendLoginCode(@Body() dto: LoginDto, @Req() req: any) {
+    return this.authService.resendLoginCode(dto.email, dto.password, {
+      ip: callerIp(req),
+      path: '/auth/resend-login-code',
+    });
   }
 
   // ── REGISTER WITH INVITE CODE (primary staff sign-up flow) ────────────────
@@ -121,6 +146,7 @@ export class AuthController {
   // ── PASSWORD RESET ─────────────────────────────────────────────────────────
 
   @Post('request-reset-code')
+  @Throttle({ strict: { limit: 5, ttl: 300_000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request a 6-digit password reset code' })
   async requestResetCode(@Body() dto: RequestResetCodeDto) {
@@ -128,6 +154,7 @@ export class AuthController {
   }
 
   @Post('verify-reset-code')
+  @Throttle({ strict: { limit: 5, ttl: 300_000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify a 6-digit reset code' })
   async verifyResetCode(@Body() dto: VerifyResetCodeDto) {
@@ -135,6 +162,7 @@ export class AuthController {
   }
 
   @Post('reset-password-with-code')
+  @Throttle({ strict: { limit: 5, ttl: 300_000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset password using verified 6-digit code' })
   async resetPasswordWithCode(@Body() dto: ResetPasswordWithCodeDto) {

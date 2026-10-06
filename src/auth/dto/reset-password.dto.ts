@@ -1,6 +1,7 @@
 // src/auth/dto/reset-password.dto.ts
 import { IsEmail, IsString, MinLength, Length, Matches } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { IsAcceptablePassword, PASSWORD_MIN_LENGTH } from '../password.policy';
 
 export class ResetPasswordDto {
   @ApiProperty({
@@ -22,11 +23,11 @@ export class ResetPasswordDto {
   code: string;
 
   @ApiProperty({
-    description: 'New password (min 8 characters)',
+    description: 'New password (min 12 characters)',
     example: 'NewSecurePassword123!',
-    minLength: 8
+    minLength: PASSWORD_MIN_LENGTH
   })
   @IsString()
-  @MinLength(8, { message: 'Password must be at least 8 characters long' })
+  @IsAcceptablePassword()
   newPassword: string;
 }

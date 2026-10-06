@@ -3,6 +3,7 @@
 import { IsEmail, IsEnum, IsString, MinLength, IsOptional } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole } from '../entities/user.entity';
+import { IsAcceptablePassword, PASSWORD_MIN_LENGTH } from '../../auth/password.policy';
 
 export class CreateStaffDto {
   @ApiProperty({ example: 'jane.nurse@knh.go.ke' })
@@ -11,7 +12,7 @@ export class CreateStaffDto {
 
   @ApiProperty({ example: 'TempPass123' })
   @IsString()
-  @MinLength(8)
+  @IsAcceptablePassword()
   password: string;
 
   @ApiProperty({ example: 'Jane' })

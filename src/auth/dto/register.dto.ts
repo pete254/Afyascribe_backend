@@ -1,6 +1,7 @@
 // src/auth/dto/register.dto.ts
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEmail, IsString, IsOptional, IsEnum, MinLength, Matches } from 'class-validator';
+import { IsAcceptablePassword, PASSWORD_MIN_LENGTH } from '../password.policy';
 
 export class RegisterDto {
   @ApiProperty({
@@ -11,16 +12,12 @@ export class RegisterDto {
   email: string;
 
   @ApiProperty({
-    description: 'User password (minimum 8 characters, must contain at least one uppercase letter, one lowercase letter, one number)',
-    example: 'SecurePass123',
-    minLength: 8
+    description: 'User password (minimum 12 characters with mixed case, a number and a symbol; or a passphrase of 20+)',
+    example: 'SecurePass123!',
+    minLength: PASSWORD_MIN_LENGTH
   })
   @IsString()
-  @MinLength(8, { message: 'Password must be at least 8 characters long' })
-  @Matches(
-    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{8,}$/,
-    { message: 'Password must contain at least one uppercase letter, one lowercase letter, and one number' }
-  )
+  @IsAcceptablePassword()
   password: string;
 
   @ApiProperty({

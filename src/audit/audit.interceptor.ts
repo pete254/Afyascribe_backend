@@ -137,21 +137,45 @@ export class AuditInterceptor implements NestInterceptor {
       next.handle().pipe(
         tap({
           next: () => this.record(context, req, user, method, isWrite ? 'write' : 'read'),
-          // Only successful actions are recorded; failures fall through untouched.
+          // A refusal is an auditable event in its own right. DHA's Audit
+          // Trail Specification marks "Access denied — insufficient
+          // permissions" as Must Log, and an attempt to reach something the
+          // caller is not entitled to is exactly what an investigation looks
+          // for. Anything that is not a refusal — a validation error, a
+          // genuine fault — is left alone, since it says nothing about access.
+          error: (err) => {
+            const status = Number(err?.status ?? err?.statusCode);
+            if (status === 401 || status === 403) {
+              this.record(context, req, user, method, 'denied', status);
+            }
+          },
         }),
       ),
     );
   }
 
-  private record(context: ExecutionContext, req: any, user: any, method: string, category: string) {
+  private record(
+    context: ExecutionContext,
+    req: any,
+    user: any,
+    method: string,
+    category: string,
+    statusOverride?: number,
+  ) {
     try {
       const res = context.switchToHttp().getResponse();
       const routePath: string = req.route?.path ?? req.path ?? '';
       const params: Record<string, string> = req.params ?? {};
-      const { action, entityType } =
-        category === 'read'
-          ? { action: `${READ_VERB} ${humanize(routePath.split('/').filter(Boolean)[0] ?? '')}`.trim(), entityType: humanize(routePath.split('/').filter(Boolean)[0] ?? '') }
-          : describe(method, routePath, params);
+      // A refusal still describes the thing that was attempted, so a denied
+      // write reads as a write and a denied read as a read.
+      const asRead = category === 'read' || (category === 'denied' && !WRITE_METHODS.has(method));
+      const { action: baseAction, entityType } = asRead
+        ? {
+            action: `${READ_VERB} ${humanize(routePath.split('/').filter(Boolean)[0] ?? '')}`.trim(),
+            entityType: humanize(routePath.split('/').filter(Boolean)[0] ?? ''),
+          }
+        : describe(method, routePath, params);
+      const action = category === 'denied' ? `Denied — ${baseAction}` : baseAction;
 
       const entityId =
         params.id ??
@@ -173,7 +197,7 @@ export class AuditInterceptor implements NestInterceptor {
         action,
         entityType,
         entityId: entityId ?? null,
-        statusCode: res?.statusCode ?? null,
+        statusCode: statusOverride ?? res?.statusCode ?? null,
         ip: (req.headers?.['x-forwarded-for'] || req.ip || '').toString().split(',')[0] || null,
         category,
         patientId: patientOf(params, routePath),

@@ -16,6 +16,7 @@ import { PlatformModule } from '../platform/platform.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_GUARD } from '@nestjs/core';
 import { RestrictedPatientGuard } from './guards/restricted-patient.guard';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { RestrictedPatientGuard } from './guards/restricted-patient.guard';
     EmailModule,
     FacilitiesModule,
     PlatformModule,
+    AuditModule,
     TypeOrmModule.forFeature([EmergencyAccess, Patient]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
