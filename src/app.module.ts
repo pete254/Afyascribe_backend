@@ -182,15 +182,15 @@ import { SignaturesModule } from './signatures/signatures.module';
      * per IP or user; without it, a sign-in form is an open invitation to
      * guess passwords at machine speed.
      *
-     * Three named tiers so a route can pick the one that fits: `short` absorbs
-     * bursts, `medium` is the general ceiling, and `strict` is for the handful
-     * of routes where repetition is itself the attack — sign-in, codes,
-     * password resets. Those carry @Throttle({ strict: ... }) individually.
+     * Two tiers apply everywhere: `short` absorbs bursts, `medium` is the
+     * general ceiling. Every tier named here applies to every route, so a
+     * punitive tier must NOT be declared globally — the handful of routes
+     * where repetition is itself the attack (sign-in, codes, password resets)
+     * tighten these same tiers for themselves with @Throttle instead.
      */
     ThrottlerModule.forRoot([
       { name: 'short', ttl: 1_000, limit: 20 },
-      { name: 'medium', ttl: 60_000, limit: 200 },
-      { name: 'strict', ttl: 300_000, limit: 10 },
+      { name: 'medium', ttl: 60_000, limit: 300 },
     ]),
     SignaturesModule,
   ],

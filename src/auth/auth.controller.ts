@@ -42,7 +42,7 @@ export class AuthController {
       'On success returns a token, unless the daily OTP is required — then it ' +
       'emails a 6-digit code and returns { otpRequired: true }. Complete with /auth/login-with-code.',
   })
-  @Throttle({ strict: { limit: 10, ttl: 300_000 } })
+  @Throttle({ medium: { limit: 10, ttl: 300_000 } })
   async login(@Body() loginDto: LoginDto, @Req() req: any) {
     return this.authService.login(loginDto.email, loginDto.password, {
       ip: callerIp(req),
@@ -66,7 +66,7 @@ export class AuthController {
   @Post('login-with-code')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Finish sign-in with the daily 6-digit code (2nd factor)' })
-  @Throttle({ strict: { limit: 10, ttl: 300_000 } })
+  @Throttle({ medium: { limit: 10, ttl: 300_000 } })
   async loginWithCode(@Body() dto: LoginWithCodeDto, @Req() req: any) {
     return this.authService.loginWithCode(dto.email, dto.password, dto.code, {
       ip: callerIp(req),
@@ -77,7 +77,7 @@ export class AuthController {
   @Post('resend-login-code')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Re-send today’s sign-in code (requires correct password)' })
-  @Throttle({ strict: { limit: 5, ttl: 300_000 } })
+  @Throttle({ medium: { limit: 5, ttl: 300_000 } })
   async resendLoginCode(@Body() dto: LoginDto, @Req() req: any) {
     return this.authService.resendLoginCode(dto.email, dto.password, {
       ip: callerIp(req),
@@ -146,7 +146,7 @@ export class AuthController {
   // ── PASSWORD RESET ─────────────────────────────────────────────────────────
 
   @Post('request-reset-code')
-  @Throttle({ strict: { limit: 5, ttl: 300_000 } })
+  @Throttle({ medium: { limit: 5, ttl: 300_000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request a 6-digit password reset code' })
   async requestResetCode(@Body() dto: RequestResetCodeDto) {
@@ -154,7 +154,7 @@ export class AuthController {
   }
 
   @Post('verify-reset-code')
-  @Throttle({ strict: { limit: 5, ttl: 300_000 } })
+  @Throttle({ medium: { limit: 5, ttl: 300_000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify a 6-digit reset code' })
   async verifyResetCode(@Body() dto: VerifyResetCodeDto) {
@@ -162,7 +162,7 @@ export class AuthController {
   }
 
   @Post('reset-password-with-code')
-  @Throttle({ strict: { limit: 5, ttl: 300_000 } })
+  @Throttle({ medium: { limit: 5, ttl: 300_000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset password using verified 6-digit code' })
   async resetPasswordWithCode(@Body() dto: ResetPasswordWithCodeDto) {
