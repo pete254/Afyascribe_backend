@@ -31,6 +31,13 @@ export class HieFhirClient {
   private readonly logger = new Logger(HieFhirClient.name);
   readonly base: string;
 
+  /**
+   * Every HIE route sits under this. Taken from the published UAT collection
+   * ("HIE Integrations UAT API"), where the gateway is api-uat.dha.go.ke and
+   * every path begins /api/v1 — including the token endpoint.
+   */
+  readonly apiPrefix: string;
+
   /** Cached client-credentials token, with the moment it stops being usable. */
   private token: { value: string; expiresAt: number } | null = null;
 
@@ -38,8 +45,9 @@ export class HieFhirClient {
     this.base = (
       this.config.get<string>('HIE_BASE') ||
       this.config.get<string>('HIE_FHIR_BASE') ||
-      'https://api.dha.go.ke'
+      'https://api-uat.dha.go.ke'
     ).replace(/\/+$/, '');
+    this.apiPrefix = (this.config.get<string>('HIE_API_PREFIX') ?? '/api/v1').replace(/\/+$/, '');
   }
 
   /**
@@ -79,10 +87,12 @@ export class HieFhirClient {
 
     if (this.token && Date.now() < this.token.expiresAt) return this.token.value;
 
-    const url = this.config.get<string>('HIE_TOKEN_URL') || `${this.base}/oauth2/token`;
-    const body = new URLSearchParams({ grant_type: 'client_credentials', client_id: id, client_secret: secret });
-    const scope = this.config.get<string>('HIE_SCOPE');
-    if (scope) body.set('scope', scope);
+    const url =
+      this.config.get<string>('HIE_TOKEN_URL') || `${this.base}${this.apiPrefix}/tenants/token`;
+    // The published collection sends exactly these two fields, form-encoded,
+    // with no grant_type. It is not a standard OAuth 2.0 client-credentials
+    // request, so it is not built like one.
+    const body = new URLSearchParams({ client_id: id, client_secret: secret });
 
     const res = await fetch(url, {
       method: 'POST',
@@ -113,7 +123,7 @@ export class HieFhirClient {
     for (const [k, v] of Object.entries(opts.query ?? {})) {
       if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
     }
-    const url = `${this.base}${path}${qs.toString() ? `?${qs}` : ''}`;
+    const url = `${this.base}${this.apiPrefix}${path}${qs.toString() ? `?${qs}` : ''}`;
     const token = await this.bearer();
 
     const res = await fetch(url, {
@@ -137,6 +147,86 @@ export class HieFhirClient {
     }
     if (!res.ok) this.logger.warn(`${method} ${path} → ${res.status}`);
     return { status: res.status, body };
+  }
+
+  // ── Registries ────────────────────────────────────────────────────────────
+  //
+  // The two identifiers the Shared Health Record insists on do not come from
+  // our own database: consent is requested against a Client Registry id, not a
+  // national ID, and every read is attributed to a practitioner from the
+  // Health Worker Registry. These are how both are resolved.
+
+  /**
+   * Find a patient's Client Registry (CR) id from an identifier they hold —
+   * a national ID, birth certificate, passport and so on.
+   *
+   * The CR id is what consent is requested against, so this is the first call
+   * in any exchange about a patient we have not dealt with before.
+   */
+  searchPatients(
+    identificationNumber: string,
+    identificationType: string,
+  ): Promise<{ status: number; body: unknown }> {
+    return this.call('GET', '/patients', {
+      query: {
+        identification_number: identificationNumber,
+        identification_type: identificationType,
+      },
+    });
+  }
+
+  /**
+   * Find a practitioner in the Health Worker Registry by their registration
+   * number and the body that issued it (KMPDC, NCK, COC, PPB, KMLTTB).
+   *
+   * This is what turns the registration number we already store against a user
+   * into the `practitioner_id` a records fetch requires.
+   */
+  searchProfessionals(
+    identificationNumber: string,
+    identificationType: string,
+    regulator: string,
+  ): Promise<{ status: number; body: unknown }> {
+    return this.call('GET', '/professionals', {
+      query: {
+        identification_number: identificationNumber,
+        identification_type: identificationType,
+        regulator,
+      },
+    });
+  }
+
+  /** Look a facility up in the Facility Registry, e.g. by its KMHFL code. */
+  searchFacilities(identifier: string, identifierType: string): Promise<{ status: number; body: unknown }> {
+    return this.call('GET', '/facilities/search', {
+      query: { identifier, 'identifier-type': identifierType },
+    });
+  }
+
+  /**
+   * The national terminology service.
+   *
+   * Note this is not the OCL deployment at ilm-hie.dha.go.ke that the
+   * terminology module mirrors from; it is the same content reached through
+   * the HIE gateway. Kept here so a code can be checked against the gateway
+   * the rest of the exchange goes through.
+   */
+  concepts(query: {
+    owner: string;
+    source: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ status: number; body: unknown }> {
+    return this.call('GET', '/clinical/concepts', {
+      query: {
+        owner: query.owner,
+        source: query.source,
+        search: query.search,
+        limit: query.limit?.toString(),
+        offset: query.offset?.toString(),
+      },
+    });
   }
 
   // ── Stage 1: consent ──────────────────────────────────────────────────────
@@ -246,12 +336,15 @@ export class HieFhirClient {
    */
   submitBundle(bundle: unknown, consentToken?: string): Promise<{ status: number; body: unknown }> {
     this.logger.log(`Submitting a collection Bundle to ${this.base}/shr/bundles`);
+    const callback = this.config.get<string>('HIE_CALLBACK_URL');
     return this.call('POST', '/shr/bundles', {
       body: bundle,
       headers: {
         'Content-Type': FHIR_JSON,
         Accept: FHIR_JSON,
         ...(consentToken ? { 'X-Consent-Token': consentToken } : {}),
+        // Where the SHR should report the outcome of an asynchronous write.
+        ...(callback ? { 'X-HIE-Callback': callback } : {}),
       },
     });
   }
