@@ -32,9 +32,12 @@ export class HieFhirClient {
   readonly base: string;
 
   /**
-   * Every HIE route sits under this. Taken from the published UAT collection
-   * ("HIE Integrations UAT API"), where the gateway is api-uat.dha.go.ke and
-   * every path begins /api/v1 — including the token endpoint.
+   * Every HIE route sits under this, the token endpoint included.
+   *
+   * The UAT environment publishes its base as
+   * `https://ilm-dev.dha.go.ke/uat-middleware/api/v1`, so the prefix carries
+   * the middleware segment as well as the version. Production will differ;
+   * both halves are configurable for that reason.
    */
   readonly apiPrefix: string;
 
@@ -45,9 +48,9 @@ export class HieFhirClient {
     this.base = (
       this.config.get<string>('HIE_BASE') ||
       this.config.get<string>('HIE_FHIR_BASE') ||
-      'https://api-uat.dha.go.ke'
+      'https://ilm-dev.dha.go.ke'
     ).replace(/\/+$/, '');
-    this.apiPrefix = (this.config.get<string>('HIE_API_PREFIX') ?? '/api/v1').replace(/\/+$/, '');
+    this.apiPrefix = (this.config.get<string>('HIE_API_PREFIX') ?? '/uat-middleware/api/v1').replace(/\/+$/, '');
   }
 
   /**
