@@ -77,10 +77,25 @@ chmod 600 "/home/$NEW_USER/.ssh/authorized_keys"
 echo "  key copied to $NEW_USER"
 
 # Passwordless sudo is NOT set: a stolen session should still have to prove
-# itself before changing the system. Set a password for sudo now.
+# itself before changing the system. So the account needs a password.
+#
+# Normally this prompts. Set SUDO_PASSWORD in the environment to supply it
+# without a prompt, for when the script is driven over a connection that
+# cannot carry interactive input:
+#
+#     SUDO_PASSWORD='...' bash /root/harden.sh pete
+#
 if ! passwd -S "$NEW_USER" | grep -qE ' P '; then
-  warn "Set a sudo password for $NEW_USER when prompted:"
-  passwd "$NEW_USER"
+  if [ -n "${SUDO_PASSWORD:-}" ]; then
+    echo "$NEW_USER:$SUDO_PASSWORD" | chpasswd
+    echo "  sudo password set from the environment"
+  elif [ -t 0 ]; then
+    warn "Set a sudo password for $NEW_USER when prompted:"
+    passwd "$NEW_USER"
+  else
+    warn "No terminal and no SUDO_PASSWORD — $NEW_USER has no password yet."
+    warn "Set one before relying on sudo:   passwd $NEW_USER"
+  fi
 fi
 
 # ── 4. Firewall — allow first, enable second ───────────────────────────────
