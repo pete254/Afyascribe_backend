@@ -1,4 +1,4 @@
-import { corsOrigins, isOriginAllowed, toOrigin } from './cors-origins';
+import { corsOrigins, isOriginAllowed, toOrigin, wwwVariant } from './cors-origins';
 
 describe('toOrigin', () => {
   it('strips a path, which CORS does not match on', () => {
@@ -87,5 +87,36 @@ describe('isOriginAllowed', () => {
   it('allows a request with no Origin at all', () => {
     // Server-to-server, a health check, or a native app — CORS does not apply.
     expect(isOriginAllowed(undefined, allowed)).toBe(true);
+  });
+});
+
+describe('wwwVariant', () => {
+  it('adds www to an apex domain', () => {
+    expect(wwwVariant('https://afyascribe.co.ke')).toBe('https://www.afyascribe.co.ke');
+  });
+
+  it('strips www from a www domain', () => {
+    expect(wwwVariant('https://www.afyascribe.co.ke')).toBe('https://afyascribe.co.ke');
+  });
+
+  it('leaves localhost alone — there is no www.localhost', () => {
+    expect(wwwVariant('http://localhost:5173')).toBeNull();
+  });
+
+  it('leaves a bare IP alone', () => {
+    expect(wwwVariant('http://102.209.117.236')).toBeNull();
+  });
+});
+
+describe('corsOrigins — the www counterpart', () => {
+  it('admits both the apex and www when FRONTEND_URL gives one', () => {
+    const list = corsOrigins({ FRONTEND_URL: 'https://afyascribe.co.ke/app' });
+    expect(list).toContain('https://afyascribe.co.ke');
+    expect(list).toContain('https://www.afyascribe.co.ke');
+  });
+
+  it('does not expand an explicit CORS_ORIGINS — that list means what it says', () => {
+    const list = corsOrigins({ CORS_ORIGINS: 'https://afyascribe.co.ke' });
+    expect(list).toEqual(['https://afyascribe.co.ke']);
   });
 });

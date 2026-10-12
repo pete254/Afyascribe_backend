@@ -35,12 +35,41 @@ export function toOrigin(value: string): string | null {
 }
 
 /**
+ * The `www.` counterpart of an origin, or null when there isn't a sensible one.
+ *
+ * A site reachable at both the apex and `www` is one site, and a person who
+ * types the other one should not be met with a failure nobody can read. Only
+ * applied to the derived list — an explicit CORS_ORIGINS means exactly what it
+ * says.
+ */
+export function wwwVariant(origin: string): string | null {
+  try {
+    const u = new URL(origin);
+    if (u.hostname.startsWith('www.')) {
+      u.hostname = u.hostname.slice(4);
+    } else if (u.hostname.split('.').length >= 2 && !/^\d+(\.\d+){3}$/.test(u.hostname)) {
+      u.hostname = `www.${u.hostname}`;
+    } else {
+      return null;
+    }
+    return u.origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The allow-list.
  *
  * `CORS_ORIGINS` wins when set, so a deployment can state its own list exactly.
  * Otherwise the list is the development servers plus whatever `FRONTEND_URL`
- * points at, which means a fresh checkout works without configuration while a
- * real deployment is still explicit about who may call it.
+ * points at and its `www.` counterpart.
+ *
+ * A warning from experience: `FRONTEND_URL` is where people are *sent* — in
+ * password-reset emails and the like — which is not necessarily where the
+ * application is *served from*. A web app on a hosting platform answers on
+ * that platform's domain, and deriving the allow-list from FRONTEND_URL alone
+ * will refuse it. Set CORS_ORIGINS explicitly in any real deployment.
  */
 export function corsOrigins(env: CorsOriginsEnv = process.env): string[] {
   const explicit = (env.CORS_ORIGINS ?? '')
@@ -52,7 +81,11 @@ export function corsOrigins(env: CorsOriginsEnv = process.env): string[] {
   const list = new Set(DEV_ORIGINS);
   if (env.FRONTEND_URL) {
     const origin = toOrigin(env.FRONTEND_URL);
-    if (origin) list.add(origin);
+    if (origin) {
+      list.add(origin);
+      const www = wwwVariant(origin);
+      if (www) list.add(www);
+    }
   }
   return [...list];
 }
