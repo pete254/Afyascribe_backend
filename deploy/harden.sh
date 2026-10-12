@@ -116,6 +116,23 @@ echo "  5 failures in 10 minutes earns a 1 hour ban"
 say "Locking SSH to keys"
 cp "$SSHD_CONFIG" "${SSHD_CONFIG}.bak.$(date +%F-%H%M%S)"
 mkdir -p /etc/ssh/sshd_config.d
+
+# The drop-in only takes effect if sshd_config includes the directory. Ubuntu
+# does by default, but a provider image may not — and silently writing a file
+# nothing reads would leave passwords on while reporting success.
+if ! grep -qE '^\s*Include\s+/etc/ssh/sshd_config\.d/' "$SSHD_CONFIG"; then
+  warn "sshd_config has no Include for sshd_config.d — adding one at the top."
+  printf 'Include /etc/ssh/sshd_config.d/*.conf\n%s' "$(cat "$SSHD_CONFIG")" > "${SSHD_CONFIG}.new"
+  mv "${SSHD_CONFIG}.new" "$SSHD_CONFIG"
+fi
+
+# Cloud images commonly ship 50-cloud-init.conf with PasswordAuthentication
+# yes. SSH takes the FIRST value it sees for most keywords and reads the
+# directory in lexical order, so 10- beats 50- — but say so rather than leave
+# it to be rediscovered.
+if grep -rqi '^\s*PasswordAuthentication\s\+yes' /etc/ssh/sshd_config.d/ 2>/dev/null; then
+  echo "  note: another drop-in enables passwords; 10-afyascribe.conf is read first and wins"
+fi
 cat >/etc/ssh/sshd_config.d/10-afyascribe.conf <<'EOF'
 # AfyaScribe hardening. A drop-in rather than edits to sshd_config, so a
 # package upgrade cannot quietly revert it.
