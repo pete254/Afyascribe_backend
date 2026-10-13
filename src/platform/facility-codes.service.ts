@@ -1,3 +1,4 @@
+import { randomInt } from 'crypto';
 import {
   BadRequestException,
   Injectable,
@@ -25,7 +26,7 @@ export class FacilityCodesService {
   private randomCode(len = 10): string {
     let out = '';
     for (let i = 0; i < len; i++) {
-      out += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
+      out += ALPHABET[randomInt(ALPHABET.length)];
     }
     return out;
   }

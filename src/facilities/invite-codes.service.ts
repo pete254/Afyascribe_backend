@@ -1,4 +1,5 @@
 // src/facilities/invite-codes.service.ts
+import { randomInt } from 'crypto';
 import {
   Injectable,
   NotFoundException,
@@ -146,7 +147,7 @@ export class InviteCodesService {
     const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
     let result = '';
     for (let i = 0; i < length; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
+      result += chars.charAt(randomInt(chars.length));
     }
     return result;
   }

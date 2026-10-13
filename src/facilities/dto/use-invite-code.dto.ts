@@ -1,5 +1,6 @@
 // src/facilities/dto/use-invite-code.dto.ts
-import { IsString, Length, IsEmail, IsEnum, MinLength } from 'class-validator';
+import { IsString, Length, IsEmail, IsEnum } from 'class-validator';
+import { IsAcceptablePassword } from '../../auth/password.policy';
 import { ApiProperty } from '@nestjs/swagger';
 import { UserRole } from '../../users/entities/user.entity';
 
@@ -17,9 +18,9 @@ export class UseInviteCodeDto {
   @IsEmail()
   email: string;
 
-  @ApiProperty({ example: 'SecurePass123' })
+  @ApiProperty({ example: 'correct horse battery staple', description: 'At least 12 characters with mixed case, a number and a symbol; or a passphrase of 20+' })
   @IsString()
-  @MinLength(8)
+  @IsAcceptablePassword()
   password: string;
 
   @ApiProperty({ example: 'John' })

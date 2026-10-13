@@ -1,5 +1,6 @@
 // src/admin/dto/create-admin-user.dto.ts
-import { IsEmail, IsString, MinLength, IsEnum, IsUUID, IsOptional } from 'class-validator';
+import { IsEmail, IsString, IsEnum, IsUUID, IsOptional } from 'class-validator';
+import { IsAcceptablePassword } from '../../auth/password.policy';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole } from '../../users/entities/user.entity';
 
@@ -11,7 +12,7 @@ export class CreateAdminUserDto {
 
   @ApiProperty({ example: 'SecurePassword123!' })
   @IsString()
-  @MinLength(8)
+  @IsAcceptablePassword()
   password: string;
 
   @ApiProperty({ example: 'Jane' })

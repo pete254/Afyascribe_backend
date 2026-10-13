@@ -149,8 +149,11 @@ export class AuthController {
   @Throttle({ medium: { limit: 5, ttl: 300_000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request a 6-digit password reset code' })
-  async requestResetCode(@Body() dto: RequestResetCodeDto) {
-    return this.authService.requestResetCode(dto.email);
+  async requestResetCode(@Body() dto: RequestResetCodeDto, @Req() req: any) {
+    return this.authService.requestResetCode(dto.email, {
+      ip: callerIp(req),
+      path: '/auth/request-reset-code',
+    });
   }
 
   @Post('verify-reset-code')
@@ -165,8 +168,11 @@ export class AuthController {
   @Throttle({ medium: { limit: 5, ttl: 300_000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset password using verified 6-digit code' })
-  async resetPasswordWithCode(@Body() dto: ResetPasswordWithCodeDto) {
-    return this.authService.resetPasswordWithCode(dto.email, dto.code, dto.newPassword);
+  async resetPasswordWithCode(@Body() dto: ResetPasswordWithCodeDto, @Req() req: any) {
+    return this.authService.resetPasswordWithCode(dto.email, dto.code, dto.newPassword, {
+      ip: callerIp(req),
+      path: '/auth/reset-password-with-code',
+    });
   }
 
   // ── CREATE CLINIC (facility owner setup) ────────────────────────────────────

@@ -25,6 +25,17 @@ import {
 import * as bcrypt from 'bcrypt';
 import { AuditService, AuthEventName } from '../audit/audit.service';
 import { PASSWORD_HASH_ROUNDS } from './password.policy';
+import { randomInt } from 'crypto';
+
+/**
+ * A one-time code from a cryptographically secure source. These codes are a
+ * credential — a sign-in second factor, or a password reset — so they must not
+ * be predictable, and they are never written to a log: anyone who can read
+ * the logs could otherwise use them.
+ */
+function sixDigitCode(): string {
+  return randomInt(100000, 1000000).toString();
+}
 
 /** Where a sign-in came from, so the ledger can say so. */
 export interface AuthContext {
@@ -232,14 +243,13 @@ export class AuthService {
     ) {
       return { code: user.loginCode, isNew: false };
     }
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const code = sixDigitCode();
     await this.usersService.setLoginCode(user.id, code, this.endOfDayEAT());
     user.loginCode = code; // keep the in-memory copy consistent for this request
     return { code, isNew: true };
   }
 
   private async sendLoginCode(user: any, code: string): Promise<void> {
-    console.log(`🔑 [DEV] Login code for ${user.email}: ${code}`);
     try {
       await this.emailService.sendLoginCodeEmail(
         user.email,
@@ -467,14 +477,21 @@ export class AuthService {
 
   // ── PASSWORD RESET ─────────────────────────────────────────────────────────
 
-  async requestResetCode(email: string): Promise<{ message: string }> {
+  async requestResetCode(email: string, ctx?: AuthContext): Promise<{ message: string }> {
     const user = await this.usersService.findByEmail(email);
-    if (!user) return { message: 'If the email exists, a reset code has been sent' };
+    if (!user) {
+      await this.trail('password.reset_requested', ctx, {
+        attemptedIdentifier: email,
+        statusCode: 200,
+        detail: 'no such account — nothing sent',
+      });
+      return { message: 'If the email exists, a reset code has been sent' };
+    }
+    await this.trail('password.reset_requested', ctx, { user, statusCode: 200 });
 
-    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const resetCode = sixDigitCode();
     const expiresAt = new Date(Date.now() + this.CODE_EXPIRY_MINUTES * 60 * 1000);
 
-    console.log(`🔑 [DEV] Reset code for ${email}: ${resetCode}`);
     await this.usersService.setResetCode(user.id, resetCode, expiresAt);
 
     let facilityLogoUrl: string | null = null;
@@ -517,13 +534,14 @@ export class AuthService {
     return { valid: true, message: 'Code verified successfully' };
   }
 
-  async resetPasswordWithCode(email: string, code: string, newPassword: string) {
+  async resetPasswordWithCode(email: string, code: string, newPassword: string, ctx?: AuthContext) {
     const verification = await this.verifyResetCode(email, code);
     if (!verification.valid) throw new BadRequestException(verification.message);
     const user = await this.usersService.findByEmail(email);
     if (!user) throw new BadRequestException('User not found');
     await this.usersService.updatePassword(user.id, await bcrypt.hash(newPassword, PASSWORD_HASH_ROUNDS));
     await this.usersService.clearResetCode(user.id);
+    await this.trail('password.reset_completed', ctx, { user, statusCode: 200 });
     return { message: 'Password reset successfully' };
   }
 

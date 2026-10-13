@@ -1,5 +1,6 @@
 // src/admin/dto/bootstrap-super-admin.dto.ts
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsString } from 'class-validator';
+import { IsAcceptablePassword } from '../../auth/password.policy';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class BootstrapSuperAdminDto {
@@ -9,7 +10,7 @@ export class BootstrapSuperAdminDto {
 
   @ApiProperty({ example: 'Afyascribe@2026' })
   @IsString()
-  @MinLength(8)
+  @IsAcceptablePassword()
   password: string;
 
   @ApiProperty({ example: 'Admin' })
