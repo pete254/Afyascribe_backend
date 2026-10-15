@@ -14,18 +14,10 @@ import { ResetPasswordWithCodeDto } from './dto/reset-password-with-code.dto';
 import { UseInviteCodeDto } from '../facilities/dto/use-invite-code.dto';
 import { CreateClinicDto } from './dto/create-clinic.dto';
 import { Throttle } from '@nestjs/throttler';
+import { clientIp } from '../common/client-ip';
 
-/**
- * Where the request came from.
- *
- * Render terminates TLS at its proxy, so `req.ip` is the proxy unless the
- * forwarded header is read. The left-most entry is the original client.
- */
-const callerIp = (req: any): string | null => {
-  const fwd = req?.headers?.['x-forwarded-for'];
-  if (typeof fwd === 'string' && fwd.trim()) return fwd.split(',')[0].trim();
-  return req?.ip ?? null;
-};
+/** Where the request came from — see common/client-ip.ts for why not the header. */
+const callerIp = clientIp;
 
 @ApiTags('auth')
 @Controller('auth')

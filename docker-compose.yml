@@ -1,45 +1,79 @@
+# Production on the Kenyan VPS: Postgres and the API, behind nginx on the host.
+#
+#   cp deploy/env.production.example .env    # then fill it in
+#   docker compose up -d --build
+#
+# Two rules this file exists to keep:
+#
+#  1. Nothing here is published to the internet. Docker writes its own
+#     firewall rules and they bypass ufw, so a `ports: "5432:5432"` would put
+#     the patient database on the public internet whatever ufw says. Postgres
+#     publishes no port at all — the API reaches it over the private network
+#     below — and the API is bound to 127.0.0.1, where only nginx on the same
+#     host can reach it.
+#  2. No default credentials. Every secret comes from .env, and compose refuses
+#     to start if one is missing rather than falling back to "postgres".
+#
+# Local development uses docker-compose.dev.yml.
+#
+# Both containers run in UTC, deliberately, though the host is on Nairobi
+# time. Timestamps are stored without a zone and read back in the process's
+# zone; Neon and Render were UTC, so the data is UTC. Run either container in
+# another zone and every timestamp shifts three hours — and the audit chain,
+# whose hashes cover those timestamps, fails verification on every entry.
+# Do not add TZ here.
+
+name: afyascribe
+
 services:
-  # PostgreSQL Database
   postgres:
-    image: postgres:15-alpine
+    image: postgres:17-alpine
     container_name: afyascribe-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DB_USERNAME:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-      POSTGRES_DB: ${DB_DATABASE:-afyascribe}
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${DB_USERNAME:?set DB_USERNAME in .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      POSTGRES_DB: ${DB_DATABASE:?set DB_DATABASE in .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks: [internal]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    shm_size: 256mb
+    logging: &logging
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
 
-  # Backend API
   backend:
     build:
       context: .
       dockerfile: Dockerfile
+    image: afyascribe-backend:latest
     container_name: afyascribe-backend
     restart: unless-stopped
-    ports:
-      - "3000:3000"
+    env_file: .env
     environment:
       NODE_ENV: production
       PORT: 3000
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_USERNAME: ${DB_USERNAME:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      DB_DATABASE: ${DB_DATABASE:-afyascribe}
-      JWT_SECRET: ${JWT_SECRET}
-      RESEND_API_KEY: ${RESEND_API_KEY}
+      # Same host, private network: no TLS to the database. See app.module.ts.
+      DB_SSL: "false"
+      # nginx is the single proxy in front; believe exactly one hop.
+      TRUST_PROXY: "1"
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks: [internal]
     depends_on:
       postgres:
         condition: service_healthy
+    logging: *logging
+
+networks:
+  internal:
 
 volumes:
   postgres_data:

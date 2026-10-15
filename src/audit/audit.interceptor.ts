@@ -8,6 +8,7 @@ import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { AuditService } from './audit.service';
 import { runWithActor } from './request-context';
+import { clientIp } from '../common/client-ip';
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -198,7 +199,7 @@ export class AuditInterceptor implements NestInterceptor {
         entityType,
         entityId: entityId ?? null,
         statusCode: statusOverride ?? res?.statusCode ?? null,
-        ip: (req.headers?.['x-forwarded-for'] || req.ip || '').toString().split(',')[0] || null,
+        ip: clientIp(req),
         category,
         patientId: patientOf(params, routePath),
       });

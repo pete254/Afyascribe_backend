@@ -1,8 +1,10 @@
 // src/main.ts
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
 import { corsOrigins, isOriginAllowed } from './common/cors-origins';
+import { trustProxySetting } from './common/client-ip';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
@@ -11,7 +13,13 @@ const logger = new Logger('Bootstrap');
 const configBool = (v: string | undefined): boolean => v === 'true' || v === '1';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // How many proxies to believe about the caller's address. Rate limiting and
+  // the audit trail both key on req.ip, so getting this wrong either lumps
+  // every user behind the proxy into one bucket, or lets a caller choose the
+  // address recorded against them. See common/client-ip.ts.
+  app.set('trust proxy', trustProxySetting());
 
   // ✅ INCREASE BODY SIZE LIMIT (for audio files)
   app.use(require('express').json({ limit: '50mb' }));
@@ -100,7 +108,7 @@ async function bootstrap() {
     .addTag('patients', 'Patient management')
     .addTag('transcription', 'Audio transcription')
     .addServer('http://localhost:3000', 'Local development')
-    .addServer('https://afyascribe-backend.onrender.com', 'Production')
+    .addServer(process.env.PUBLIC_API_URL || 'https://api.afyascribe.co.ke', 'Production')
     .build();
   
   const document = SwaggerModule.createDocument(app, config);
@@ -119,7 +127,6 @@ async function bootstrap() {
   console.log('║                                                            ║');
   console.log(`║  🚀 Application is running on: http://localhost:${port}       ║`);
   console.log(`║  📚 Swagger docs: http://localhost:${port}/api/docs          ║`);
-  console.log('║  🌐 Production: https://afyascribe-backend.onrender.com    ║');
   console.log('║                                                            ║');
   console.log('╚════════════════════════════════════════════════════════════╝');
 }

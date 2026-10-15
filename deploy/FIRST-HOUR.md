@@ -30,14 +30,14 @@ Log in twice. Keep the second session untouched throughout. If a change goes
 wrong, that session is how you get back in without a support ticket.
 
 ```
-ssh -i ~/.ssh/afyascribe root@<ip>
+ssh -i ~/.ssh/<your-key> root@<ip>
 ```
 
 ### 1. Run the hardening script
 
 ```
-scp -i ~/.ssh/afyascribe deploy/harden.sh root@<ip>:/root/
-ssh -i ~/.ssh/afyascribe root@<ip> 'bash /root/harden.sh pete'
+scp -i ~/.ssh/<your-key> deploy/harden.sh root@<ip>:/root/
+ssh -i ~/.ssh/<your-key> root@<ip> 'bash /root/harden.sh pete'
 ```
 
 It patches the system, creates a non-root user with your key, sets the
@@ -53,7 +53,7 @@ cannot walk up to.
 From your laptop, in a new terminal:
 
 ```
-ssh -i ~/.ssh/afyascribe pete@<ip>                       # must succeed
+ssh -i ~/.ssh/<your-key> pete@<ip>                       # must succeed
 ssh -o PreferredAuthentications=password \
     -o PubkeyAuthentication=no pete@<ip>                 # must be refused
 ```
@@ -64,15 +64,16 @@ both behave should you close the spare session.
 
 ### 3. Then, and only then, the rest
 
-1. DNS: `app.afyascribe.co.ke` → this server's IP (A record).
-2. Docker and nginx.
-3. **Change the compose file so Postgres binds to `127.0.0.1:5432` or
-   publishes no port at all.** The backend reaches it over the Docker network
-   and never needs the host port.
-4. Let's Encrypt for `app.afyascribe.co.ke`.
-5. Backups to a second location — before any real patient data lands here.
-   Until that exists, this server is a single point of failure with no
-   recovery, which is worse than what Neon was providing.
+Follow [MIGRATION.md](MIGRATION.md): DNS for `app.` and `api.afyascribe.co.ke`,
+Docker, nginx and the certificate (`setup-server.sh`), the data copy
+(`migrate-from-neon.sh`), and backups to a second location (`backup.sh`) —
+before any real patient data lands here. Until backups exist, this server is a
+single point of failure with no recovery, which is worse than what Neon was
+providing.
+
+The compose file publishes no database port and binds the API to
+`127.0.0.1` — Docker's own firewall rules bypass ufw, so that is the only
+thing keeping the database off the internet.
 
 ## What this gives you on paper
 

@@ -9,7 +9,15 @@ export class KeepAliveService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(KeepAliveService.name);
   private intervalId: NodeJS.Timeout | null = null;
   private readonly PING_INTERVAL = 5 * 60 * 1000; // 5 minutes
-  private readonly BACKEND_URL = 'https://afyascribe-backend.onrender.com/';
+  /**
+   * Render's free tier sleeps an idle service; pinging itself keeps it awake.
+   * Render sets RENDER_EXTERNAL_URL on every service, so its presence is how we
+   * know we are on Render. Anywhere else — the VPS — there is nothing to keep
+   * awake, and a server pinging a stale address every five minutes is noise.
+   */
+  private readonly BACKEND_URL = process.env.RENDER_EXTERNAL_URL
+    ? `${process.env.RENDER_EXTERNAL_URL.replace(/\/+$/, '')}/`
+    : null;
 
   constructor(
     private readonly httpService: HttpService,
@@ -17,13 +25,11 @@ export class KeepAliveService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    // Only run keep-alive in production (on Render)
-    const isProduction = this.configService.get('NODE_ENV') === 'production';
-    
-    if (isProduction) {
+    // Only on Render, where an idle service is put to sleep.
+    if (this.BACKEND_URL) {
       this.startKeepAlive();
     } else {
-      this.logger.log('Keep-alive disabled in development environment');
+      this.logger.log('Keep-alive off — not running on Render');
     }
   }
 
@@ -54,7 +60,7 @@ export class KeepAliveService implements OnModuleInit, OnModuleDestroy {
   private async pingBackend(): Promise<void> {
     try {
       const response = await firstValueFrom(
-        this.httpService.get(this.BACKEND_URL, {
+        this.httpService.get(this.BACKEND_URL!, {
           timeout: 30000, // 30 second timeout
         })
       );

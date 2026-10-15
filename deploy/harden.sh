@@ -5,8 +5,8 @@
 # Run this as root in your first SSH session, before installing anything else.
 # It is safe to run more than once.
 #
-#   scp -i ~/.ssh/afyascribe deploy/harden.sh root@<ip>:/root/
-#   ssh -i ~/.ssh/afyascribe root@<ip> 'bash /root/harden.sh pete'
+#   scp -i ~/.ssh/<your-key> deploy/harden.sh root@<ip>:/root/
+#   ssh -i ~/.ssh/<your-key> root@<ip> 'bash /root/harden.sh pete'
 #
 # ── Before you run it ──────────────────────────────────────────────────────
 #
@@ -43,7 +43,7 @@ KEYS=/root/.ssh/authorized_keys
 if [ ! -s "$KEYS" ]; then
   warn "No key in $KEYS."
   warn "If you did not paste a public key when ordering, add it now:"
-  warn "  ssh-copy-id -i ~/.ssh/afyascribe.pub root@<ip>"
+  warn "  ssh-copy-id -i ~/.ssh/<your-key>.pub root@<ip>"
   warn "Refusing to disable passwords without a key — that would lock you out."
   exit 1
 fi
@@ -186,7 +186,7 @@ cat <<EOF
 
   Prove it worked BEFORE closing your second session. From your laptop:
 
-      ssh -i ~/.ssh/afyascribe $NEW_USER@$(hostname -I | awk '{print $1}')
+      ssh -i ~/.ssh/<your-key> $NEW_USER@$(hostname -I | awk '{print $1}')
 
   That must succeed. Then check a password login is refused:
 
@@ -196,11 +196,7 @@ cat <<EOF
   It should say "Permission denied (publickey)". If it asks for a password,
   something did not apply — say so before going further.
 
-  Still to do, in order:
-    1. Point app.afyascribe.co.ke at this server (A record).
-    2. Install Docker and nginx.
-    3. Keep Postgres on 127.0.0.1 — never publish 5432.
-    4. Let's Encrypt for app.afyascribe.co.ke.
-    5. Backups to a second location, before any real data lands here.
+  Next: deploy/MIGRATION.md — DNS, setup-server.sh, the data copy, and
+  backups to a second location before any real data lands here.
 
 EOF

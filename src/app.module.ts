@@ -117,7 +117,11 @@ import { SignaturesModule } from './signatures/signatures.module';
           migrations: ['dist/migrations/*.js'],
           migrationsRun: true,
         };
-        if (isProduction) {
+        // DB_SSL=false is for a database on the same host, reached over a
+        // private Docker network that never leaves the machine — the VPS
+        // deployment. Anything that crosses a real network keeps TLS.
+        const sslOff = configService.get<string>('DB_SSL') === 'false';
+        if (isProduction && !sslOff) {
           // Verify the server's certificate. Encrypting the connection without
           // checking who is on the other end of it leaves exactly the gap a
           // data-protection review looks for — the traffic is unreadable to a
