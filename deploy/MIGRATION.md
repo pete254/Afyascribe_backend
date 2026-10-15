@@ -83,26 +83,58 @@ and will be overwritten at cutover — but tell no one to use it yet.
 
 **8. Backups — before any real data lands:**
 
-On your laptop, make the backup key and keep the private half off the server:
+Three copies, all in Kenya: the server's own, the laptop's (pulled hourly), and
+a USB drive kept somewhere else (weekly). Every copy is encrypted to a key that
+is on none of those machines.
+
+*a. The key — on the laptop, written straight to a USB stick:*
 
 ```
 sudo apt install age
-age-keygen -o ~/afyascribe-backup.key     # prints the public key: age1…
+age-keygen -o /media/$USER/<stick>/afyascribe-backup.key   # prints: Public key: age1…
 ```
 
-Store `~/afyascribe-backup.key` somewhere safe and offline as well; without it
-no backup can ever be read. On the server:
+Print the file too, and keep paper and stick somewhere safe, **apart from the
+laptop and the backup drive**. Without this key no backup can ever be read;
+with it beside the backups, a thief can read them all.
+
+*b. The server* (as pete, in `/opt/afyascribe/backend`):
 
 ```
+git pull
 sudo bash deploy/backup.sh --install
-sudo nano /etc/afyascribe/backup.env      # AGE_RECIPIENT=age1…  RCLONE_REMOTE=…
-sudo rclone config                         # the off-site destination
-sudo bash deploy/backup.sh                 # must succeed, and copy off-site
+sudo nano /etc/afyascribe/backup.env      # AGE_RECIPIENT=age1…  (the PUBLIC key)
+sudo bash deploy/backup.sh                 # must end with "done"
 ```
 
-Then **test a restore** — a backup that has never been restored is not yet
-evidence that it works. That test is also what the DHA Disaster Recovery Test
-Report needs.
+*c. The laptop* — in the Afyascribe_backend checkout:
+
+```
+git pull
+bash deploy/pull-backups.sh --install      # pull key, server permission, hourly timer, first pull
+```
+
+The pull key can only read the server's backup outbox: no shell, no writing.
+Once a week: `bash deploy/pull-backups.sh --copy-to /media/$USER/<drive>`.
+
+*d. Test a restore* — a backup that has never been restored is not yet evidence
+that it works. Test the **laptop's** copy, since that is the one you would
+depend on. From the laptop:
+
+```
+scp ~/AfyaScribe-backups/afyascribe-<newest>.{dump.age,counts} afyascribe-vps:/tmp/
+```
+
+then on the server:
+
+```
+sudo bash deploy/restore-test.sh /tmp/afyascribe-<newest>.dump.age   # paste the AGE-SECRET-KEY line
+```
+
+It restores into a throwaway database held in memory, compares every table's
+row count, and verifies the audit chain with the application's own code. The
+report it keeps under `/var/backups/afyascribe/restore-tests/` is the evidence
+for the DHA Disaster Recovery Test Report. Repeat it every quarter.
 
 ---
 
@@ -156,6 +188,8 @@ window.
 | Roll back the web app | laptop: `bash deploy/web-release.sh --rollback` |
 | API logs | `sudo docker compose logs --tail 200 backend` |
 | Backup log | `sudo tail /var/log/afyascribe-backup.log` |
+| Off-site copy status | laptop: `bash deploy/pull-backups.sh --status` |
+| Restore test (quarterly) | `sudo bash deploy/restore-test.sh` |
 | Certificate status | `sudo certbot certificates` |
 
 ## What stays outside Kenya after this
