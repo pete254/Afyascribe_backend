@@ -116,6 +116,15 @@ import { SignaturesModule } from './signatures/signatures.module';
           logging: !isProduction,
           migrations: ['dist/migrations/*.js'],
           migrationsRun: true,
+          // An undefined value in a where-condition is an error, not "match
+          // anything". TypeORM's default drops the property, so
+          // findOne({ where: { id: undefined } }) returns an arbitrary row —
+          // the cause of incident INC-2026-001. Fail closed instead. A scan of
+          // every where-condition (Oct 2026) found none relying on the old
+          // behaviour; optional filters are built conditionally.
+          // `null` keeps TypeORM's default for now: the super administrator
+          // has no facility, and facility-scoped queries rely on it.
+          invalidWhereValuesBehavior: { undefined: 'throw' },
         };
         // DB_SSL=false is for a database on the same host, reached over a
         // private Docker network that never leaves the machine — the VPS
