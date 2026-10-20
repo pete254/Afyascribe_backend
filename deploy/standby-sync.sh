@@ -92,7 +92,15 @@ log "replacing the standby's contents — one transaction"
 # Plain SQL piped straight into psql: no file of records is written anywhere.
 # The schema drop and the whole dump commit together or not at all.
 {
-  echo 'drop schema public cascade; create schema public;'
+  # Every application schema, not only public: the database also carries
+  # `afyahims`, and the dump recreates it — it must not already exist.
+  echo "set client_min_messages = warning;"
+  echo "do \$\$ declare s text; begin
+          for s in select nspname from pg_namespace
+                    where nspname not in ('pg_catalog', 'information_schema') and nspname not like 'pg\\_%'
+          loop execute format('drop schema %I cascade', s); end loop;
+          create schema public;
+        end \$\$;"
   docker compose -f "$REPO/docker-compose.yml" exec -T postgres \
     pg_dump -U "$DB_USERNAME" -d "$DB_DATABASE" --format=plain --no-owner --no-acl
 } | docker run --rm -i -e STANDBY_URL "$PG_IMAGE" \
