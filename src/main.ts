@@ -131,7 +131,11 @@ async function bootstrap() {
   console.log('╔════════════════════════════════════════════════════════════╗');
   console.log('║                                                            ║');
   console.log(`║  🚀 Application is running on: http://localhost:${port}       ║`);
-  console.log(`║  📚 Swagger docs: http://localhost:${port}/api/docs          ║`);
+  console.log(
+    apiDocsEnabled()
+      ? `║  📚 Swagger docs: http://localhost:${port}/api/docs          ║`
+      : `║  📚 Swagger docs: off (production; API_DOCS=true to enable) ║`,
+  );
   console.log('║                                                            ║');
   console.log('╚════════════════════════════════════════════════════════════╝');
 }
