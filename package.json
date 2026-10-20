@@ -53,7 +53,6 @@
     "helmet": "^8.3.0",
     "multer": "^2.1.1",
     "node-fetch": "^2.7.0",
-    "nodemailer": "^7.0.10",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.16.3",
@@ -78,7 +77,6 @@
     "@types/multer": "^2.1.0",
     "@types/node": "^22.10.7",
     "@types/node-fetch": "^2.6.13",
-    "@types/nodemailer": "^7.0.3",
     "@types/passport-jwt": "^4.0.1",
     "@types/passport-strategy": "^0.2.38",
     "@types/supertest": "^6.0.2",
@@ -112,5 +110,10 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
+  },
+  "overrides": {
+    "@nestjs/swagger": {
+      "js-yaml": "^5.5.0"
+    }
   }
 }

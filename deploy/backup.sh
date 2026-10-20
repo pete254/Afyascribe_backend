@@ -31,6 +31,11 @@
 # Each backup has a companion .counts file: the row count of every table, taken
 # straight after the dump. deploy/restore-test.sh compares a restore against
 # it. It holds table names and numbers only, no records.
+#
+# And a companion .env.age: the application's settings file (.env), encrypted
+# to the same offline key. Rebuilding a lost server needs those secrets as much
+# as the data, and without a copy every third-party key would have to be
+# reissued (Disaster Recovery Plan, runbook R1 step 6).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -76,8 +81,9 @@ install -d -m 700 "$OUT"
 NAME="afyascribe-$(date +%F-%H%M%S)"
 FILE="$OUT/$NAME.dump.age"
 COUNTS="$OUT/$NAME.counts"
+SECRETS="$OUT/$NAME.env.age"
 # A half-written file from a failed run must not sit there looking like a backup.
-trap 'rm -f "$FILE" "$COUNTS"' ERR
+trap 'rm -f "$FILE" "$COUNTS" "$SECRETS"' ERR
 
 log "dumping"
 # Streamed straight into age: the unencrypted dump never touches the disk.
@@ -102,11 +108,14 @@ docker compose -f "$REPO/docker-compose.yml" exec -T postgres \
 chmod 600 "$COUNTS"
 [ -s "$COUNTS" ] || die "could not record row counts"
 
+age -r "$AGE_RECIPIENT" -o "$SECRETS" "$REPO/.env"
+chmod 600 "$SECRETS"
+
 if [ -n "${OFFSITE_USER:-}" ]; then
   id "$OFFSITE_USER" >/dev/null 2>&1 || die "OFFSITE_USER '$OFFSITE_USER' does not exist"
   install -d -m 700 -o "$OFFSITE_USER" -g "$OFFSITE_USER" "$OUTBOX"
   # Into a dot-name first and renamed, so a pull never collects half a file.
-  for f in "$FILE" "$COUNTS"; do
+  for f in "$FILE" "$COUNTS" "$SECRETS"; do
     tmp="$OUTBOX/.$(basename "$f").partial"
     install -m 600 -o "$OFFSITE_USER" -g "$OFFSITE_USER" "$f" "$tmp"
     mv "$tmp" "$OUTBOX/$(basename "$f")"
@@ -117,6 +126,7 @@ fi
 if [ -n "${RCLONE_REMOTE:-}" ]; then
   rclone copy "$FILE" "$RCLONE_REMOTE/" --quiet
   rclone copy "$COUNTS" "$RCLONE_REMOTE/" --quiet
+  rclone copy "$SECRETS" "$RCLONE_REMOTE/" --quiet
   log "copied off-site to $RCLONE_REMOTE"
 elif [ -z "${OFFSITE_USER:-}" ]; then
   log "WARNING: neither OFFSITE_USER nor RCLONE_REMOTE set — this backup exists only on this server"
@@ -124,7 +134,7 @@ fi
 
 for d in "$OUT" "$OUTBOX"; do
   [ -d "$d" ] || continue
-  find "$d" -maxdepth 1 \( -name 'afyascribe-*.dump.age' -o -name 'afyascribe-*.counts' \) \
+  find "$d" -maxdepth 1 \( -name 'afyascribe-*.dump.age' -o -name 'afyascribe-*.counts' -o -name 'afyascribe-*.env.age' \) \
     -mtime +"${KEEP_DAYS:-14}" -delete
 done
 log "done"

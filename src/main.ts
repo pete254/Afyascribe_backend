@@ -5,6 +5,7 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
 import { corsOrigins, isOriginAllowed } from './common/cors-origins';
 import { trustProxySetting } from './common/client-ip';
+import { apiDocsEnabled } from './common/api-docs';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
@@ -33,7 +34,9 @@ async function bootstrap() {
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          scriptSrc: ["'self'", "'unsafe-inline'"],
+          // Inline script is needed only by the Swagger page, so it is
+          // allowed only while that page is served.
+          scriptSrc: apiDocsEnabled() ? ["'self'", "'unsafe-inline'"] : ["'self'"],
           styleSrc: ["'self'", "'unsafe-inline'"],
           imgSrc: ["'self'", 'data:', 'https:'],
           connectSrc: ["'self'"],
@@ -87,37 +90,39 @@ async function bootstrap() {
     }),
   );
 
-  // Swagger documentation
-  const config = new DocumentBuilder()
-    .setTitle('SOAP Notes API')
-    .setDescription('Medical transcription and SOAP notes management system')
-    .setVersion('1.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        name: 'JWT',
-        description: 'Enter JWT token',
-        in: 'header',
-      },
-      'JWT-auth',
-    )
-    .addTag('auth', 'Authentication endpoints')
-    .addTag('soap-notes', 'SOAP notes management')
-    .addTag('patients', 'Patient management')
-    .addTag('transcription', 'Audio transcription')
-    .addServer('http://localhost:3000', 'Local development')
-    .addServer(process.env.PUBLIC_API_URL || 'https://api.afyascribe.co.ke', 'Production')
-    .build();
+  // Swagger documentation — development only unless API_DOCS=true (api-docs.ts).
+  if (apiDocsEnabled()) {
+    const config = new DocumentBuilder()
+      .setTitle('SOAP Notes API')
+      .setDescription('Medical transcription and SOAP notes management system')
+      .setVersion('1.0')
+      .addBearerAuth(
+        {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          name: 'JWT',
+          description: 'Enter JWT token',
+          in: 'header',
+        },
+        'JWT-auth',
+      )
+      .addTag('auth', 'Authentication endpoints')
+      .addTag('soap-notes', 'SOAP notes management')
+      .addTag('patients', 'Patient management')
+      .addTag('transcription', 'Audio transcription')
+      .addServer('http://localhost:3000', 'Local development')
+      .addServer(process.env.PUBLIC_API_URL || 'https://api.afyascribe.co.ke', 'Production')
+      .build();
   
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document, {
-    swaggerOptions: {
-      persistAuthorization: true,
-    },
-    customSiteTitle: 'SOAP Notes API Documentation',
-  });
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document, {
+      swaggerOptions: {
+        persistAuthorization: true,
+      },
+      customSiteTitle: 'SOAP Notes API Documentation',
+    });
+  }
 
   const port = process.env.PORT ?? 3000;
   
