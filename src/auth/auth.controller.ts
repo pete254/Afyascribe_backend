@@ -55,6 +55,19 @@ export class AuthController {
     return this.authService.refreshSession(user);
   }
 
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Sign out',
+    description:
+      'Ends the session on the server: its tokens are refused from now on, rather than lingering until they expire. Logged.',
+  })
+  logout(@CurrentUser() user: any, @Req() req: any) {
+    return this.authService.logout(user, { ip: callerIp(req), path: '/auth/logout' });
+  }
+
   @Post('login-with-code')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Finish sign-in with the daily 6-digit code (2nd factor)' })

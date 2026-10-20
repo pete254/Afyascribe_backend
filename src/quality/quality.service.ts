@@ -13,6 +13,7 @@ import { MeasureValue } from './entities/measure-value.entity';
 import { MeasureDefinition, MeasureResult, result, toCsv, toMeasureReport } from './quality';
 import { BUILT_IN_MEASURES, MEASURE_BY_ID } from './data/measures';
 import { gestationOn } from '../maternity/gestation';
+import { insecureEndpointReason } from '../common/outbound-url';
 
 /** The canonical base for this system's own measure identifiers. */
 const MEASURE_SYSTEM = 'https://afyascribe.health/Measure';
@@ -389,6 +390,9 @@ export class QualityService {
         'No submission endpoint is configured. Set QUALITY_SUBMIT_URL once the Ministry has given you one; the period can be exported as FHIR or CSV in the meantime.',
       );
     }
+
+    const insecure = insecureEndpointReason(endpoint, 'QUALITY_SUBMIT_URL');
+    if (insecure) throw new BadRequestException(insecure);
 
     const bundle = await this.exportFhir(facilityId, from, to);
     const token = this.config.get<string>('QUALITY_SUBMIT_TOKEN');

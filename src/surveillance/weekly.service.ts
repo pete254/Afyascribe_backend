@@ -14,6 +14,7 @@ import { CurrentUserType } from '../common/decorators/current-user.decorator';
 import { PublicHealthSignal } from './entities/public-health-signal.entity';
 import { THRESHOLD_SOURCE, evaluateWeek } from './thresholds';
 import { IDSR_CONDITIONS } from './data/idsr';
+import { insecureEndpointReason } from '../common/outbound-url';
 
 const YEAR_MS = 365.25 * 24 * 60 * 60 * 1000;
 
@@ -274,7 +275,14 @@ export class WeeklyReturnService {
         'No surveillance endpoint is configured, so nothing was transmitted. The return is recorded — send it to the sub-county coordinator, and set IDSR_WEEKLY_URL to transmit automatically.',
     };
 
-    if (url) {
+    const insecure = url ? insecureEndpointReason(url, this.config.get<string>('IDSR_WEEKLY_URL') ? 'IDSR_WEEKLY_URL' : 'IDSR_ALERT_URL') : null;
+    if (insecure) {
+      transmission = {
+        attempted: false,
+        ok: false,
+        detail: `${insecure} The return is recorded — send it to the sub-county coordinator.`,
+      };
+    } else if (url) {
       try {
         const payload = await this.exportReturn(facilityId, entity);
         const token = this.config.get<string>('IDSR_ALERT_TOKEN');

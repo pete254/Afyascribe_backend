@@ -17,6 +17,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_GUARD } from '@nestjs/core';
 import { RestrictedPatientGuard } from './guards/restricted-patient.guard';
 import { AuditModule } from '../audit/audit.module';
+import { RevokedSession } from './entities/revoked-session.entity';
+import { SessionRevocationService } from './session-revocation.service';
 
 @Module({
   imports: [
@@ -26,7 +28,7 @@ import { AuditModule } from '../audit/audit.module';
     FacilitiesModule,
     PlatformModule,
     AuditModule,
-    TypeOrmModule.forFeature([EmergencyAccess, Patient]),
+    TypeOrmModule.forFeature([EmergencyAccess, Patient, RevokedSession]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
@@ -47,6 +49,7 @@ import { AuditModule } from '../audit/audit.module';
     AuthService,
     JwtStrategy,
     EmergencyAccessService,
+    SessionRevocationService,
     { provide: APP_GUARD, useClass: RestrictedPatientGuard },
   ],
   controllers: [AuthController, EmergencyAccessController],

@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { Patient } from '../patients/entities/patient.entity';
 import { Facility } from '../facilities/entities/facility.entity';
 import { NotifyDto } from './dto/surveillance.dto';
+import { insecureEndpointReason } from '../common/outbound-url';
 
 /** The Ministry asks for immediate conditions within 24 hours of suspicion. */
 export const IMMEDIATE_WINDOW_HOURS = 24;
@@ -287,6 +288,14 @@ export class SurveillanceService {
       };
     }
 
+    const insecure = insecureEndpointReason(url, 'IDSR_ALERT_URL');
+    if (insecure) {
+      return {
+        attempted: false,
+        ok: false,
+        detail: `${insecure} The case is recorded — notify the sub-county surveillance coordinator by phone.`,
+      };
+    }
     try {
       const payload = await this.moh502(facilityId, row);
       const token = this.config.get<string>('IDSR_ALERT_TOKEN');

@@ -26,6 +26,8 @@ import * as bcrypt from 'bcrypt';
 import { AuditService, AuthEventName } from '../audit/audit.service';
 import { PASSWORD_HASH_ROUNDS } from './password.policy';
 import { randomInt } from 'crypto';
+import { SessionRevocationService } from './session-revocation.service';
+import { maxSessionHours, newSession, refreshedClaims, sessionStart, SessionClaims } from './session';
 
 /**
  * A one-time code from a cryptographically secure source. These codes are a
@@ -59,6 +61,7 @@ export class AuthService {
     private platformSettings: PlatformSettingsService,
     private configService: ConfigService,
     private audit: AuditService,
+    private revocations: SessionRevocationService,
   ) {}
 
   /**
@@ -182,6 +185,9 @@ export class AuthService {
       isOwner,
       clinicMode,
       facilityLogoUrl,
+      // One session per sign-in: refreshes keep this id and start time, so the
+      // session can be signed out as a whole and ends 8 hours after sign-in.
+      ...newSession(Math.floor(Date.now() / 1000)),
     };
 
     return {
@@ -405,6 +411,7 @@ export class AuthService {
       isOwner: false,
       clinicMode,
       facilityLogoUrl,
+      ...newSession(Math.floor(Date.now() / 1000)),
     };
 
     return {
@@ -609,6 +616,7 @@ export class AuthService {
       isOwner: true,
       clinicMode: dto.clinicMode,
       facilityLogoUrl: facility.logoUrl ?? null,
+      ...newSession(Math.floor(Date.now() / 1000)),
     };
 
     return {
@@ -638,14 +646,38 @@ export class AuthService {
    * close on its own. The guard has already proved the token is valid, so this
    * only re-signs what it carried — no new privileges can be acquired here.
    */
-  refreshSession(user: Record<string, unknown>): { access_token: string; expiresInSeconds: number } {
-    const { iat, exp, ...claims } = user as Record<string, unknown> & { iat?: number; exp?: number };
-    void iat;
-    void exp;
+  refreshSession(user: { tokenClaims?: SessionClaims; tokenIssuedAt?: number }): {
+    access_token: string;
+    expiresInSeconds: number;
+  } {
+    const claims = refreshedClaims(
+      user?.tokenClaims,
+      user?.tokenIssuedAt,
+      Math.floor(Date.now() / 1000),
+      maxSessionHours(),
+    );
     const minutes = Math.max(5, Number(this.configService.get<string>('AUTH_SESSION_MINUTES') ?? 60));
     return {
       access_token: this.jwtService.sign(claims),
       expiresInSeconds: minutes * 60,
     };
   }
+
+  /**
+   * Sign out: the session's tokens are refused from now on, on every device
+   * that holds one, rather than lingering until they expire.
+   */
+  async logout(
+    user: { id: string; email: string; role?: string; facilityId?: string | null; sessionId?: string | null; tokenClaims?: SessionClaims; tokenIssuedAt?: number },
+    ctx?: AuthContext,
+  ): Promise<{ message: string }> {
+    if (user.sessionId) {
+      const start = sessionStart(user.tokenClaims ?? {}, user.tokenIssuedAt) ?? Math.floor(Date.now() / 1000);
+      const ends = new Date((start + maxSessionHours() * 3600) * 1000);
+      await this.revocations.revoke(user.sessionId, user.id, ends);
+    }
+    await this.trail('logout', ctx, { user, statusCode: 200, detail: user.sessionId ? 'session revoked' : 'token without session id' });
+    return { message: 'Signed out.' };
+  }
+
 }

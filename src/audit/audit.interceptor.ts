@@ -51,6 +51,21 @@ const PHI_PREFIXES = new Set([
   'fhir',
   'appointments',
   'billing',
+  // Reports and returns list patients by name (registers, MOH 502 case forms);
+  // a download is a bulk read and must be attributable. Added after the
+  // vulnerability assessment found exports unlogged (Audit Trail Spec A-1).
+  'reports',
+  'surveillance',
+  'adx',
+  'quality',
+  'cds',
+  'emergency-access',
+  // Reading the audit log is itself logged, so a look at who looked is on
+  // record too.
+  'audit',
+  // Staff records are personal data under the Act as much as patients' are.
+  'payroll',
+  'employee-documents',
 ]);
 
 /** Reads of a whole list are logged too, but described as a search. */

@@ -59,6 +59,9 @@ export class UsersService {
   }
 
   async findById(id: string): Promise<User> {
+    // TypeORM drops an undefined where-value, so without this a missing id
+    // would match the first user in the table.
+    if (!id) throw new UnauthorizedException('No user identified');
     const user = await this.usersRepository.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`User with ID ${id} not found`);
     if (user.isDeactivated) throw new UnauthorizedException('Account has been deactivated');
