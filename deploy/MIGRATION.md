@@ -81,60 +81,32 @@ a document; dictate a note; run a report; **verify the audit ledger** (People �
 Audit log → Verify the ledger). Anything you do here is on the rehearsal copy
 and will be overwritten at cutover — but tell no one to use it yet.
 
-**8. Backups — before any real data lands:**
+**8. Backups — the warm standby (owner's decision, 20 Oct 2026):**
 
-Three copies, all in Kenya: the server's own, the laptop's (pulled hourly), and
-a USB drive kept somewhere else (weekly). Every copy is encrypted to a key that
-is on none of those machines.
-
-*a. The key — on the laptop, written straight to a USB stick:*
-
-```
-sudo apt install age
-age-keygen -o /media/$USER/<stick>/afyascribe-backup.key   # prints: Public key: age1…
-```
-
-Print the file too, and keep paper and stick somewhere safe, **apart from the
-laptop and the backup drive**. Without this key no backup can ever be read;
-with it beside the backups, a thief can read them all.
-
-*b. The server* (as pete, in `/opt/afyascribe/backend`):
+The previous hosting becomes the backup: every night from cutover, the server's
+database is copied in full to Neon (Render kept suspended beside it), ready to
+be served if this server is lost. See `deploy/standby-sync.sh` and the Disaster
+Recovery Plan, 2.3.
 
 ```
-git pull
 sudo bash deploy/backup.sh --install
-sudo nano /etc/afyascribe/backup.env      # AGE_RECIPIENT=age1…  (the PUBLIC key)
-sudo bash deploy/backup.sh                 # must end with "done"
+sudo nano /etc/afyascribe/backup.env      # STANDBY_URL='postgresql://…?sslmode=require&channel_binding=require'
+sudo bash deploy/standby-sync.sh --check   # before cutover it must REFUSE: Neon is still production
 ```
 
-*c. The laptop* — in the Afyascribe_backend checkout:
+Use Neon's connection string with pooling **off**. Done and checked 20 Oct 2026:
+the check refused, reporting the ledgers diverged at line 4862 — correct, since
+Neon is production until cutover.
 
-```
-git pull
-bash deploy/pull-backups.sh --install      # pull key, server permission, hourly timer, first pull
-```
+Optional but recommended — **encrypted copies on this server (14 days)**, because
+the standby is overwritten nightly and Neon's free plan keeps only hours of
+history. On any machine with `age`: `age-keygen -o key.txt`; put the private
+key in the company password manager (never on this server); put the public
+`age1…` line in `AGE_RECIPIENT` in `backup.env`; then `sudo bash deploy/backup.sh`.
+Test with `sudo bash deploy/restore-test.sh` (it asks for the private key).
 
-The pull key can only read the server's backup outbox: no shell, no writing.
-Once a week: `bash deploy/pull-backups.sh --copy-to /media/$USER/<drive>`.
-
-*d. Test a restore* — a backup that has never been restored is not yet evidence
-that it works. Test the **laptop's** copy, since that is the one you would
-depend on. From the laptop:
-
-```
-scp ~/AfyaScribe-backups/afyascribe-<newest>.{dump.age,counts} afyascribe-vps:/tmp/
-```
-
-then on the server:
-
-```
-sudo bash deploy/restore-test.sh /tmp/afyascribe-<newest>.dump.age   # paste the AGE-SECRET-KEY line
-```
-
-It restores into a throwaway database held in memory, compares every table's
-row count, and verifies the audit chain with the application's own code. The
-report it keeps under `/var/backups/afyascribe/restore-tests/` is the evidence
-for the DHA Disaster Recovery Test Report. Repeat it every quarter.
+(`deploy/pull-backups.sh` — pulling the encrypted copies to a second machine in
+Kenya — remains available if that is wanted later.)
 
 ---
 
@@ -157,27 +129,38 @@ window.
 3. **Start the API:** `sudo docker compose up -d`
 4. **Verify the audit ledger** on `https://app.afyascribe.co.ke`. The hash
    chain must verify — that proves no record changed in transit.
+4a. **Start the standby:** `sudo bash deploy/standby-sync.sh` — the first sync
+   copies the server to Neon. It must report every table matching. **Leave
+   Render suspended** from now on: the standby check cannot see an idle Render.
 5. **Point the clients at the new addresses:**
    - Web: in AfyaHIMS, set `apps/web/.env.production` to
      `VITE_API_URL=https://api.afyascribe.co.ke`, commit.
    - Mobile: in Afyascribe, switch `DEFAULT_API_URL` in `src/config/api.js`,
      build and publish.
-6. **Tell staff the new address:** `https://app.afyascribe.co.ke`. Bookmarks
-   to the Vercel address stop being useful once Vercel is retired.
+   - **Vercel stays the standby front end:** in the Vercel project's settings set
+     `VITE_API_URL=https://afyascribe-backend.onrender.com` and redeploy once, so
+     it keeps pointing at Render after the code switches.
+6. **Tell staff the new address:** `https://app.afyascribe.co.ke`. The Vercel
+   address becomes the standby — not to be used unless a failover is declared.
 7. **Re-print self-registration QR posters** — they encode the address of the
    site that printed them, so posters printed from Vercel point at Vercel.
 8. **HIE:** if DHA registered a callback address on Render, give them the new
    one.
 
-## Part 3 — Retire the old hosting (only after a few days running cleanly)
+## Part 3 — The old hosting becomes the standby (after a few days running cleanly)
 
-1. Take and keep one final encrypted backup.
-2. **Delete the Neon project.** Until this is done a copy of every patient
-   record is still in the USA, and regulation 26 is not yet met.
-3. Delete the Render service and the Vercel projects.
-4. `sudo shred -u /var/backups/afyascribe/neon-*.dump` — the migration dumps.
-5. Update the Privacy Policy, DPIA and Information Security Policy: hosting is
-   now in Kenya (exception E-1 closes; E-2 closes once the restore test passes).
+The owner decided (20 Oct 2026) to keep Neon, Render and Vercel as the warm
+standby rather than delete them.
+
+1. Confirm the nightly standby sync succeeds: `sudo tail /var/log/afyascribe-backup.log`.
+2. Render stays **suspended**; Vercel stays pointed at Render. Neither is used
+   unless a failover is declared (Disaster Recovery Plan).
+3. `sudo shred -u /var/backups/afyascribe/neon-*.dump` — the migration dumps.
+4. Run a **failover drill** once: resume Render, sign in on the Vercel address,
+   create and read a test record, then fail back (Backup & Recovery Policy 4.2).
+5. Update the Privacy Policy (the post-cutover table), DPIA and Information
+   Security Policy: processing is in Kenya (E-1 closes); the standby in the USA
+   is recorded as E-15.
 
 ## Day to day
 
