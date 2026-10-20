@@ -64,11 +64,20 @@ src_ver="$(source_psql -c 'show server_version_num')"
 echo "  Neon is PostgreSQL $src_ver; this server runs 17"
 [ "$src_ver" -lt 180000 ] || die "Neon is newer than 17. Raise the postgres image in docker-compose.yml to match, then re-run."
 
-existing="$(target_psql -c "select count(*) from information_schema.tables where table_schema = 'public'")"
-if [ "$existing" -gt 0 ]; then
+# Every application schema, not only public: Neon also carries `afyahims`, and
+# a schema left behind from an earlier copy makes the restore refuse.
+APP_SCHEMAS="nspname not in ('pg_catalog', 'information_schema') and nspname not like 'pg\\_%'"
+existing="$(target_psql -c "select count(*) from information_schema.tables t join pg_namespace n on n.nspname = t.table_schema where $APP_SCHEMAS")"
+leftover="$(target_psql -c "select count(*) from pg_namespace where $APP_SCHEMAS and nspname <> 'public'")"
+if [ "$existing" -gt 0 ] || [ "$leftover" -gt 0 ]; then
   if [ "${REPLACE:-0}" = "1" ]; then
-    warn "Replacing the $existing tables already here (REPLACE=1)."
-    target_psql -c 'drop schema public cascade; create schema public;' >/dev/null
+    warn "Replacing the $existing tables already here, in every application schema (REPLACE=1)."
+    target_psql -c "do \$\$ declare s text; begin
+                       for s in select nspname from pg_namespace where $APP_SCHEMAS loop
+                         execute format('drop schema %I cascade', s);
+                       end loop;
+                       create schema public;
+                     end \$\$;" >/dev/null
   else
     die "This database already has $existing tables. Re-run with REPLACE=1 to overwrite them."
   fi
