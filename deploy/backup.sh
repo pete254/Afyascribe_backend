@@ -55,6 +55,7 @@ if [ "${1:-}" = "--install" ]; then
     cat >"$CONF" <<EOF
 # AfyaScribe backup settings. See deploy/backup.sh.
 AGE_RECIPIENT=
+STANDBY_URL=
 OFFSITE_USER=${SUDO_USER:-}
 RCLONE_REMOTE=
 KEEP_DAYS=14
@@ -66,75 +67,92 @@ EOF
 30 2 * * * root bash $REPO/deploy/backup.sh >> /var/log/afyascribe-backup.log 2>&1
 EOF
   chmod 644 /etc/cron.d/afyascribe-backup
-  echo "Scheduled nightly at 02:30. Now set AGE_RECIPIENT in $CONF"
+  echo "Scheduled nightly at 02:30. Now set, in $CONF:"
+  echo "  STANDBY_URL    the Neon connection string — the warm standby (deploy/standby-sync.sh)"
+  echo "  AGE_RECIPIENT  optional: a public key, to also keep 14 days of encrypted copies here"
   echo "and test with:   sudo bash deploy/backup.sh"
-  echo "Then, on the machine that keeps the off-site copy:   bash deploy/pull-backups.sh --install"
   exit 0
 fi
 
 [ -f "$CONF" ] || die "No $CONF — run with --install first."
 . "$CONF"
-[ -n "${AGE_RECIPIENT:-}" ] || die "AGE_RECIPIENT is not set in $CONF. Backups are never stored unencrypted."
+[ -n "${AGE_RECIPIENT:-}${STANDBY_URL:-}" ] || die "Neither STANDBY_URL nor AGE_RECIPIENT is set in $CONF — nothing would be backed up."
 set -a; . "$REPO/.env"; set +a
 
-install -d -m 700 "$OUT"
-NAME="afyascribe-$(date +%F-%H%M%S)"
-FILE="$OUT/$NAME.dump.age"
-COUNTS="$OUT/$NAME.counts"
-SECRETS="$OUT/$NAME.env.age"
-# A half-written file from a failed run must not sit there looking like a backup.
-trap 'rm -f "$FILE" "$COUNTS" "$SECRETS"' ERR
+# ── Encrypted copies (when AGE_RECIPIENT is set) ───────────────────────────
+# Kept alongside the standby because a standby is overwritten every night: a
+# mass deletion or ransomware reaches it by the next morning, and Neon's free
+# plan keeps only hours of its own history. These keep KEEP_DAYS of history.
+if [ -n "${AGE_RECIPIENT:-}" ]; then
 
-log "dumping"
-# Streamed straight into age: the unencrypted dump never touches the disk.
-docker compose -f "$REPO/docker-compose.yml" exec -T postgres \
-  pg_dump -U "$DB_USERNAME" -d "$DB_DATABASE" --format=custom \
-  | age -r "$AGE_RECIPIENT" -o "$FILE"
-chmod 600 "$FILE"
-size=$(stat -c %s "$FILE")
-# An encrypted dump of a real database is never this small; a broken pipe is.
-[ "$size" -gt 10240 ] || { rm -f "$FILE"; die "dump is only $size bytes — something failed"; }
-log "wrote $(du -h "$FILE" | cut -f1) to $FILE"
+  install -d -m 700 "$OUT"
+  NAME="afyascribe-$(date +%F-%H%M%S)"
+  FILE="$OUT/$NAME.dump.age"
+  COUNTS="$OUT/$NAME.counts"
+  SECRETS="$OUT/$NAME.env.age"
+  # A half-written file from a failed run must not sit there looking like a backup.
+  trap 'rm -f "$FILE" "$COUNTS" "$SECRETS"' ERR
 
-# Taken after the dump, not inside its snapshot, so a row written in the
-# seconds between shows up as a difference at restore — at 02:30, rare, and
-# the restore test reports it rather than hiding it.
-docker compose -f "$REPO/docker-compose.yml" exec -T postgres \
-  psql -U "$DB_USERNAME" -d "$DB_DATABASE" -v ON_ERROR_STOP=1 -tA -c \
-  "select table_name || '|' || (xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', table_schema, table_name), false, true, '')))[1]::text
-     from information_schema.tables
-    where table_schema = 'public' and table_type = 'BASE TABLE'
-    order by table_name" > "$COUNTS"
-chmod 600 "$COUNTS"
-[ -s "$COUNTS" ] || die "could not record row counts"
+  log "dumping"
+  # Streamed straight into age: the unencrypted dump never touches the disk.
+  docker compose -f "$REPO/docker-compose.yml" exec -T postgres \
+    pg_dump -U "$DB_USERNAME" -d "$DB_DATABASE" --format=custom \
+    | age -r "$AGE_RECIPIENT" -o "$FILE"
+  chmod 600 "$FILE"
+  size=$(stat -c %s "$FILE")
+  # An encrypted dump of a real database is never this small; a broken pipe is.
+  [ "$size" -gt 10240 ] || { rm -f "$FILE"; die "dump is only $size bytes — something failed"; }
+  log "wrote $(du -h "$FILE" | cut -f1) to $FILE"
 
-age -r "$AGE_RECIPIENT" -o "$SECRETS" "$REPO/.env"
-chmod 600 "$SECRETS"
+  # Taken after the dump, not inside its snapshot, so a row written in the
+  # seconds between shows up as a difference at restore — at 02:30, rare, and
+  # the restore test reports it rather than hiding it.
+  docker compose -f "$REPO/docker-compose.yml" exec -T postgres \
+    psql -U "$DB_USERNAME" -d "$DB_DATABASE" -v ON_ERROR_STOP=1 -tA -c \
+    "select table_name || '|' || (xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', table_schema, table_name), false, true, '')))[1]::text
+       from information_schema.tables
+      where table_schema = 'public' and table_type = 'BASE TABLE'
+      order by table_name" > "$COUNTS"
+  chmod 600 "$COUNTS"
+  [ -s "$COUNTS" ] || die "could not record row counts"
 
-if [ -n "${OFFSITE_USER:-}" ]; then
-  id "$OFFSITE_USER" >/dev/null 2>&1 || die "OFFSITE_USER '$OFFSITE_USER' does not exist"
-  install -d -m 700 -o "$OFFSITE_USER" -g "$OFFSITE_USER" "$OUTBOX"
-  # Into a dot-name first and renamed, so a pull never collects half a file.
-  for f in "$FILE" "$COUNTS" "$SECRETS"; do
-    tmp="$OUTBOX/.$(basename "$f").partial"
-    install -m 600 -o "$OFFSITE_USER" -g "$OFFSITE_USER" "$f" "$tmp"
-    mv "$tmp" "$OUTBOX/$(basename "$f")"
+  age -r "$AGE_RECIPIENT" -o "$SECRETS" "$REPO/.env"
+  chmod 600 "$SECRETS"
+
+  if [ -n "${OFFSITE_USER:-}" ]; then
+    id "$OFFSITE_USER" >/dev/null 2>&1 || die "OFFSITE_USER '$OFFSITE_USER' does not exist"
+    install -d -m 700 -o "$OFFSITE_USER" -g "$OFFSITE_USER" "$OUTBOX"
+    # Into a dot-name first and renamed, so a pull never collects half a file.
+    for f in "$FILE" "$COUNTS" "$SECRETS"; do
+      tmp="$OUTBOX/.$(basename "$f").partial"
+      install -m 600 -o "$OFFSITE_USER" -g "$OFFSITE_USER" "$f" "$tmp"
+      mv "$tmp" "$OUTBOX/$(basename "$f")"
+    done
+    log "placed in $OUTBOX for the off-site pull"
+  fi
+
+  if [ -n "${RCLONE_REMOTE:-}" ]; then
+    rclone copy "$FILE" "$RCLONE_REMOTE/" --quiet
+    rclone copy "$COUNTS" "$RCLONE_REMOTE/" --quiet
+    rclone copy "$SECRETS" "$RCLONE_REMOTE/" --quiet
+    log "copied off-site to $RCLONE_REMOTE"
+  elif [ -z "${OFFSITE_USER:-}" ]; then
+    log "WARNING: neither OFFSITE_USER nor RCLONE_REMOTE set — this backup exists only on this server"
+  fi
+
+  for d in "$OUT" "$OUTBOX"; do
+    [ -d "$d" ] || continue
+    find "$d" -maxdepth 1 \( -name 'afyascribe-*.dump.age' -o -name 'afyascribe-*.counts' -o -name 'afyascribe-*.env.age' \) \
+      -mtime +"${KEEP_DAYS:-14}" -delete
   done
-  log "placed in $OUTBOX for the off-site pull"
+else
+  log "AGE_RECIPIENT not set — no encrypted copies kept on this server"
 fi
 
-if [ -n "${RCLONE_REMOTE:-}" ]; then
-  rclone copy "$FILE" "$RCLONE_REMOTE/" --quiet
-  rclone copy "$COUNTS" "$RCLONE_REMOTE/" --quiet
-  rclone copy "$SECRETS" "$RCLONE_REMOTE/" --quiet
-  log "copied off-site to $RCLONE_REMOTE"
-elif [ -z "${OFFSITE_USER:-}" ]; then
-  log "WARNING: neither OFFSITE_USER nor RCLONE_REMOTE set — this backup exists only on this server"
+# ── Warm standby on Neon (when STANDBY_URL is set) ─────────────────────────
+# A standby failure is logged but never undoes the encrypted copy above. Until
+# cutover it is expected to refuse: Neon is still production, and ahead.
+if [ -n "${STANDBY_URL:-}" ]; then
+  bash "$REPO/deploy/standby-sync.sh" || log "WARNING: the standby was not updated — see the lines above"
 fi
-
-for d in "$OUT" "$OUTBOX"; do
-  [ -d "$d" ] || continue
-  find "$d" -maxdepth 1 \( -name 'afyascribe-*.dump.age' -o -name 'afyascribe-*.counts' -o -name 'afyascribe-*.env.age' \) \
-    -mtime +"${KEEP_DAYS:-14}" -delete
-done
 log "done"
