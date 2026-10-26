@@ -84,8 +84,13 @@ export class Facility {
   @Column({ name: 'logo_url', nullable: true })
   logoUrl: string;
 
+  /** Cloudinary's id for a logo not yet moved by deploy/import-cloudinary.js. */
   @Column({ name: 'logo_public_id', nullable: true })
   logoPublicId: string;
+
+  /** Where the logo is on this server's disk; `logoUrl` is its public address. */
+  @Column({ name: 'logo_key', type: 'varchar', length: 255, nullable: true })
+  logoKey: string | null;
 
   @Column({ name: 'is_active', default: true })  // ✅ fixed
   isActive: boolean;

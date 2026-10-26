@@ -8,9 +8,10 @@ import { FacilitiesService } from './facilities.service';
 import { FacilitiesController } from './facilities.controller';
 import { FacilityLogoController } from './facility-logo.controller';
 import { InviteCodesService } from './invite-codes.service';
+import { FilesModule } from '../files/files.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Facility, FacilityInviteCode]), ConfigModule],
+  imports: [TypeOrmModule.forFeature([Facility, FacilityInviteCode]), ConfigModule, FilesModule],
   controllers: [FacilitiesController, FacilityLogoController],
   providers: [FacilitiesService, InviteCodesService],
   exports: [FacilitiesService, InviteCodesService, TypeOrmModule],

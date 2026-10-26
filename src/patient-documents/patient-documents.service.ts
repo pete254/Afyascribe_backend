@@ -7,14 +7,13 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
-import { ConfigService } from '@nestjs/config';
-import { v2 as cloudinary } from 'cloudinary';
 import {
   PatientDocument,
   DocumentCategory,
   DocumentScope,
 } from './entities/patient-document.entity';
 import { PatientsService } from '../patients/patients.service';
+import { FilesService } from '../files/files.service';
 
 const ALLOWED_MIME_TYPES = [
   'image/jpeg',
@@ -33,41 +32,13 @@ export class PatientDocumentsService {
     @InjectRepository(PatientDocument)
     private readonly repo: Repository<PatientDocument>,
     private readonly patientsService: PatientsService,
-    private readonly configService: ConfigService,
-  ) {
-    cloudinary.config({
-      cloud_name: this.configService.get<string>('CLOUDINARY_CLOUD_NAME'),
-      api_key:    this.configService.get<string>('CLOUDINARY_API_KEY'),
-      api_secret: this.configService.get<string>('CLOUDINARY_API_SECRET'),
-    });
-  }
+    private readonly files: FilesService,
+  ) {}
 
-  // ── SHARED: upload file to Cloudinary ─────────────────────────────────────
-  private async uploadToCloudinary(
-    buffer: Buffer,
-    mimeType: string,
-    folder: string,
-  ): Promise<{ url: string; publicId: string }> {
-    const isPdf = mimeType === 'application/pdf';
-
-    return new Promise((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        {
-          folder,
-          resource_type: isPdf ? 'raw' : 'image',
-          ...(isPdf ? {} : { quality: 'auto', fetch_format: 'auto' }),
-        },
-        (error, result) => {
-          if (error || !result) {
-            this.logger.error('❌ Cloudinary upload error:', error);
-            reject(new BadRequestException(`Upload failed: ${error?.message ?? 'unknown'}`));
-          } else {
-            resolve({ url: result.secure_url, publicId: result.public_id });
-          }
-        },
-      );
-      stream.end(buffer);
-    });
+  // ── SHARED: store the file on this server ──────────────────────────────────
+  private async storeFile(facilityId: string, buffer: Buffer, mimeType: string) {
+    const { key, mime } = await this.files.store('patients', facilityId, buffer, mimeType, ALLOWED_MIME_TYPES);
+    return { storageKey: key, fileType: mime };
   }
 
   // ── SHARED: validate file ──────────────────────────────────────────────────
@@ -100,11 +71,7 @@ export class PatientDocumentsService {
 
     this.logger.log(`📤 Uploading patient doc: ${params.documentName} for patient ${params.patientId}`);
 
-    const { url, publicId } = await this.uploadToCloudinary(
-      params.buffer,
-      params.mimeType,
-      `afyascribe/${params.facilityId}/patients/${params.patientId}/docs`,
-    );
+    const { storageKey, fileType } = await this.storeFile(params.facilityId, params.buffer, params.mimeType);
 
     const doc = this.repo.create({
       patientId:    params.patientId,
@@ -115,10 +82,11 @@ export class PatientDocumentsService {
       documentName: params.documentName,
       category:     params.category ?? DocumentCategory.OTHER,
       notes:        params.notes ?? null,
-      fileUrl:      url,
-      publicId,
+      storageKey,
+      fileUrl:      null,
+      publicId:     null,
       fileName:     params.originalName,
-      fileType:     params.mimeType,
+      fileType,
       fileSize:     params.fileSize,
     });
 
@@ -146,11 +114,7 @@ export class PatientDocumentsService {
 
     this.logger.log(`📤 Uploading SOAP note doc: ${params.documentName} for note ${params.soapNoteId}`);
 
-    const { url, publicId } = await this.uploadToCloudinary(
-      params.buffer,
-      params.mimeType,
-      `afyascribe/${params.facilityId}/patients/${params.patientId}/notes/${params.soapNoteId}`,
-    );
+    const { storageKey, fileType } = await this.storeFile(params.facilityId, params.buffer, params.mimeType);
 
     const doc = this.repo.create({
       patientId:    params.patientId,
@@ -161,10 +125,11 @@ export class PatientDocumentsService {
       documentName: params.documentName,
       category:     params.category ?? DocumentCategory.OTHER,
       notes:        params.notes ?? null,
-      fileUrl:      url,
-      publicId,
+      storageKey,
+      fileUrl:      null,
+      publicId:     null,
       fileName:     params.originalName,
-      fileType:     params.mimeType,
+      fileType,
       fileSize:     params.fileSize,
     });
 
@@ -209,11 +174,7 @@ export class PatientDocumentsService {
 
     this.logger.log(`📤 Uploading radiology doc: ${params.documentName} for study ${params.radiologyId}`);
 
-    const { url, publicId } = await this.uploadToCloudinary(
-      params.buffer,
-      params.mimeType,
-      `afyascribe/${params.facilityId}/patients/${params.patientId}/radiology/${params.radiologyId}`,
-    );
+    const { storageKey, fileType } = await this.storeFile(params.facilityId, params.buffer, params.mimeType);
 
     const doc = this.repo.create({
       patientId:    params.patientId,
@@ -224,10 +185,11 @@ export class PatientDocumentsService {
       documentName: params.documentName,
       category:     DocumentCategory.RADIOLOGY,
       notes:        params.notes ?? null,
-      fileUrl:      url,
-      publicId,
+      storageKey,
+      fileUrl:      null,
+      publicId:     null,
       fileName:     params.originalName,
-      fileType:     params.mimeType,
+      fileType,
       fileSize:     params.fileSize,
     });
 
@@ -283,17 +245,12 @@ export class PatientDocumentsService {
     const doc = await this.repo.findOne({ where: { id, facilityId } });
     if (!doc) throw new NotFoundException(`Document ${id} not found`);
 
-    try {
-      const isPdf = doc.fileType === 'application/pdf';
-      await cloudinary.uploader.destroy(doc.publicId, {
-        resource_type: isPdf ? 'raw' : 'image',
-      });
-      this.logger.log(`🗑️ Cloudinary deleted: ${doc.publicId}`);
-    } catch (e) {
-      this.logger.warn(`⚠️ Cloudinary delete failed (continuing): ${e.message}`);
-    }
-
+    // The record goes first: a file left behind by a failed unlink is harmless,
+    // a record pointing at a deleted file is not.
     await this.repo.remove(doc);
+    await this.files.remove(doc.storageKey).catch((e) =>
+      this.logger.warn(`⚠️ File delete failed (record already removed): ${e.message}`),
+    );
     this.logger.log(`🗑️ Document record deleted: ${id}`);
   }
 }

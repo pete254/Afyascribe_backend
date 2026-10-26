@@ -47,7 +47,6 @@
     "bcrypt": "^6.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
-    "cloudinary": "^2.9.0",
     "cron": "^4.4.0",
     "form-data": "^4.0.4",
     "helmet": "^8.3.0",

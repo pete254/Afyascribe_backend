@@ -20,6 +20,11 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=builder /app/dist ./dist
 
+# Uploaded files (docker-compose.yml mounts the `uploads` volume here). Made
+# now, owned by `node`, so the volume starts out writable by the application
+# and by nothing else.
+RUN mkdir -p /data/uploads && chown node:node /data/uploads && chmod 700 /data/uploads
+
 # Run as the image's unprivileged `node` user, not root: a compromise of the
 # application should not be a compromise of the container.
 USER node

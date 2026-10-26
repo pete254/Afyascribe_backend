@@ -102,5 +102,6 @@ Hardening the box does not address the gaps already on the register:
   asks about load balancing, replication and failover; a single VPS answers
   "No" to all of them. That is a defensible trade against Reg 26 compliance,
   but it belongs in the document rather than left for a reviewer to notice.
-- **Cloudinary and Groq** still process data outside Kenya until the document
-  storage move and the transcription decision are made.
+- **Groq** still processes data outside Kenya until the transcription decision
+  is made. (Uploaded documents moved off Cloudinary onto this server in
+  October 2026: deploy/import-cloudinary.js.)

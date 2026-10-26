@@ -32,6 +32,10 @@
 # straight after the dump. deploy/restore-test.sh compares a restore against
 # it. It holds table names and numbers only, no records.
 #
+# And a companion .uploads.tar.age: every uploaded document and logo (the
+# `uploads` volume), archived and encrypted the same way. The database names
+# each file; without this archive a restore has the names and not the files.
+#
 # And a companion .env.age: the application's settings file (.env), encrypted
 # to the same offline key. Rebuilding a lost server needs those secrets as much
 # as the data, and without a copy every third-party key would have to be
@@ -90,8 +94,9 @@ if [ -n "${AGE_RECIPIENT:-}" ]; then
   FILE="$OUT/$NAME.dump.age"
   COUNTS="$OUT/$NAME.counts"
   SECRETS="$OUT/$NAME.env.age"
+  UPLOADS="$OUT/$NAME.uploads.tar.age"
   # A half-written file from a failed run must not sit there looking like a backup.
-  trap 'rm -f "$FILE" "$COUNTS" "$SECRETS"' ERR
+  trap 'rm -f "$FILE" "$COUNTS" "$SECRETS" "$UPLOADS"' ERR
 
   log "dumping"
   # Streamed straight into age: the unencrypted dump never touches the disk.
@@ -119,11 +124,18 @@ if [ -n "${AGE_RECIPIENT:-}" ]; then
   age -r "$AGE_RECIPIENT" -o "$SECRETS" "$REPO/.env"
   chmod 600 "$SECRETS"
 
+  # Read through the running API container, which owns the files; streamed
+  # into age like the dump, so no unencrypted archive is written.
+  docker compose -f "$REPO/docker-compose.yml" exec -T backend tar -C /data/uploads -cf - . \
+    | age -r "$AGE_RECIPIENT" -o "$UPLOADS"
+  chmod 600 "$UPLOADS"
+  log "wrote $(du -h "$UPLOADS" | cut -f1) of uploaded files to $UPLOADS"
+
   if [ -n "${OFFSITE_USER:-}" ]; then
     id "$OFFSITE_USER" >/dev/null 2>&1 || die "OFFSITE_USER '$OFFSITE_USER' does not exist"
     install -d -m 700 -o "$OFFSITE_USER" -g "$OFFSITE_USER" "$OUTBOX"
     # Into a dot-name first and renamed, so a pull never collects half a file.
-    for f in "$FILE" "$COUNTS" "$SECRETS"; do
+    for f in "$FILE" "$COUNTS" "$SECRETS" "$UPLOADS"; do
       tmp="$OUTBOX/.$(basename "$f").partial"
       install -m 600 -o "$OFFSITE_USER" -g "$OFFSITE_USER" "$f" "$tmp"
       mv "$tmp" "$OUTBOX/$(basename "$f")"
@@ -135,6 +147,7 @@ if [ -n "${AGE_RECIPIENT:-}" ]; then
     rclone copy "$FILE" "$RCLONE_REMOTE/" --quiet
     rclone copy "$COUNTS" "$RCLONE_REMOTE/" --quiet
     rclone copy "$SECRETS" "$RCLONE_REMOTE/" --quiet
+    rclone copy "$UPLOADS" "$RCLONE_REMOTE/" --quiet
     log "copied off-site to $RCLONE_REMOTE"
   elif [ -z "${OFFSITE_USER:-}" ]; then
     log "WARNING: neither OFFSITE_USER nor RCLONE_REMOTE set — this backup exists only on this server"
@@ -142,7 +155,7 @@ if [ -n "${AGE_RECIPIENT:-}" ]; then
 
   for d in "$OUT" "$OUTBOX"; do
     [ -d "$d" ] || continue
-    find "$d" -maxdepth 1 \( -name 'afyascribe-*.dump.age' -o -name 'afyascribe-*.counts' -o -name 'afyascribe-*.env.age' \) \
+    find "$d" -maxdepth 1 \( -name 'afyascribe-*.dump.age' -o -name 'afyascribe-*.counts' -o -name 'afyascribe-*.env.age' -o -name 'afyascribe-*.uploads.tar.age' \) \
       -mtime +"${KEEP_DAYS:-14}" -delete
   done
 else

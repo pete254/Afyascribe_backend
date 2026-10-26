@@ -20,6 +20,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.decorator';
 import { EmployeeDocumentsService } from './employee-documents.service';
 import { EmployeeDocumentCategory } from './entities/employee-document.entity';
+import { FilesService } from '../files/files.service';
 
 type UploadedMulterFile = {
   buffer: Buffer;
@@ -44,7 +45,10 @@ function facilityOf(user: CurrentUserType): string {
 @Roles('facility_admin', 'super_admin', 'hr_manager', 'accountant')
 @Controller('employee-documents')
 export class EmployeeDocumentsController {
-  constructor(private readonly service: EmployeeDocumentsService) {}
+  constructor(
+    private readonly service: EmployeeDocumentsService,
+    private readonly files: FilesService,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: "Upload a document to an employee's HR profile" })
@@ -62,7 +66,7 @@ export class EmployeeDocumentsController {
     if (!employeeId) throw new BadRequestException('employeeId is required');
     if (!documentName) throw new BadRequestException('documentName is required');
 
-    return this.service.upload({
+    const doc = await this.service.upload({
       employeeId,
       facilityId: facilityOf(user),
       uploadedById: user.id,
@@ -74,6 +78,7 @@ export class EmployeeDocumentsController {
       category,
       notes,
     });
+    return this.files.withLinks('staff', [doc], user.id)[0];
   }
 
   @Get('employee/:employeeId')
@@ -82,7 +87,9 @@ export class EmployeeDocumentsController {
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.service.findForEmployee(employeeId, facilityOf(user));
+    return this.service
+      .findForEmployee(employeeId, facilityOf(user))
+      .then((docs) => this.files.withLinks('staff', docs, user.id));
   }
 
   @Delete(':id')

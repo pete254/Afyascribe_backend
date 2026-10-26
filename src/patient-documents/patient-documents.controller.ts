@@ -25,6 +25,8 @@ import { DocumentCategory } from './entities/patient-document.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { FilesService } from '../files/files.service';
+import { PatientDocument } from './entities/patient-document.entity';
 
 type UploadedMulterFile = {
   buffer: Buffer;
@@ -43,7 +45,15 @@ const fileInterceptor = FileInterceptor('file', {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('patient-documents')
 export class PatientDocumentsController {
-  constructor(private readonly service: PatientDocumentsService) {}
+  constructor(
+    private readonly service: PatientDocumentsService,
+    private readonly files: FilesService,
+  ) {}
+
+  /** Each document's `fileUrl` becomes a link this user can open for a while (see file-links.ts). */
+  private linked(docs: PatientDocument[], user: any): PatientDocument[] {
+    return this.files.withLinks('doc', docs, user.id);
+  }
 
   // ── UPLOAD: patient-level (onboarding) ────────────────────────────────────
   @Post('patient')
@@ -62,7 +72,7 @@ export class PatientDocumentsController {
     if (!patientId)    throw new BadRequestException('patientId is required');
     if (!documentName) throw new BadRequestException('documentName is required');
 
-    return this.service.uploadPatientDocument({
+    const doc = await this.service.uploadPatientDocument({
       patientId,
       facilityId:   user.facilityId,
       uploadedById: user.id,
@@ -74,6 +84,7 @@ export class PatientDocumentsController {
       category,
       notes,
     });
+    return this.linked([doc], user)[0];
   }
 
   // ── UPLOAD: SOAP note-level ───────────────────────────────────────────────
@@ -95,7 +106,7 @@ export class PatientDocumentsController {
     if (!soapNoteId)   throw new BadRequestException('soapNoteId is required');
     if (!documentName) throw new BadRequestException('documentName is required');
 
-    return this.service.uploadSoapNoteDocument({
+    const doc = await this.service.uploadSoapNoteDocument({
       patientId,
       soapNoteId,
       facilityId:   user.facilityId,
@@ -108,6 +119,7 @@ export class PatientDocumentsController {
       category,
       notes,
     });
+    return this.linked([doc], user)[0];
   }
 
   // ── UPLOAD: radiology study-level (images / films) ────────────────────────
@@ -128,7 +140,7 @@ export class PatientDocumentsController {
     if (!radiologyId)  throw new BadRequestException('radiologyId is required');
     if (!documentName) throw new BadRequestException('documentName is required');
 
-    return this.service.uploadRadiologyDocument({
+    const doc = await this.service.uploadRadiologyDocument({
       patientId,
       radiologyId,
       facilityId:   user.facilityId,
@@ -140,6 +152,7 @@ export class PatientDocumentsController {
       documentName,
       notes,
     });
+    return this.linked([doc], user)[0];
   }
 
   // ── GET: radiology study docs ─────────────────────────────────────────────
@@ -149,7 +162,7 @@ export class PatientDocumentsController {
     @Param('radiologyId', ParseUUIDPipe) radiologyId: string,
     @CurrentUser() user: any,
   ) {
-    return this.service.findRadiologyDocs(radiologyId, user.facilityId);
+    return this.service.findRadiologyDocs(radiologyId, user.facilityId).then((d) => this.linked(d, user));
   }
 
   // ── GET: patient-level docs only ──────────────────────────────────────────
@@ -159,7 +172,7 @@ export class PatientDocumentsController {
     @Param('patientId', ParseUUIDPipe) patientId: string,
     @CurrentUser() user: any,
   ) {
-    return this.service.findPatientDocs(patientId, user.facilityId);
+    return this.service.findPatientDocs(patientId, user.facilityId).then((d) => this.linked(d, user));
   }
 
   // ── GET: SOAP note docs ────────────────────────────────────────────────────
@@ -169,7 +182,7 @@ export class PatientDocumentsController {
     @Param('soapNoteId', ParseUUIDPipe) soapNoteId: string,
     @CurrentUser() user: any,
   ) {
-    return this.service.findSoapNoteDocs(soapNoteId, user.facilityId);
+    return this.service.findSoapNoteDocs(soapNoteId, user.facilityId).then((d) => this.linked(d, user));
   }
 
   // ── GET: all docs for patient (both scopes) ───────────────────────────────
@@ -179,7 +192,7 @@ export class PatientDocumentsController {
     @Param('patientId', ParseUUIDPipe) patientId: string,
     @CurrentUser() user: any,
   ) {
-    return this.service.findAllForPatient(patientId, user.facilityId);
+    return this.service.findAllForPatient(patientId, user.facilityId).then((d) => this.linked(d, user));
   }
 
   // ── DELETE ─────────────────────────────────────────────────────────────────

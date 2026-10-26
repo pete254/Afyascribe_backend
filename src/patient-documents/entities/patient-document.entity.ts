@@ -94,12 +94,22 @@ export class PatientDocument {
   @Column({ name: 'notes', type: 'text', nullable: true })
   notes: string | null;
 
-  // ── Cloudinary / file details ──────────────────────────────────────────────
-  @Column({ name: 'file_url', type: 'text' })
-  fileUrl: string;
+  // ── File details ───────────────────────────────────────────────────────────
+  /** Where the file is on this server's disk (src/files/file-store.ts). */
+  @Column({ name: 'storage_key', type: 'varchar', length: 255, nullable: true })
+  storageKey: string | null;
 
-  @Column({ name: 'public_id', type: 'varchar', length: 255 })
-  publicId: string;
+  /**
+   * In API responses, a signed link to the file (FilesService.withLinks). In
+   * the database, only the old Cloudinary address of a file not yet moved by
+   * deploy/import-cloudinary.js; null otherwise.
+   */
+  @Column({ name: 'file_url', type: 'text', nullable: true })
+  fileUrl: string | null;
+
+  /** Cloudinary's id for a file not yet moved; null otherwise. */
+  @Column({ name: 'public_id', type: 'varchar', length: 255, nullable: true })
+  publicId: string | null;
 
   @Column({ name: 'file_name', type: 'varchar', length: 500 })
   fileName: string; // original filename from device

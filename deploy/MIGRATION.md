@@ -180,7 +180,6 @@ standby rather than delete them.
 Moving hosting does not move these; each is an open exception in the
 Information Security Policy:
 
-- **Cloudinary** — uploaded documents and logos (E-6).
 - **Groq** — dictation transcription and proofreading (E-8).
 - **Resend** — email, including consultation summaries (E-8).
 - **Google Gemini** — the mobile app sends clinical text to it directly (E-11).

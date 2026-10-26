@@ -13,6 +13,7 @@ import { PayrollController } from './payroll.controller';
 import { EmployeeDocumentsService } from './employee-documents.service';
 import { EmployeeDocumentsController } from './employee-documents.controller';
 import { AccountingModule } from '../accounting/accounting.module';
+import { FilesModule } from '../files/files.module';
 
 /**
  * Human Resource / payroll: employees, statutory-aware payroll runs, and the
@@ -22,6 +23,7 @@ import { AccountingModule } from '../accounting/accounting.module';
   imports: [
     TypeOrmModule.forFeature([Employee, PayrollRun, Payslip, PayrollSettings, EmployeeDocument]),
     AccountingModule,
+    FilesModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

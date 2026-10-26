@@ -49,11 +49,17 @@ export class EmployeeDocument {
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
-  @Column({ name: 'file_url', type: 'text' })
-  fileUrl: string;
+  /** Where the file is on this server's disk (src/files/file-store.ts). */
+  @Column({ name: 'storage_key', type: 'varchar', length: 255, nullable: true })
+  storageKey: string | null;
 
-  @Column({ name: 'public_id', type: 'varchar', length: 255 })
-  publicId: string;
+  /** As on PatientDocument: a signed link in responses; the old Cloudinary address until moved. */
+  @Column({ name: 'file_url', type: 'text', nullable: true })
+  fileUrl: string | null;
+
+  /** Cloudinary's id for a file not yet moved; null otherwise. */
+  @Column({ name: 'public_id', type: 'varchar', length: 255, nullable: true })
+  publicId: string | null;
 
   @Column({ name: 'file_name', type: 'varchar', length: 500 })
   fileName: string;

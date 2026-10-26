@@ -66,6 +66,10 @@ services:
       TRUST_PROXY: "1"
     ports:
       - "127.0.0.1:3000:3000"
+    # Uploaded documents and logos. Backed up nightly with the database
+    # (deploy/backup.sh).
+    volumes:
+      - uploads:/data/uploads
     networks: [internal]
     depends_on:
       postgres:
@@ -77,3 +81,4 @@ networks:
 
 volumes:
   postgres_data:
+  uploads:

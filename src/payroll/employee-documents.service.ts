@@ -1,10 +1,9 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ConfigService } from '@nestjs/config';
-import { v2 as cloudinary } from 'cloudinary';
 import { EmployeeDocument, EmployeeDocumentCategory } from './entities/employee-document.entity';
 import { Employee } from './entities/employee.entity';
+import { FilesService } from '../files/files.service';
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -18,36 +17,8 @@ export class EmployeeDocumentsService {
     private readonly repo: Repository<EmployeeDocument>,
     @InjectRepository(Employee)
     private readonly employees: Repository<Employee>,
-    private readonly config: ConfigService,
-  ) {
-    cloudinary.config({
-      cloud_name: this.config.get<string>('CLOUDINARY_CLOUD_NAME'),
-      api_key: this.config.get<string>('CLOUDINARY_API_KEY'),
-      api_secret: this.config.get<string>('CLOUDINARY_API_SECRET'),
-    });
-  }
-
-  private async uploadToCloudinary(
-    buffer: Buffer,
-    mimeType: string,
-    folder: string,
-  ): Promise<{ url: string; publicId: string }> {
-    const isPdf = mimeType === 'application/pdf';
-    return new Promise((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        { folder, resource_type: isPdf ? 'raw' : 'image' },
-        (error, result) => {
-          if (error || !result) {
-            this.logger.error('Cloudinary upload error', error as Error);
-            reject(new BadRequestException(`Upload failed: ${error?.message ?? 'unknown'}`));
-          } else {
-            resolve({ url: result.secure_url, publicId: result.public_id });
-          }
-        },
-      );
-      stream.end(buffer);
-    });
-  }
+    private readonly files: FilesService,
+  ) {}
 
   private validateFile(mimeType: string, fileSize: number) {
     if (!ALLOWED_MIME_TYPES.includes(mimeType)) {
@@ -77,10 +48,12 @@ export class EmployeeDocumentsService {
     });
     if (!emp) throw new BadRequestException('Employee not found in your facility');
 
-    const { url, publicId } = await this.uploadToCloudinary(
+    const { key, mime } = await this.files.store(
+      'staff',
+      params.facilityId,
       params.buffer,
       params.mimeType,
-      `afyascribe/${params.facilityId}/employees/${params.employeeId}/docs`,
+      ALLOWED_MIME_TYPES,
     );
 
     const doc = this.repo.create({
@@ -90,10 +63,11 @@ export class EmployeeDocumentsService {
       documentName: params.documentName,
       category: params.category ?? EmployeeDocumentCategory.OTHER,
       notes: params.notes ?? null,
-      fileUrl: url,
-      publicId,
+      storageKey: key,
+      fileUrl: null,
+      publicId: null,
       fileName: params.originalName,
-      fileType: params.mimeType,
+      fileType: mime,
       fileSize: params.fileSize,
     });
     return this.repo.save(doc);
@@ -109,14 +83,10 @@ export class EmployeeDocumentsService {
   async remove(id: string, facilityId: string): Promise<void> {
     const doc = await this.repo.findOne({ where: { id, facilityId } });
     if (!doc) throw new NotFoundException('Document not found');
-    const isPdf = doc.fileType === 'application/pdf';
-    try {
-      await cloudinary.uploader.destroy(doc.publicId, {
-        resource_type: isPdf ? 'raw' : 'image',
-      });
-    } catch (e) {
-      this.logger.warn(`Cloudinary destroy failed for ${doc.publicId}: ${(e as Error).message}`);
-    }
+    // Record first: a stray file is harmless, a record without its file is not.
     await this.repo.remove(doc);
+    await this.files.remove(doc.storageKey).catch((e) =>
+      this.logger.warn(`File delete failed (record already removed): ${(e as Error).message}`),
+    );
   }
 }
