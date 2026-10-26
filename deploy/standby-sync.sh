@@ -31,7 +31,7 @@
 # The Privacy Policy, DPIA and Information Security Policy record it and the
 # safeguards relied on. The copy travels over TLS; the URL is refused unless
 # it requires TLS.
-set -euo pipefail
+set -Eeuo pipefail
 
 cd "$(dirname "$0")/.."
 REPO="$(pwd)"
@@ -50,8 +50,23 @@ esac
 export STANDBY_URL
 set -a; . "$REPO/.env"; set +a
 
+# Any step that fails says so, and where. Without this a failed lookup inside
+# $(…) ended the script with only psql's own message (26 Oct 2026).
+ON_ERR='log "ERROR: stopped at line $LINENO. The standby is either unchanged or fully replaced but not verified — run --check. Nothing on this server was changed."'
+trap "$ON_ERR" ERR
+
 local_psql() { docker compose -f "$REPO/docker-compose.yml" exec -T postgres psql -U "$DB_USERNAME" -d "$DB_DATABASE" -v ON_ERROR_STOP=1 -tA "$@"; }
-standby_psql() { docker run --rm -i -e STANDBY_URL "$PG_IMAGE" sh -c 'psql "$STANDBY_URL" -v ON_ERROR_STOP=1 -tA "$@"' -- "$@"; }
+standby_psql_once() { docker run --rm -i -e STANDBY_URL "$PG_IMAGE" sh -c 'psql "$STANDBY_URL" -v ON_ERROR_STOP=1 -tA "$@"' -- "$@"; }
+# Reads only, so safe to repeat: one dropped DNS answer or network blip on the
+# way to Neon must not sink the night's sync.
+standby_psql() {
+  local n
+  for n in 1 2 3 4; do
+    standby_psql_once "$@" && return 0
+    [ "$n" -lt 4 ] && { log "could not reach the standby (attempt $n of 4) — retrying in 15s" >&2; sleep 15; }
+  done
+  return 1
+}
 
 COUNT_SQL="select table_name || '|' || (xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', table_schema, table_name), false, true, '')))[1]::text
              from information_schema.tables
@@ -91,7 +106,13 @@ start=$(date +%s)
 log "replacing the standby's contents — one transaction"
 # Plain SQL piped straight into psql: no file of records is written anywhere.
 # The schema drop and the whole dump commit together or not at all.
-{
+# psql exits 2 when the connection fails — before anything was sent, or
+# part-way, when Neon rolls the transaction back. Either way the standby is as
+# it was, so another try is safe. Any other failure is a failure.
+attempt=1
+while :; do
+  set +e; trap - ERR
+  {
   # Every application schema, not only public: the database also carries
   # `afyahims`, and the dump recreates it — it must not already exist.
   echo "set client_min_messages = warning;"
@@ -103,9 +124,17 @@ log "replacing the standby's contents — one transaction"
         end \$\$;"
   docker compose -f "$REPO/docker-compose.yml" exec -T postgres \
     pg_dump -U "$DB_USERNAME" -d "$DB_DATABASE" --format=plain --no-owner --no-acl
-} | docker run --rm -i -e STANDBY_URL "$PG_IMAGE" \
-      sh -c 'psql "$STANDBY_URL" -v ON_ERROR_STOP=1 --single-transaction -q >/dev/null' \
-  || die "sync FAILED — the standby is unchanged"
+  } | docker run --rm -i -e STANDBY_URL "$PG_IMAGE" \
+        sh -c 'psql "$STANDBY_URL" -v ON_ERROR_STOP=1 --single-transaction -q >/dev/null'
+  status=$?
+  set -e; trap "$ON_ERR" ERR
+  [ "$status" -eq 0 ] && break
+  if [ "$status" -eq 2 ] && [ "$attempt" -lt 3 ]; then
+    log "could not connect to the standby (attempt $attempt of 3) — retrying in 30s"
+    attempt=$((attempt + 1)); sleep 30; continue
+  fi
+  die "sync FAILED — the standby is unchanged"
+done
 
 # ── Verify ──────────────────────────────────────────────────────────────────
 here_counts="$(local_psql -c "$COUNT_SQL")"
