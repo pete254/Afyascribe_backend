@@ -32,10 +32,19 @@ const DRY = process.env.DRY === '1';
 const DOC_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 const LOGO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
+// A stalled download must not hang the run (it did, 26 Oct 2026): each try
+// gets a minute, and a failed one is tried once more.
 async function download(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return Buffer.from(await res.arrayBuffer());
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return Buffer.from(await res.arrayBuffer());
+    } catch (e) {
+      if (attempt >= 2) throw e;
+      console.log(`  retrying after: ${e.message}`);
+    }
+  }
 }
 
 const CLOUD = process.env.CLOUDINARY_CLOUD_NAME;
@@ -55,6 +64,7 @@ async function destroy(publicId, resourceType) {
     `https://api.cloudinary.com/v1_1/${CLOUD}/${resourceType}/destroy`,
     {
       method: 'POST',
+      signal: AbortSignal.timeout(60_000),
       body: new URLSearchParams({
         public_id: publicId,
         timestamp,
@@ -101,6 +111,7 @@ async function main() {
     if (DRY) continue;
     for (const r of rows) {
       try {
+        console.log(`  ${table} ${r.id}`);
         const buf = await download(r.file_url);
         const mime = verifiedType(buf, r.file_type, DOC_TYPES);
         const key = await storeFile(ROOT, kind, r.facility_id, buf, mime);
@@ -127,6 +138,7 @@ async function main() {
     const base = publicApiUrl(process.env);
     for (const f of logos) {
       try {
+        console.log(`  logo of facility ${f.id}`);
         const buf = await download(f.logo_url);
         const type =
           buf[0] === 0x89
