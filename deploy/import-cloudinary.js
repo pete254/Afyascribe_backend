@@ -13,8 +13,12 @@
 // address and id are cleared). A file that fails is reported and left as it
 // was; run again to retry. Safe to re-run: moved rows are skipped.
 //
-// Once it reports nothing left, the Cloudinary account can be closed.
+// Once a file is stored here and its row updated, the readable copy on
+// Cloudinary is deleted (with the CLOUDINARY_* settings still in .env), so the
+// account is left holding only the encrypted backups made by
+// deploy/offsite-uploads.sh. Any copy that could not be deleted is listed.
 
+const { createHash } = require('crypto');
 const { Client } = require('pg');
 const {
   storeFile,
@@ -34,6 +38,37 @@ async function download(url) {
   return Buffer.from(await res.arrayBuffer());
 }
 
+const CLOUD = process.env.CLOUDINARY_CLOUD_NAME;
+const API_KEY = process.env.CLOUDINARY_API_KEY;
+const SECRET = process.env.CLOUDINARY_API_SECRET;
+
+/** Delete the readable copy. PDFs were uploaded as `raw`, images as `image`. */
+async function destroy(publicId, resourceType) {
+  if (!publicId) return;
+  if (!CLOUD || !API_KEY || !SECRET)
+    throw new Error('CLOUDINARY_* not set — delete it by hand');
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const signature = createHash('sha1')
+    .update(`public_id=${publicId}&timestamp=${timestamp}${SECRET}`)
+    .digest('hex');
+  const res = await fetch(
+    `https://api.cloudinary.com/v1_1/${CLOUD}/${resourceType}/destroy`,
+    {
+      method: 'POST',
+      body: new URLSearchParams({
+        public_id: publicId,
+        timestamp,
+        api_key: API_KEY,
+        signature,
+      }),
+    },
+  );
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !['ok', 'not found'].includes(body.result)) {
+    throw new Error(`Cloudinary said ${res.status} ${JSON.stringify(body)}`);
+  }
+}
+
 async function main() {
   const db = new Client({
     host: process.env.DB_HOST,
@@ -45,13 +80,21 @@ async function main() {
   await db.connect();
   let moved = 0;
   const failed = [];
+  const leftOnCloudinary = [];
+  const removeOriginal = async (publicId, resourceType) => {
+    try {
+      await destroy(publicId, resourceType);
+    } catch (e) {
+      leftOnCloudinary.push(`${publicId}: ${e.message}`);
+    }
+  };
 
   for (const [table, kind] of [
     ['patient_documents', 'patients'],
     ['employee_documents', 'staff'],
   ]) {
     const { rows } = await db.query(
-      `select id, facility_id, file_url, file_type from ${table}
+      `select id, facility_id, file_url, file_type, public_id from ${table}
         where storage_key is null and file_url is not null order by created_at`,
     );
     console.log(`${table}: ${rows.length} to move`);
@@ -66,6 +109,10 @@ async function main() {
           [key, mime, r.id],
         );
         moved++;
+        await removeOriginal(
+          r.public_id,
+          r.file_type === 'application/pdf' ? 'raw' : 'image',
+        );
       } catch (e) {
         failed.push(`${table} ${r.id}: ${e.message}`);
       }
@@ -73,7 +120,7 @@ async function main() {
   }
 
   const { rows: logos } = await db.query(
-    `select id, logo_url from facilities where logo_key is null and logo_url like 'https://res.cloudinary.com/%'`,
+    `select id, logo_url, logo_public_id from facilities where logo_key is null and logo_url like 'https://res.cloudinary.com/%'`,
   );
   console.log(`facility logos: ${logos.length} to move`);
   if (!DRY) {
@@ -94,6 +141,7 @@ async function main() {
           [key, `${base}/files/logo/${f.id}?v=${Date.now()}`, f.id],
         );
         moved++;
+        await removeOriginal(f.logo_public_id, 'image');
       } catch (e) {
         failed.push(`facility ${f.id} logo: ${e.message}`);
       }
@@ -104,6 +152,12 @@ async function main() {
   if (DRY) return console.log('dry run — nothing changed');
   console.log(`moved ${moved}; failed ${failed.length}`);
   failed.forEach((f) => console.log(`  FAILED ${f}`));
+  if (leftOnCloudinary.length) {
+    console.log(
+      `  ${leftOnCloudinary.length} readable copy(ies) still on Cloudinary — delete by hand:`,
+    );
+    leftOnCloudinary.forEach((l) => console.log(`  LEFT ${l}`));
+  }
   if (failed.length) process.exit(1);
 }
 

@@ -11,13 +11,22 @@ import * as path from 'path';
  * public URLs anyone holding the link could open, and outside every backup.
  * Here they sit on the Kenyan server (encrypted disk), are served only through
  * the API (signed, expiring links; every opening audited), and are included in
- * the nightly encrypted backup (deploy/backup.sh).
+ * the nightly encrypted backup (deploy/backup.sh), whose off-site copy is each
+ * file encrypted to the backup key and kept on Cloudinary
+ * (deploy/offsite-uploads.sh) — ciphertext only.
  *
  * Plain functions as well as the service, so deploy/import-cloudinary.js can
  * store files exactly as the application does.
  */
 
 export const DEFAULT_UPLOADS_DIR = '/data/uploads';
+
+/**
+ * 9.5 MB. Each file is also kept, encrypted, on Cloudinary's free plan
+ * (deploy/offsite-uploads.sh), which takes at most 10 MB per file; encryption
+ * adds a few kilobytes, so the limit leaves room for it.
+ */
+export const MAX_UPLOAD_BYTES = 9.5 * 1024 * 1024;
 
 /** The types we accept, by the bytes a file starts with — not by what the client claims. */
 const SIGNATURES: Record<string, (b: Buffer) => boolean> = {

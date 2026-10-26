@@ -26,6 +26,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { FilesService } from '../files/files.service';
+import { MAX_UPLOAD_BYTES } from '../files/file-store';
 import { PatientDocument } from './entities/patient-document.entity';
 
 type UploadedMulterFile = {
@@ -37,7 +38,7 @@ type UploadedMulterFile = {
 
 const fileInterceptor = FileInterceptor('file', {
   storage: memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: MAX_UPLOAD_BYTES },
 });
 
 @ApiTags('patient-documents')

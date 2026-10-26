@@ -60,7 +60,10 @@ if [ "${1:-}" = "--install" ]; then
 # AfyaScribe backup settings. See deploy/backup.sh.
 AGE_RECIPIENT=
 STANDBY_URL=
-OFFSITE_USER=${SUDO_USER:-}
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
+OFFSITE_USER=
 RCLONE_REMOTE=
 KEEP_DAYS=14
 EOF
@@ -167,5 +170,11 @@ fi
 # cutover it is expected to refuse: Neon is still production, and ahead.
 if [ -n "${STANDBY_URL:-}" ]; then
   bash "$REPO/deploy/standby-sync.sh" || log "WARNING: the standby was not updated — see the lines above"
+fi
+
+# ── Uploaded files, encrypted, to Cloudinary (when configured) ─────────────
+# The database copies above hold the records; this holds the files they name.
+if [ -n "${AGE_RECIPIENT:-}" ] && [ -n "${CLOUDINARY_CLOUD_NAME:-}" ]; then
+  bash "$REPO/deploy/offsite-uploads.sh" || log "WARNING: not every uploaded file went off-site — see the lines above"
 fi
 log "done"

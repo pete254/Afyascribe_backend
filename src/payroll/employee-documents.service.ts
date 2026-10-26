@@ -4,9 +4,10 @@ import { Repository } from 'typeorm';
 import { EmployeeDocument, EmployeeDocumentCategory } from './entities/employee-document.entity';
 import { Employee } from './entities/employee.entity';
 import { FilesService } from '../files/files.service';
+import { MAX_UPLOAD_BYTES } from '../files/file-store';
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE = MAX_UPLOAD_BYTES;
 
 @Injectable()
 export class EmployeeDocumentsService {
@@ -25,7 +26,7 @@ export class EmployeeDocumentsService {
       throw new BadRequestException('Unsupported file type. Allowed: JPEG, PNG, WebP, PDF');
     }
     if (fileSize > MAX_FILE_SIZE) {
-      throw new BadRequestException('File too large. Maximum size is 10MB');
+      throw new BadRequestException('File too large. Maximum size is 9.5 MB');
     }
   }
 

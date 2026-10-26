@@ -14,6 +14,7 @@ import {
 } from './entities/patient-document.entity';
 import { PatientsService } from '../patients/patients.service';
 import { FilesService } from '../files/files.service';
+import { MAX_UPLOAD_BYTES } from '../files/file-store';
 
 const ALLOWED_MIME_TYPES = [
   'image/jpeg',
@@ -22,7 +23,7 @@ const ALLOWED_MIME_TYPES = [
   'image/webp',
   'application/pdf',
 ];
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE = MAX_UPLOAD_BYTES;
 
 @Injectable()
 export class PatientDocumentsService {
@@ -47,7 +48,7 @@ export class PatientDocumentsService {
       throw new BadRequestException('Unsupported file type. Allowed: JPEG, PNG, WebP, PDF');
     }
     if (fileSize > MAX_FILE_SIZE) {
-      throw new BadRequestException('File too large. Maximum size is 10MB');
+      throw new BadRequestException('File too large. Maximum size is 9.5 MB');
     }
   }
 

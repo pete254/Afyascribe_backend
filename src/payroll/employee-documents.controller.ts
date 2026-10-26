@@ -21,6 +21,7 @@ import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.
 import { EmployeeDocumentsService } from './employee-documents.service';
 import { EmployeeDocumentCategory } from './entities/employee-document.entity';
 import { FilesService } from '../files/files.service';
+import { MAX_UPLOAD_BYTES } from '../files/file-store';
 
 type UploadedMulterFile = {
   buffer: Buffer;
@@ -31,7 +32,7 @@ type UploadedMulterFile = {
 
 const fileInterceptor = FileInterceptor('file', {
   storage: memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: MAX_UPLOAD_BYTES },
 });
 
 function facilityOf(user: CurrentUserType): string {
