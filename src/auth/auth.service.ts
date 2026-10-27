@@ -28,6 +28,7 @@ import { PASSWORD_HASH_ROUNDS } from './password.policy';
 import { randomInt } from 'crypto';
 import { SessionRevocationService } from './session-revocation.service';
 import { maxSessionHours, newSession, refreshedClaims, sessionStart, SessionClaims } from './session';
+import { TotpService } from './totp.service';
 
 /**
  * A one-time code from a cryptographically secure source. These codes are a
@@ -62,7 +63,18 @@ export class AuthService {
     private configService: ConfigService,
     private audit: AuditService,
     private revocations: SessionRevocationService,
+    private totp: TotpService,
   ) {}
+
+  /** For the authenticator-app routes, which change a second factor. */
+  recordMfaChange(
+    event: 'mfa.enrolled' | 'mfa.removed' | 'mfa.reset',
+    ctx: AuthContext,
+    user: { id: string; email: string; role?: string; facilityId?: string | null },
+    detail?: string,
+  ): Promise<void> {
+    return this.trail(event, ctx, { user, statusCode: 200, detail: detail ?? null });
+  }
 
   /**
    * Record an authentication event, never letting the recording break the
@@ -219,6 +231,11 @@ export class AuthService {
    * step is skipped when disabled platform-wide or opted out by the facility.
    */
   private async isOtpRequired(user: any): Promise<boolean> {
+    // An authenticator app, once set up, is always asked for — for every
+    // role, the super administrator included, and whatever the email-code
+    // settings: it does not depend on email, which is why the exemptions
+    // below exist (Information Security Policy E-7).
+    if (this.totp.isEnabled(user)) return true;
     if (user.role === UserRole.SUPER_ADMIN) return false;
     const globalOn = await this.platformSettings.getBool(LOGIN_OTP_ENABLED, true);
     if (!globalOn) return false;
@@ -272,6 +289,15 @@ export class AuthService {
   async login(email: string, password: string, ctx?: AuthContext) {
     const user = await this.assertLoginable(email, password, ctx);
 
+    if (this.totp.isEnabled(user)) {
+      return {
+        otpRequired: true,
+        method: 'totp',
+        email: user.email,
+        message: 'Enter the 6-digit code from your authenticator app.',
+      };
+    }
+
     if (await this.isOtpRequired(user)) {
       const { code, isNew } = await this.issueLoginCode(user);
       // Only email on the first sign-in of the day; later ones point the user to
@@ -279,6 +305,7 @@ export class AuthService {
       if (isNew) await this.sendLoginCode(user, code);
       return {
         otpRequired: true,
+        method: 'email',
         email: user.email,
         message: isNew
           ? "We've emailed you a 6-digit sign-in code. It's valid until midnight."
@@ -294,6 +321,9 @@ export class AuthService {
   /** Resend today's code (or make one if none) after a correct password. */
   async resendLoginCode(email: string, password: string, ctx?: AuthContext): Promise<{ message: string }> {
     const user = await this.assertLoginable(email, password, ctx);
+    if (this.totp.isEnabled(user)) {
+      return { message: 'Your sign-in code comes from your authenticator app, not by email.' };
+    }
     if (!(await this.isOtpRequired(user))) {
       return { message: 'No sign-in code is required for this account.' };
     }
@@ -305,6 +335,31 @@ export class AuthService {
   /** Complete a sign-in with the daily code (password re-checked as the 1st factor). */
   async loginWithCode(email: string, password: string, code: string, ctx?: AuthContext) {
     const user = await this.assertLoginable(email, password, ctx);
+
+    if (this.totp.isEnabled(user)) {
+      try {
+        const via = await this.totp.check(user, code);
+        await this.trail('mfa.success', ctx, {
+          user,
+          statusCode: 200,
+          detail: via === 'app' ? 'authenticator app' : 'backup code',
+        });
+        await this.trail('login.success', ctx, {
+          user,
+          statusCode: 200,
+          detail: via === 'app' ? 'password and authenticator app' : 'password and backup code',
+        });
+        return this.buildAuthResponse(user);
+      } catch (e) {
+        const locked = /Too many/.test((e as Error).message);
+        await this.trail(locked ? 'mfa.locked' : 'mfa.failed', ctx, {
+          user,
+          statusCode: 401,
+          detail: `authenticator app: ${(e as Error).message}`,
+        });
+        throw e;
+      }
+    }
 
     // If OTP isn't in play for this account, the password alone is enough.
     if (!(await this.isOtpRequired(user))) {

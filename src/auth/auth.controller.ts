@@ -1,10 +1,26 @@
 // src/auth/auth.controller.ts
 // UPDATED: Added register-with-invite and validate-invite-code endpoints
-import { Controller, Post, Body, HttpCode, HttpStatus, Get, Param, UseGuards, Req } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  HttpCode,
+  HttpStatus,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  UseGuards,
+  Req,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { LoginDto } from './dto/login.dto';
 import { LoginWithCodeDto } from './dto/login-with-code.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -16,6 +32,9 @@ import { CreateClinicDto } from './dto/create-clinic.dto';
 import { Throttle } from '@nestjs/throttler';
 import { clientIp } from '../common/client-ip';
 import { Public } from './decorators/public.decorator';
+import { TotpService } from './totp.service';
+import { RolesGuard } from './guards/roles.guard';
+import { Roles } from './decorators/roles.decorator';
 
 /** Where the request came from — see common/client-ip.ts for why not the header. */
 const callerIp = clientIp;
@@ -23,12 +42,14 @@ const callerIp = clientIp;
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private totp: TotpService,
+  ) {}
 
   // ── LOGIN ──────────────────────────────────────────────────────────────────
 
   @Public()
-
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -68,14 +89,18 @@ export class AuthController {
       'Ends the session on the server: its tokens are refused from now on, rather than lingering until they expire. Logged.',
   })
   logout(@CurrentUser() user: any, @Req() req: any) {
-    return this.authService.logout(user, { ip: callerIp(req), path: '/auth/logout' });
+    return this.authService.logout(user, {
+      ip: callerIp(req),
+      path: '/auth/logout',
+    });
   }
 
   @Public()
-
   @Post('login-with-code')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Finish sign-in with the daily 6-digit code (2nd factor)' })
+  @ApiOperation({
+    summary: 'Finish sign-in with the daily 6-digit code (2nd factor)',
+  })
   @Throttle({ medium: { limit: 10, ttl: 300_000 } })
   async loginWithCode(@Body() dto: LoginWithCodeDto, @Req() req: any) {
     return this.authService.loginWithCode(dto.email, dto.password, dto.code, {
@@ -85,10 +110,11 @@ export class AuthController {
   }
 
   @Public()
-
   @Post('resend-login-code')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Re-send today’s sign-in code (requires correct password)' })
+  @ApiOperation({
+    summary: 'Re-send today’s sign-in code (requires correct password)',
+  })
   @Throttle({ medium: { limit: 5, ttl: 300_000 } })
   async resendLoginCode(@Body() dto: LoginDto, @Req() req: any) {
     return this.authService.resendLoginCode(dto.email, dto.password, {
@@ -100,7 +126,6 @@ export class AuthController {
   // ── REGISTER WITH INVITE CODE (primary staff sign-up flow) ────────────────
 
   @Public()
-
   @Post('register')
   @ApiOperation({
     summary: 'Register a new staff account using a facility invite code',
@@ -136,7 +161,6 @@ export class AuthController {
   // ── VALIDATE INVITE CODE (call before showing sign-up form) ───────────────
 
   @Public()
-
   @Get('validate-invite/:code')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -162,7 +186,6 @@ export class AuthController {
   // ── PASSWORD RESET ─────────────────────────────────────────────────────────
 
   @Public()
-
   @Post('request-reset-code')
   @Throttle({ medium: { limit: 5, ttl: 300_000 } })
   @HttpCode(HttpStatus.OK)
@@ -175,7 +198,6 @@ export class AuthController {
   }
 
   @Public()
-
   @Post('verify-reset-code')
   @Throttle({ medium: { limit: 5, ttl: 300_000 } })
   @HttpCode(HttpStatus.OK)
@@ -185,25 +207,126 @@ export class AuthController {
   }
 
   @Public()
-
   @Post('reset-password-with-code')
   @Throttle({ medium: { limit: 5, ttl: 300_000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset password using verified 6-digit code' })
-  async resetPasswordWithCode(@Body() dto: ResetPasswordWithCodeDto, @Req() req: any) {
-    return this.authService.resetPasswordWithCode(dto.email, dto.code, dto.newPassword, {
-      ip: callerIp(req),
-      path: '/auth/reset-password-with-code',
-    });
+  async resetPasswordWithCode(
+    @Body() dto: ResetPasswordWithCodeDto,
+    @Req() req: any,
+  ) {
+    return this.authService.resetPasswordWithCode(
+      dto.email,
+      dto.code,
+      dto.newPassword,
+      {
+        ip: callerIp(req),
+        path: '/auth/reset-password-with-code',
+      },
+    );
   }
 
   // ── CREATE CLINIC (facility owner setup) ────────────────────────────────────
 
   @Public()
-
   @Post('create-clinic')
-  @ApiOperation({ summary: 'Create a new clinic and owner account in one step' })
+  @ApiOperation({
+    summary: 'Create a new clinic and owner account in one step',
+  })
   async createClinic(@Body() dto: CreateClinicDto) {
     return this.authService.createClinic(dto);
+  }
+
+  // ── AUTHENTICATOR APP (TOTP) ───────────────────────────────────────────────
+  // The second factor that does not depend on email. Set up and removed by the
+  // signed-in user; reset by an administrator for a lost phone. Every change
+  // is in the audit ledger.
+
+  @Get('totp')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Whether your authenticator app is set up' })
+  totpStatus(@CurrentUser() user: any) {
+    return this.totp.status(user.id);
+  }
+
+  @Post('totp/setup')
+  @ApiBearerAuth('JWT-auth')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Start setting up an authenticator app',
+    description:
+      'Returns the secret as an otpauth:// link (for a QR code) and as text. Finish with /auth/totp/confirm.',
+  })
+  totpSetup(@CurrentUser() user: any) {
+    return this.totp.begin(user.id);
+  }
+
+  @Post('totp/confirm')
+  @ApiBearerAuth('JWT-auth')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ medium: { limit: 10, ttl: 300_000 } })
+  @ApiOperation({
+    summary:
+      'Finish set-up with a code from the app; returns ten backup codes, shown once',
+  })
+  async totpConfirm(
+    @CurrentUser() user: any,
+    @Body() body: { code?: string },
+    @Req() req: any,
+  ) {
+    const result = await this.totp.confirm(user.id, String(body?.code ?? ''));
+    await this.authService.recordMfaChange(
+      'mfa.enrolled',
+      { ip: callerIp(req), path: '/auth/totp/confirm' },
+      user,
+    );
+    return result;
+  }
+
+  @Post('totp/remove')
+  @ApiBearerAuth('JWT-auth')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ medium: { limit: 10, ttl: 300_000 } })
+  @ApiOperation({
+    summary:
+      'Remove your authenticator app, with a current code or a backup code',
+  })
+  async totpRemove(
+    @CurrentUser() user: any,
+    @Body() body: { code?: string },
+    @Req() req: any,
+  ) {
+    await this.totp.remove(user.id, String(body?.code ?? ''));
+    await this.authService.recordMfaChange(
+      'mfa.removed',
+      { ip: callerIp(req), path: '/auth/totp/remove' },
+      user,
+    );
+    return { message: 'Authenticator app removed.' };
+  }
+
+  @Post('totp/reset/:userId')
+  @ApiBearerAuth('JWT-auth')
+  @UseGuards(RolesGuard)
+  @Roles('facility_admin', 'super_admin')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Reset a staff member's authenticator app (lost phone)",
+    description:
+      'Facility administrators, for their own staff. They can set it up again once signed in.',
+  })
+  async totpReset(
+    @CurrentUser() admin: any,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Req() req: any,
+  ) {
+    const target = await this.totp.reset(admin, userId);
+    await this.authService.recordMfaChange(
+      'mfa.reset',
+      { ip: callerIp(req), path: '/auth/totp/reset' },
+      admin,
+      `for ${target.email}`,
+    );
+    return { message: `Authenticator app reset for ${target.email}.` };
   }
 }

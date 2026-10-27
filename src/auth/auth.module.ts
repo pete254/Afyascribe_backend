@@ -21,6 +21,8 @@ import { AuditModule } from '../audit/audit.module';
 import { RevokedSession } from './entities/revoked-session.entity';
 import { SessionRevocationService } from './session-revocation.service';
 import { jwtModuleOptions } from './jwt-keys';
+import { User } from '../users/entities/user.entity';
+import { TotpService } from './totp.service';
 
 @Module({
   imports: [
@@ -30,7 +32,7 @@ import { jwtModuleOptions } from './jwt-keys';
     FacilitiesModule,
     PlatformModule,
     AuditModule,
-    TypeOrmModule.forFeature([EmergencyAccess, Patient, RevokedSession]),
+    TypeOrmModule.forFeature([EmergencyAccess, Patient, RevokedSession, User]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       // Signing keys and algorithm: jwt-keys.ts (ES256 when keys are set).
@@ -51,6 +53,7 @@ import { jwtModuleOptions } from './jwt-keys';
     JwtStrategy,
     EmergencyAccessService,
     SessionRevocationService,
+    TotpService,
     // One global guard: sign-in by default, facility isolation, and the
     // restricted-record lock, in that order (guards/access.guard.ts).
     RestrictedPatientGuard,

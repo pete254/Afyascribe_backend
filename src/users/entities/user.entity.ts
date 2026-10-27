@@ -162,6 +162,32 @@ export class User {
   @Column({ type: 'int', default: 0 })
   loginCodeAttempts: number;
 
+  // ── Authenticator app (TOTP) ───────────────────────────────────────────────
+  // See auth/totp.service.ts. Secrets are stored sealed (AES-256-GCM), never
+  // in the clear; backup codes only as hashes.
+  @Column({ name: 'totp_secret', type: 'text', nullable: true })
+  totpSecret: string | null;
+
+  /** A secret being set up, not yet confirmed with a code. */
+  @Column({ name: 'totp_pending_secret', type: 'text', nullable: true })
+  totpPendingSecret: string | null;
+
+  @Column({ name: 'totp_enabled_at', type: 'timestamptz', nullable: true })
+  totpEnabledAt: Date | null;
+
+  /** The last time step accepted, so no code is accepted twice. */
+  @Column({ name: 'totp_last_step', type: 'int', nullable: true })
+  totpLastStep: number | null;
+
+  @Column({ name: 'totp_backup_codes', type: 'jsonb', nullable: true })
+  totpBackupCodes: string[] | null;
+
+  @Column({ name: 'totp_failed_attempts', type: 'int', default: 0 })
+  totpFailedAttempts: number;
+
+  @Column({ name: 'totp_locked_until', type: 'timestamptz', nullable: true })
+  totpLockedUntil: Date | null;
+
   // ── Timestamps ─────────────────────────────────────────────────────────────
   @CreateDateColumn()
   createdAt: Date;
@@ -172,4 +198,38 @@ export class User {
   // ── Relations ──────────────────────────────────────────────────────────────
   @OneToMany(() => SoapNote, (soapNote: SoapNote) => soapNote.createdBy)
   soapNotes: SoapNote[];
+
+  /**
+   * What a user looks like in any response. Users are loaded as relations all
+   * over the API — a document's uploader, a note's author — and returned as
+   * part of other records; without this, every such response carried the
+   * user's password hash, today's emailed sign-in code and any pending
+   * password-reset code, the last of which is enough to take the account
+   * over. Removing them here covers every route at once, including ones not
+   * yet written.
+   */
+  toJSON(): Record<string, unknown> {
+    const out = { ...this } as Record<string, unknown>;
+    for (const k of USER_SECRET_FIELDS) delete out[k];
+    return out;
+  }
 }
+
+/** Never sent to a client (User.toJSON). */
+export const USER_SECRET_FIELDS = [
+  'password',
+  'resetPasswordToken',
+  'resetPasswordExpires',
+  'resetCode',
+  'resetCodeExpiresAt',
+  'resetCodeAttempts',
+  'loginCode',
+  'loginCodeExpiresAt',
+  'loginCodeAttempts',
+  'totpSecret',
+  'totpPendingSecret',
+  'totpLastStep',
+  'totpBackupCodes',
+  'totpFailedAttempts',
+  'totpLockedUntil',
+] as const;

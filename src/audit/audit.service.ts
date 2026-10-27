@@ -52,6 +52,9 @@ export type AuthEventName =
   | 'mfa.success'
   | 'mfa.failed'
   | 'mfa.locked'
+  | 'mfa.enrolled'
+  | 'mfa.removed'
+  | 'mfa.reset'
   | 'password.changed'
   | 'password.reset_requested'
   | 'password.reset_completed'
@@ -66,6 +69,9 @@ const AUTH_EVENT_LABEL: Record<AuthEventName, string> = {
   'mfa.success': 'Second factor accepted',
   'mfa.failed': 'Second factor rejected',
   'mfa.locked': 'Locked out after repeated second-factor failures',
+  'mfa.enrolled': 'Authenticator app set up',
+  'mfa.removed': 'Authenticator app removed by its user',
+  'mfa.reset': "Authenticator app reset by an administrator",
   'password.changed': 'Password changed',
   'password.reset_requested': 'Password reset requested',
   'password.reset_completed': 'Password reset completed',

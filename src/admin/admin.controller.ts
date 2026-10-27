@@ -44,7 +44,6 @@ export class AdminController {
   // ── BOOTSTRAP (no auth, one-time use) ─────────────────────────────────────
 
   @Public()
-
   @Post('bootstrap')
   @ApiOperation({
     summary: 'Bootstrap first super_admin account (one-time only)',

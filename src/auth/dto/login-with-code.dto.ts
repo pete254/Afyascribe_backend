@@ -10,8 +10,11 @@ export class LoginWithCodeDto {
   @IsString()
   password: string;
 
-  @ApiProperty({ description: '6-digit sign-in code emailed to the user' })
+  @ApiProperty({
+    description:
+      'The 6-digit code — emailed, or from the authenticator app — or, with an authenticator app, one of its backup codes (e.g. ABCD-EFGH)',
+  })
   @IsString()
-  @Length(6, 6)
+  @Length(6, 12)
   code: string;
 }
