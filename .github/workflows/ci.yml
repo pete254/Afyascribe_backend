@@ -1,0 +1,29 @@
+# Build, test and dependency scan on every push, and weekly, so that an
+# advisory published against code that has not changed is still seen.
+name: ci
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '0 5 * * 1' # Mondays 08:00 EAT
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install -g npm@11.19.1
+      - run: npm ci
+      - name: Dependency scan (production, high and above)
+        run: npm audit --omit=dev --audit-level=high
+      - run: npm run build
+      - run: npx jest

@@ -6,6 +6,14 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
+# Dependency scan: no image is built while a production dependency has a known
+# high or critical vulnerability. Fix it (npm audit fix, or an override in
+# package.json). Only to ship an urgent fix while an advisory has no fixed
+# version yet, build with --build-arg SKIP_AUDIT=1 — and record why.
+ARG SKIP_AUDIT=0
+RUN if [ "$SKIP_AUDIT" = "1" ]; then echo "!! dependency audit SKIPPED"; \
+    else npm audit --omit=dev --audit-level=high; fi
+
 COPY . .
 RUN npm run build
 

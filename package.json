@@ -33,12 +33,12 @@
   "dependencies": {
     "@nestjs/axios": "^4.0.1",
     "@nestjs/cli": "^11.0.0",
-    "@nestjs/common": "^11.0.1",
+    "@nestjs/common": "^11.2.8",
     "@nestjs/config": "^4.0.2",
-    "@nestjs/core": "^11.0.1",
+    "@nestjs/core": "^11.2.8",
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/passport": "^11.0.5",
-    "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/platform-express": "^11.2.8",
     "@nestjs/schedule": "^6.1.0",
     "@nestjs/swagger": "^11.2.0",
     "@nestjs/throttler": "^6.7.1",
@@ -50,7 +50,7 @@
     "cron": "^4.4.0",
     "form-data": "^4.0.4",
     "helmet": "^8.3.0",
-    "multer": "^2.1.1",
+    "multer": "^2.5.0",
     "node-fetch": "^2.7.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
@@ -66,7 +66,7 @@
     "@eslint/eslintrc": "^3.2.0",
     "@eslint/js": "^9.18.0",
     "@nestjs/schematics": "^11.0.0",
-    "@nestjs/testing": "^11.0.1",
+    "@nestjs/testing": "^11.2.8",
     "@types/axios": "^0.14.4",
     "@types/bcrypt": "^6.0.0",
     "@types/estree": "^1.0.8",
@@ -113,6 +113,7 @@
   "overrides": {
     "@nestjs/swagger": {
       "js-yaml": "^5.5.0"
-    }
+    },
+    "multer": "$multer"
   }
 }
