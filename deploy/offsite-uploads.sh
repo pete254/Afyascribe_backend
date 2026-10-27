@@ -22,8 +22,11 @@
 #   CLOUDINARY_API_SECRET   }
 #   PURGE_DAYS              days a deleted file's copy is kept (default 30)
 #
-# Each file is sent once, under its own name (afyascribe-backup/<key>.age);
-# /var/lib/afyascribe/offsite-uploads.sent lists what has been sent.
+# Each file is sent once, as afyascribe-backup/<key>.age. What is already
+# off-site is read from Cloudinary itself each night, not from a list kept
+# here, so a copy that never arrived is sent again. (Copies sent before 27 Oct
+# 2026 carry a random tail after ".age", added by Cloudinary from the
+# temporary file's name; they are recognised by the part before it.)
 #
 # Deleted files (Data Retention Policy R-3). When a file is deleted here — by a
 # user, or when its record is disposed of — its copy is kept PURGE_DAYS more,
@@ -44,7 +47,6 @@ cd "$(dirname "$0")/.."
 REPO="$(pwd)"
 CONF=/etc/afyascribe/backup.env
 STATE_DIR=/var/lib/afyascribe
-SENT="$STATE_DIR/offsite-uploads.sent"
 MISSING="$STATE_DIR/offsite-uploads.missing"
 REPORTS=/var/backups/afyascribe/restore-tests
 PREFIX=afyascribe-backup
@@ -76,8 +78,9 @@ server_files() {
   grep -E "$KEY_RE" <<<"$all" || true
 }
 
-# Every off-site copy, "<storage key> <download address>" per line. Fails,
-# rather than returning a short list, if Cloudinary cannot be read.
+# Every off-site copy, "<storage key> <Cloudinary public id> <download address>"
+# per line. Fails, rather than returning a short list, if Cloudinary cannot be
+# read.
 offsite_files() {
   local cursor="" page
   while :; do
@@ -86,9 +89,12 @@ offsite_files() {
     page="$(printf 'user = "%s:%s"\n' "$CLOUDINARY_API_KEY" "$CLOUDINARY_API_SECRET" \
       | curl -sSf --max-time 60 -K- "$API/resources/raw/upload?prefix=$PREFIX/&max_results=500${cursor:+&next_cursor=$cursor}")"
     printf '%s' "$page" | python3 -c 'import sys, json
+pre = sys.argv[1] + "/"
 for r in json.load(sys.stdin)["resources"]:
-    print(r["public_id"][len(sys.argv[1]) + 1:-len(".age")], r["secure_url"])' "$PREFIX" \
-      | grep -E "^[^ ]+ " | while read -r key url; do [[ "$key" =~ $KEY_RE ]] && echo "$key $url"; done || true
+    pid = r["public_id"]
+    if pid.startswith(pre) and ".age" in pid:
+        print(pid[len(pre):pid.rindex(".age")], pid, r["secure_url"])' "$PREFIX" \
+      | while read -r key pid url; do [[ "$key" =~ $KEY_RE ]] && echo "$key $pid $url"; done || true
     cursor="$(printf '%s' "$page" | python3 -c 'import sys, json; print(json.load(sys.stdin).get("next_cursor") or "")')"
     [ -n "$cursor" ] || break
   done
@@ -104,7 +110,7 @@ if [ "${1:-}" = "--restore" ]; then
   ask_key
   restored=0; present=0; failed=0
   here="$(server_files)"
-  while read -r key url; do
+  while read -r key pid url; do
     [ -n "$key" ] || continue
     if grep -qxF "$key" <<<"$here"; then present=$((present + 1)); continue; fi
     # Written under a temporary name and renamed, as the application does.
@@ -136,7 +142,7 @@ if [ "${1:-}" = "--test" ]; then
     echo "Files on this server: $(grep -c . <<<"$here" || true); copies on Cloudinary: $(grep -c . <<<"$offsite" || true)"
     echo
   } >"$REPORT"
-  while read -r key url; do
+  while read -r key pid url; do
     [ -n "$key" ] || continue
     got="$(curl -sSf --max-time 120 "$url" </dev/null | age -d -i <(printf '%s\n' "$KEY") | sha256sum | cut -d' ' -f1)" \
       || { echo "UNREADABLE  $key" >>"$REPORT"; unreadable=$((unreadable + 1)); continue; }
@@ -154,7 +160,7 @@ if [ "${1:-}" = "--test" ]; then
   unset KEY
   while read -r key; do
     [ -n "$key" ] || continue
-    grep -q "^$key " <<<"$offsite" || { echo "NOT YET OFF-SITE  $key (sent by the next nightly run)" >>"$REPORT"; not_sent=$((not_sent + 1)); }
+    awk -v k="$key" '$1 == k {f = 1} END {exit !f}' <<<"$offsite" || { echo "NOT YET OFF-SITE  $key (sent by the next nightly run)" >>"$REPORT"; not_sent=$((not_sent + 1)); }
   done <<<"$here"
   result=PASS; { [ "$differ" -eq 0 ] && [ "$unreadable" -eq 0 ] && [ "$match" -gt 0 ]; } || result=FAIL
   {
@@ -172,15 +178,16 @@ fi
 # ── Send new files ──────────────────────────────────────────────────────────
 [ -n "${AGE_RECIPIENT:-}" ] || die "AGE_RECIPIENT is not set in $CONF — files are only ever sent encrypted."
 install -d -m 700 "$STATE_DIR"
-touch "$SENT" "$MISSING"; chmod 600 "$SENT" "$MISSING"
+touch "$MISSING"; chmod 600 "$MISSING"
 TMP="$(mktemp /var/tmp/afyascribe-upload.XXXXXX)"
 trap 'rm -f "$TMP"' EXIT
 
 here="$(server_files)"
+offsite="$(offsite_files)"
 sent=0; skipped=0; failed=0
 while read -r key; do
   [ -n "$key" ] || continue
-  grep -qxF "$key" "$SENT" && { skipped=$((skipped + 1)); continue; }
+  awk -v k="$key" '$1 == k {f = 1} END {exit !f}' <<<"$offsite" && { skipped=$((skipped + 1)); continue; }
   # Encrypted as it is read: the plain file never leaves the container
   # unencrypted, and only ciphertext is written here.
   if ! in_backend cat "/data/uploads/$key" </dev/null | age -r "$AGE_RECIPIENT" -o "$TMP"; then
@@ -190,11 +197,13 @@ while read -r key; do
   if [ "$size" -gt "$LIMIT" ]; then
     log "FAILED $key: $size bytes encrypted, over Cloudinary's 10 MB per-file limit"; failed=$((failed + 1)); continue
   fi
-  pid="$PREFIX/$key.age"; ts=$(date +%s)
+  # Cloudinary appends the uploaded file's extension to a raw file's public
+  # id, so the id is given without one and the file is named "….age".
+  pid="$PREFIX/$key"; ts=$(date +%s)
   if curl -sSf --max-time 300 -o /dev/null "$API/raw/upload" \
-       -F "file=@$TMP" -F "public_id=$pid" -F "timestamp=$ts" \
+       -F "file=@$TMP;filename=copy.age" -F "public_id=$pid" -F "timestamp=$ts" \
        -F "api_key=$CLOUDINARY_API_KEY" -F "signature=$(sign "public_id=$pid&timestamp=$ts")"; then
-    printf '%s\n' "$key" >> "$SENT"; sent=$((sent + 1))
+    sent=$((sent + 1))
   else
     log "FAILED to send $key"; failed=$((failed + 1))
   fi
@@ -202,9 +211,8 @@ done <<<"$here"
 log "sent $sent new file(s), encrypted; $skipped already off-site; $failed failed"
 
 # ── Purge copies of files deleted more than PURGE_DAYS ago ─────────────────
-offsite="$(offsite_files | cut -d' ' -f1)"
 total=$(grep -c . <<<"$offsite" || true)
-gone="$(comm -23 <(sort -u <<<"$offsite" | grep .) <(sort -u <<<"$here" | grep .) || true)"
+gone="$(comm -23 <(cut -d' ' -f1 <<<"$offsite" | sort -u | grep .) <(sort -u <<<"$here" | grep .) || true)"
 ngone=$(grep -c . <<<"$gone" || true)
 # More than a fifth of the copies (and more than five) at once, or every one
 # of them, is not a deletion; leave everything, and say so.
@@ -221,12 +229,12 @@ while read -r key; do
   if [ $((now - since)) -lt $((PURGE_DAYS * 86400)) ]; then
     printf '%s %s\n' "$key" "$since" >>"$MISSING.new"; waiting=$((waiting + 1)); continue
   fi
-  pid="$PREFIX/$key.age"; ts=$(date +%s)
+  # The copy's own id, which for older copies carries the extra tail.
+  pid="$(awk -v k="$key" '$1 == k {print $2; exit}' <<<"$offsite")"; ts=$(date +%s)
   resp="$(curl -sS --max-time 60 "$API/raw/destroy" \
             -F "public_id=$pid" -F "timestamp=$ts" -F "api_key=$CLOUDINARY_API_KEY" \
             -F "signature=$(sign "public_id=$pid&timestamp=$ts")" </dev/null || true)"
   if grep -qE '"result" *: *"(ok|not found)"' <<<"$resp"; then
-    grep -vxF "$key" "$SENT" >"$SENT.new" || true; mv "$SENT.new" "$SENT"; chmod 600 "$SENT"
     purged=$((purged + 1))
   else
     log "FAILED to purge $key: ${resp:-no answer}"; failed=$((failed + 1))
