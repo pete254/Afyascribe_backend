@@ -18,6 +18,9 @@ import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.
 import { FhirService } from './fhir.service';
 import { HieFhirClient } from './hie-fhir.client';
 import { FHIR_JSON } from './fhir-systems';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Facility } from '../facilities/entities/facility.entity';
 
 @ApiTags('fhir')
 @ApiBearerAuth('JWT-auth')
@@ -27,6 +30,7 @@ export class FhirController {
   constructor(
     private readonly fhir: FhirService,
     private readonly hie: HieFhirClient,
+    @InjectRepository(Facility) private readonly facilities: Repository<Facility>,
   ) {}
 
   @Get('Patient/:id')
@@ -127,13 +131,33 @@ export class FhirController {
     description:
       'Check this before asking for consent. A visit that comes back already holds an open consent — carry on with it and refresh its token rather than putting the patient through another OTP.',
   })
-  openVisits(@Query('patientId') patientId: string, @Query('facilityId') facilityId: string) {
-    if (!patientId?.trim() || !facilityId?.trim()) {
+  async openVisits(
+    @Query('patientId') patientId: string,
+    @Query('facilityCode') facilityCode: string | undefined,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    // The Facility Registry code is the caller's own facility's, from its
+    // record. Only the platform super administrator, who belongs to no
+    // facility, may name one; anyone else asking about another facility's
+    // visits at the HIE is not something a facility user should be able to do.
+    let code = facilityCode?.trim();
+    if (user.role !== 'super_admin') {
+      const facility = user.facilityId
+        ? await this.facilities.findOne({ where: { id: user.facilityId } })
+        : null;
+      code = facility?.kmhflCode?.trim();
+      if (!code) {
+        throw new BadRequestException(
+          "Your facility has no KMHFL code on record. Add it in Settings before using the HIE.",
+        );
+      }
+    }
+    if (!patientId?.trim() || !code) {
       throw new BadRequestException(
         "Both the patient's Client Registry id and the facility's Facility Registry code are required.",
       );
     }
-    return this.hie.openVisits(patientId.trim(), facilityId.trim());
+    return this.hie.openVisits(patientId.trim(), code);
   }
 
   @Post('shr/consents')

@@ -17,6 +17,7 @@ import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.
 import { SupportRequestsService } from './support-requests.service';
 import { CreateSupportRequestDto, ResolveSupportRequestDto } from './dto/platform.dto';
 import { SupportRequestStatus } from './entities/support-request.entity';
+import { Public } from '../auth/decorators/public.decorator';
 
 @ApiTags('platform')
 @Controller('support-requests')
@@ -27,6 +28,7 @@ export class SupportRequestsController {
    * Public: a hospital asks for a creation code, support or general contact.
    * Deliberately unguarded — it is the front door before anyone has an account.
    */
+  @Public()
   @Post()
   @ApiOperation({ summary: 'Submit a code request / support / contact message' })
   create(@Body() dto: CreateSupportRequestDto) {

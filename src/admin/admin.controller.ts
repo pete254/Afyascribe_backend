@@ -31,6 +31,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.decorator';
 import { PASSWORD_HASH_ROUNDS } from '../auth/password.policy';
+import { Public } from '../auth/decorators/public.decorator';
 
 @ApiTags('admin')
 @Controller('admin')
@@ -41,6 +42,8 @@ export class AdminController {
   ) {}
 
   // ── BOOTSTRAP (no auth, one-time use) ─────────────────────────────────────
+
+  @Public()
 
   @Post('bootstrap')
   @ApiOperation({

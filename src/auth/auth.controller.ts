@@ -15,6 +15,7 @@ import { UseInviteCodeDto } from '../facilities/dto/use-invite-code.dto';
 import { CreateClinicDto } from './dto/create-clinic.dto';
 import { Throttle } from '@nestjs/throttler';
 import { clientIp } from '../common/client-ip';
+import { Public } from './decorators/public.decorator';
 
 /** Where the request came from — see common/client-ip.ts for why not the header. */
 const callerIp = clientIp;
@@ -25,6 +26,8 @@ export class AuthController {
   constructor(private authService: AuthService) {}
 
   // ── LOGIN ──────────────────────────────────────────────────────────────────
+
+  @Public()
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -68,6 +71,8 @@ export class AuthController {
     return this.authService.logout(user, { ip: callerIp(req), path: '/auth/logout' });
   }
 
+  @Public()
+
   @Post('login-with-code')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Finish sign-in with the daily 6-digit code (2nd factor)' })
@@ -78,6 +83,8 @@ export class AuthController {
       path: '/auth/login-with-code',
     });
   }
+
+  @Public()
 
   @Post('resend-login-code')
   @HttpCode(HttpStatus.OK)
@@ -91,6 +98,8 @@ export class AuthController {
   }
 
   // ── REGISTER WITH INVITE CODE (primary staff sign-up flow) ────────────────
+
+  @Public()
 
   @Post('register')
   @ApiOperation({
@@ -126,6 +135,8 @@ export class AuthController {
 
   // ── VALIDATE INVITE CODE (call before showing sign-up form) ───────────────
 
+  @Public()
+
   @Get('validate-invite/:code')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -150,6 +161,8 @@ export class AuthController {
 
   // ── PASSWORD RESET ─────────────────────────────────────────────────────────
 
+  @Public()
+
   @Post('request-reset-code')
   @Throttle({ medium: { limit: 5, ttl: 300_000 } })
   @HttpCode(HttpStatus.OK)
@@ -161,6 +174,8 @@ export class AuthController {
     });
   }
 
+  @Public()
+
   @Post('verify-reset-code')
   @Throttle({ medium: { limit: 5, ttl: 300_000 } })
   @HttpCode(HttpStatus.OK)
@@ -168,6 +183,8 @@ export class AuthController {
   async verifyResetCode(@Body() dto: VerifyResetCodeDto) {
     return this.authService.verifyResetCode(dto.email, dto.code);
   }
+
+  @Public()
 
   @Post('reset-password-with-code')
   @Throttle({ medium: { limit: 5, ttl: 300_000 } })
@@ -181,6 +198,8 @@ export class AuthController {
   }
 
   // ── CREATE CLINIC (facility owner setup) ────────────────────────────────────
+
+  @Public()
 
   @Post('create-clinic')
   @ApiOperation({ summary: 'Create a new clinic and owner account in one step' })

@@ -16,6 +16,7 @@ import { PlatformModule } from '../platform/platform.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_GUARD } from '@nestjs/core';
 import { RestrictedPatientGuard } from './guards/restricted-patient.guard';
+import { AccessGuard } from './guards/access.guard';
 import { AuditModule } from '../audit/audit.module';
 import { RevokedSession } from './entities/revoked-session.entity';
 import { SessionRevocationService } from './session-revocation.service';
@@ -50,7 +51,10 @@ import { SessionRevocationService } from './session-revocation.service';
     JwtStrategy,
     EmergencyAccessService,
     SessionRevocationService,
-    { provide: APP_GUARD, useClass: RestrictedPatientGuard },
+    // One global guard: sign-in by default, facility isolation, and the
+    // restricted-record lock, in that order (guards/access.guard.ts).
+    RestrictedPatientGuard,
+    { provide: APP_GUARD, useClass: AccessGuard },
   ],
   controllers: [AuthController, EmergencyAccessController],
   exports: [AuthService, EmergencyAccessService],

@@ -20,6 +20,7 @@ import { EmployeeDocument } from '../payroll/entities/employee-document.entity';
 import { User } from '../users/entities/user.entity';
 import { FileKind, linkValid } from './file-links';
 import { FilesService } from './files.service';
+import { Public } from '../auth/decorators/public.decorator';
 
 /**
  * Serves uploaded files. No sign-in token here — the apps open these links
@@ -32,6 +33,7 @@ import { FilesService } from './files.service';
  * documents exist.
  */
 @ApiExcludeController()
+@Public()
 @Controller('files')
 export class FilesController {
   constructor(

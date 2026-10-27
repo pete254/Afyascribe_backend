@@ -20,6 +20,7 @@ import {
   CreateSelfRegistrationDto,
 } from './dto/self-registration.dto';
 import { SelfRegStatus } from './entities/self-registration.entity';
+import { Public } from '../auth/decorators/public.decorator';
 
 /**
  * Two halves with very different exposure:
@@ -39,12 +40,14 @@ export class SelfRegistrationController {
   // ── Public (patient's phone) ──────────────────────────────────────────────
 
   /** Confirms to the patient which facility the QR belongs to. Name and logo only. */
+  @Public()
   @Get('facility/:code')
   @ApiOperation({ summary: 'Public: resolve a facility code from the poster QR' })
   facility(@Param('code') code: string) {
     return this.svc.facilityByCode(code);
   }
 
+  @Public()
   @Post()
   @ApiOperation({ summary: 'Public: a patient pre-registers from their phone' })
   create(@Body() dto: CreateSelfRegistrationDto) {
