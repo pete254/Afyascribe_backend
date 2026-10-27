@@ -18,6 +18,7 @@ import { FacilityCodesController } from './facility-codes.controller';
 import { PlatformFacilitiesController } from './platform-facilities.controller';
 import { SupportRequestsController } from './support-requests.controller';
 import { PlatformSettingsController } from './platform-settings.controller';
+import { jwtModuleOptions } from '../auth/jwt-keys';
 
 /**
  * The AfyaScribe platform (super_admin) surface: issuing facility-creation
@@ -31,10 +32,8 @@ import { PlatformSettingsController } from './platform-settings.controller';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET'),
-        signOptions: { expiresIn: config.get('JWT_EXPIRES_IN', '7d') },
-      }),
+      useFactory: (config: ConfigService) =>
+        jwtModuleOptions(config, config.get<string>('JWT_EXPIRES_IN', '7d')),
     }),
   ],
   controllers: [

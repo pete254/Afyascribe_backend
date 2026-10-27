@@ -20,6 +20,7 @@ import { AccessGuard } from './guards/access.guard';
 import { AuditModule } from '../audit/audit.module';
 import { RevokedSession } from './entities/revoked-session.entity';
 import { SessionRevocationService } from './session-revocation.service';
+import { jwtModuleOptions } from './jwt-keys';
 
 @Module({
   imports: [
@@ -32,17 +33,16 @@ import { SessionRevocationService } from './session-revocation.service';
     TypeOrmModule.forFeature([EmergencyAccess, Patient, RevokedSession]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET'),
-        // Automatic logoff. A session lapses after this long without the
-        // client refreshing it, so an unattended terminal does not stay open.
-        // Configurable, because a ward and a back office are not the same risk.
-        signOptions: {
-          // In seconds, so the value is a plain number rather than a duration
-          // string the type system has opinions about.
-          expiresIn: Math.max(5, Number(configService.get<string>('AUTH_SESSION_MINUTES') ?? 60)) * 60,
-        },
-      }),
+      // Signing keys and algorithm: jwt-keys.ts (ES256 when keys are set).
+      useFactory: (configService: ConfigService) =>
+        jwtModuleOptions(
+          configService,
+          // Automatic logoff. A session lapses after this long without the
+          // client refreshing it, so an unattended terminal does not stay
+          // open. Configurable, because a ward and a back office are not the
+          // same risk. In seconds, a plain number.
+          Math.max(5, Number(configService.get<string>('AUTH_SESSION_MINUTES') ?? 60)) * 60,
+        ),
       inject: [ConfigService],
     }),
   ],

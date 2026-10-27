@@ -14,6 +14,7 @@ import { EmployeeDocumentsService } from './employee-documents.service';
 import { EmployeeDocumentsController } from './employee-documents.controller';
 import { AccountingModule } from '../accounting/accounting.module';
 import { FilesModule } from '../files/files.module';
+import { jwtModuleOptions } from '../auth/jwt-keys';
 
 /**
  * Human Resource / payroll: employees, statutory-aware payroll runs, and the
@@ -27,10 +28,8 @@ import { FilesModule } from '../files/files.module';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET'),
-        signOptions: { expiresIn: config.get('JWT_EXPIRES_IN', '7d') },
-      }),
+      useFactory: (config: ConfigService) =>
+        jwtModuleOptions(config, config.get<string>('JWT_EXPIRES_IN', '7d')),
     }),
   ],
   controllers: [PayrollController, EmployeeDocumentsController],

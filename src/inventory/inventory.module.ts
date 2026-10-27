@@ -31,6 +31,7 @@ import { SupplierInvoiceService } from './supplier-invoice.service';
 import { InventoryController, ProcurementController } from './inventory.controller';
 import { AccountingModule } from '../accounting/accounting.module';
 import { TerminologyModule } from '../terminology/terminology.module';
+import { jwtModuleOptions } from '../auth/jwt-keys';
 
 /**
  * Inventory + procurement: item master and moving-average stock ledger, plus
@@ -65,10 +66,8 @@ import { TerminologyModule } from '../terminology/terminology.module';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET'),
-        signOptions: { expiresIn: config.get('JWT_EXPIRES_IN', '7d') },
-      }),
+      useFactory: (config: ConfigService) =>
+        jwtModuleOptions(config, config.get<string>('JWT_EXPIRES_IN', '7d')),
     }),
   ],
   controllers: [InventoryController, ProcurementController],

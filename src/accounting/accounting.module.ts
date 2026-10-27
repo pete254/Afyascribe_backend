@@ -15,6 +15,7 @@ import { FinancialReportsService } from './financial-reports.service';
 import { BankReconciliationService } from './bank-reconciliation.service';
 import { AccountingController } from './accounting.controller';
 import { BankReconciliationController } from './bank-reconciliation.controller';
+import { jwtModuleOptions } from '../auth/jwt-keys';
 
 /**
  * The accounting core: the chart of accounts and the double-entry general
@@ -28,10 +29,8 @@ import { BankReconciliationController } from './bank-reconciliation.controller';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET'),
-        signOptions: { expiresIn: config.get('JWT_EXPIRES_IN', '7d') },
-      }),
+      useFactory: (config: ConfigService) =>
+        jwtModuleOptions(config, config.get<string>('JWT_EXPIRES_IN', '7d')),
     }),
   ],
   controllers: [AccountingController, BankReconciliationController],

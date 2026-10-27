@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../../users/users.service';
 import { SessionRevocationService } from '../session-revocation.service';
 import { maxSessionHours, sessionExpired, sessionStart } from '../session';
+import { jwtVerifyOptions } from '../jwt-keys';
 
 export interface JwtPayload {
   sub: string;           // user UUID
@@ -36,7 +37,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('JWT_SECRET'),
+      // The public key under ES256; only the configured algorithm is
+      // accepted, so a token cannot choose how it is checked (jwt-keys.ts).
+      ...jwtVerifyOptions(configService),
     });
   }
 

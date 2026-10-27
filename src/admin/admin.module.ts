@@ -8,6 +8,7 @@ import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { User } from '../users/entities/user.entity';
 import { Facility } from '../facilities/entities/facility.entity';
+import { jwtModuleOptions } from '../auth/jwt-keys';
 
 @Module({
   imports: [
@@ -15,10 +16,8 @@ import { Facility } from '../facilities/entities/facility.entity';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET'),
-        signOptions: { expiresIn: configService.get('JWT_EXPIRES_IN', '7d') },
-      }),
+      useFactory: (configService: ConfigService) =>
+        jwtModuleOptions(configService, configService.get<string>('JWT_EXPIRES_IN', '7d')),
     }),
   ],
   controllers: [AdminController],

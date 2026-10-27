@@ -33,7 +33,11 @@ export class FilesService {
       NODE_ENV: config.get<string>('NODE_ENV'),
       PORT: config.get<string>('PORT'),
     });
-    this.key = linkKey(config.get<string>('JWT_SECRET') ?? '');
+    // Any server-only secret will do; JWT_SECRET, or the token signing key
+    // once tokens move to ES256 and the shared secret is retired.
+    this.key = linkKey(
+      config.get<string>('JWT_SECRET') || config.get<string>('JWT_PRIVATE_KEY') || '',
+    );
   }
 
   /** Check the content, store it, and return its storage key and verified type. */
