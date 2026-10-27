@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseUUIDPipe,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -73,8 +74,12 @@ export class SignaturesController {
     description:
       'Says separately whether each signature verifies and whether the record has changed since it was signed — different failures that a reviewer needs to tell apart.',
   })
-  verify(@Param('entityName') entityName: string, @Param('entityId') entityId: string) {
-    return this.service.verifyRecord(entityName, entityId);
+  verify(
+    @Param('entityName') entityName: string,
+    @Param('entityId', ParseUUIDPipe) entityId: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.service.verifyRecord(entityName, entityId, user);
   }
 
   @Get('public-key/:fingerprint')

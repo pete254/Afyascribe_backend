@@ -26,6 +26,17 @@ const SIGNABLE: Record<string, string> = {
   WeeklyReturn: 'idsr_weekly_returns',
 };
 
+/**
+ * The facility a signable record belongs to. Most tables carry it directly;
+ * SOAP notes name the column differently, and a lab item takes it from its
+ * order.
+ */
+const FACILITY_OF: Record<string, string> = {
+  soap_notes: 'SELECT "facilityId" AS facility_id FROM "soap_notes" WHERE id = $1',
+  lab_order_items:
+    'SELECT o.facility_id FROM "lab_order_items" i JOIN "lab_orders" o ON o.id = i.order_id WHERE i.id = $1',
+};
+
 const MIN_PIN = 6;
 
 @Injectable()
@@ -96,9 +107,27 @@ export class SignaturesService {
 
   // ── Signing ───────────────────────────────────────────────────────────────
 
-  private async loadRecord(entityName: string, entityId: string): Promise<Record<string, unknown>> {
+  /**
+   * The record, provided it belongs to the caller's facility. A record of
+   * another facility is "not found", exactly as one that does not exist, so
+   * an id guessed or copied from elsewhere reveals nothing (penetration test
+   * F-07). The platform super administrator, who belongs to no facility, is
+   * not limited.
+   */
+  private async loadRecord(
+    entityName: string,
+    entityId: string,
+    user: CurrentUserType,
+  ): Promise<Record<string, unknown>> {
     const table = SIGNABLE[entityName];
     if (!table) throw new BadRequestException(`${entityName} is not a record this system signs.`);
+    if (user.role !== 'super_admin') {
+      const sql = FACILITY_OF[table] ?? `SELECT facility_id FROM "${table}" WHERE id = $1`;
+      const [owner] = (await this.dataSource.query(sql, [entityId])) as { facility_id: string | null }[];
+      if (!owner || !user.facilityId || owner.facility_id !== user.facilityId) {
+        throw new NotFoundException('Record not found');
+      }
+    }
     const [row] = (await this.dataSource.query(`SELECT * FROM "${table}" WHERE id = $1`, [
       entityId,
     ])) as Record<string, unknown>[];
@@ -124,7 +153,7 @@ export class SignaturesService {
     const privateKey = unlock(key, input.pin ?? '');
     if (!privateKey) throw new BadRequestException('That signing PIN is not right.');
 
-    const record = await this.loadRecord(input.entityName, input.entityId);
+    const record = await this.loadRecord(input.entityName, input.entityId, user);
     const hash = payloadHash(canonicalRecord(record));
 
     const already = await this.signatures.findOne({
@@ -168,7 +197,10 @@ export class SignaturesService {
    * itself does not verify, it is not the signature it claims to be. A
    * reviewer needs to be told which.
    */
-  async verifyRecord(entityName: string, entityId: string) {
+  async verifyRecord(entityName: string, entityId: string, user: CurrentUserType) {
+    // Checked first, so that whether a record of another facility is signed
+    // is not given away either.
+    const record = await this.loadRecord(entityName, entityId, user);
     const signatures = await this.signatures.find({
       where: { entityName, entityId },
       order: { signedAt: 'ASC' },
@@ -177,7 +209,6 @@ export class SignaturesService {
       return { entityName, entityId, signed: false, currentHash: null, signatures: [] };
     }
 
-    const record = await this.loadRecord(entityName, entityId);
     const currentHash = payloadHash(canonicalRecord(record));
 
     return {
@@ -207,7 +238,4 @@ export class SignaturesService {
     };
   }
 
-  async forRecord(entityName: string, entityId: string): Promise<RecordSignature[]> {
-    return this.signatures.find({ where: { entityName, entityId }, order: { signedAt: 'ASC' } });
-  }
 }

@@ -1,8 +1,11 @@
 // src/soap-notes/dto/query-soap-notes.dto.ts
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsEnum, IsString } from 'class-validator';
+import { IsOptional, IsEnum, IsIn, IsString } from 'class-validator';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { SoapNoteStatus } from '../enums/soap-note-status.enum';
+
+export const SOAP_NOTE_SORT_FIELDS = ['createdAt', 'updatedAt'] as const;
+export type SoapNoteSortField = (typeof SOAP_NOTE_SORT_FIELDS)[number];
 
 export class QuerySoapNotesDto extends PaginationDto {
   @ApiPropertyOptional({ 
@@ -28,8 +31,10 @@ export class QuerySoapNotesDto extends PaginationDto {
     description: 'Sort field (removed patientName since it now comes from Patient entity)'
   })
   @IsOptional()
-  @IsString()
-  sortBy?: string = 'createdAt';
+  // An allow-list, not a free string: the value becomes part of the ORDER BY
+  // clause, which cannot take a bound parameter (penetration test F-01).
+  @IsIn(SOAP_NOTE_SORT_FIELDS)
+  sortBy?: SoapNoteSortField = 'createdAt';
 
   @ApiPropertyOptional({ 
     enum: ['ASC', 'DESC'],

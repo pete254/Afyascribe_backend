@@ -9,6 +9,10 @@ import { apiDocsEnabled } from './common/api-docs';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
+const DEFAULT_BODY_LIMIT = '2mb';
+const TRANSCRIBE_PATH = '/transcription/transcribe';
+const TRANSCRIBE_BODY_LIMIT = '34mb';
+
 const logger = new Logger('Bootstrap');
 
 const configBool = (v: string | undefined): boolean => v === 'true' || v === '1';
@@ -22,9 +26,16 @@ async function bootstrap() {
   // address recorded against them. See common/client-ip.ts.
   app.set('trust proxy', trustProxySetting());
 
-  // ✅ INCREASE BODY SIZE LIMIT (for audio files)
-  app.use(require('express').json({ limit: '50mb' }));
-  app.use(require('express').urlencoded({ limit: '50mb', extended: true }));
+  // Request body limits. Only dictation sends a large body — audio as base64
+  // text, up to Groq's 25 MB file limit, so about 34 MB encoded — and only its
+  // route gets a large limit. Everything else is capped at 2 MB, so a caller
+  // cannot make every endpoint parse tens of megabytes (penetration test
+  // F-08). Uploaded files are multipart and capped by their own routes.
+  // Registered before Nest's own parsers, which then leave a parsed body be.
+  const express = require('express');
+  app.use(TRANSCRIBE_PATH, express.json({ limit: TRANSCRIBE_BODY_LIMIT }));
+  app.use(express.json({ limit: DEFAULT_BODY_LIMIT }));
+  app.use(express.urlencoded({ limit: DEFAULT_BODY_LIMIT, extended: true }));
 
   // Security headers. The API serves JSON, not pages, so a restrictive policy
   // costs nothing — but Swagger UI is a page, and it needs inline styles and

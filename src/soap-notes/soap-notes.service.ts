@@ -6,7 +6,11 @@ import { LessThan, Repository } from 'typeorm';
 import { SoapNote } from './entities/soap-note.entity';
 import { CreateSoapNoteDto } from './dto/create-soap-note.dto';
 import { UpdateSoapNoteDto } from './dto/update-soap-note.dto';
-import { QuerySoapNotesDto } from './dto/query-soap-notes.dto';
+import {
+  QuerySoapNotesDto,
+  SOAP_NOTE_SORT_FIELDS,
+  SoapNoteSortField,
+} from './dto/query-soap-notes.dto';
 import { SoapNoteStatus } from './enums/soap-note-status.enum';
 import { PaginatedResponse } from '../common/dto/pagination.dto';
 import { PatientsService } from '../patients/patients.service';
@@ -115,8 +119,11 @@ export class SoapNotesService {
   ): Promise<PaginatedResponse<SoapNote>> {
     const page = queryDto.page ?? 1;
     const limit = queryDto.limit ?? 10;
-    const sortBy = queryDto.sortBy ?? 'createdAt';
-    const sortOrder = queryDto.sortOrder ?? 'DESC';
+    // Checked again here, not only in the DTO: this string is spliced into SQL.
+    const sortBy = SOAP_NOTE_SORT_FIELDS.includes(queryDto.sortBy as SoapNoteSortField)
+      ? queryDto.sortBy
+      : 'createdAt';
+    const sortOrder = queryDto.sortOrder === 'ASC' ? 'ASC' : 'DESC';
     const { status, patientName } = queryDto;
 
     const qb = this.soapNotesRepository
@@ -163,8 +170,11 @@ export class SoapNotesService {
   ): Promise<PaginatedResponse<SoapNote>> {
     const page = queryDto.page ?? 1;
     const limit = queryDto.limit ?? 10;
-    const sortBy = queryDto.sortBy ?? 'createdAt';
-    const sortOrder = queryDto.sortOrder ?? 'DESC';
+    // Checked again here, not only in the DTO: this string is spliced into SQL.
+    const sortBy = SOAP_NOTE_SORT_FIELDS.includes(queryDto.sortBy as SoapNoteSortField)
+      ? queryDto.sortBy
+      : 'createdAt';
+    const sortOrder = queryDto.sortOrder === 'ASC' ? 'ASC' : 'DESC';
 
     const qb = this.soapNotesRepository
       .createQueryBuilder('soap_note')
