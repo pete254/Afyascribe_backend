@@ -6,6 +6,7 @@
 #   sudo bash deploy/restore.sh list [kind]           what the vault holds (kind: logical, base, wal, upload, secrets)
 #   sudo bash deploy/restore.sh verify                checksums of a sample of the vault — no key needed
 #
+#   sudo bash deploy/restore.sh secrets <path>        the settings file (.env), onto a rebuilt server
 #   sudo bash deploy/restore.sh file <key>            ONE uploaded file back onto the server
 #   sudo bash deploy/restore.sh uploads               every uploaded file missing from the server
 #   sudo bash deploy/restore.sh table <table> [dump]  one table, restored beside the live one for comparison
@@ -245,6 +246,17 @@ uploads)
   done < <(vault_sql -c "select distinct on (meta->>'key') meta->>'key', name, meta->>'sha256_plain' from backup_vault.objects where kind = 'upload' order by meta->>'key', created_at desc")
   say "Restored $restored missing file(s); failed $failed"
   [ "$failed" -eq 0 ]
+  ;;
+
+secrets)
+  # The settings file (.env), for rebuilding a lost server (Disaster Recovery
+  # Plan R1). Written to the given path, readable by root only.
+  dest="${1:?where to write it, e.g. /opt/afyascribe/backend/.env}"
+  [ ! -e "$dest" ] || fail "$dest already exists; move it aside first."
+  name="$(latest secrets)"; [ -n "$name" ] || fail "No settings file in the vault."
+  fetch "$name" "$WORK/s.gpg"
+  ( umask 077; decrypt < "$WORK/s.gpg" > "$dest" )
+  say "Settings file from $name written to $dest"
   ;;
 
 db|table)
