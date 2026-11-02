@@ -11,7 +11,8 @@
 #   sudo bash deploy/restore.sh uploads               every uploaded file missing from the server
 #   sudo bash deploy/restore.sh table <table> [dump]  one table, restored beside the live one for comparison
 #   sudo bash deploy/restore.sh db [dump] --replace-live
-#                                                     the whole database from a nightly dump
+#                                                     the whole database from a nightly dump — a vault
+#                                                     name, or a .dump.gpg file (offline drive, laptop)
 #   sudo bash deploy/restore.sh pitr "<time>" [--apply]
 #                                                     the database as it was at <time> (EAT), e.g. "2026-11-02 14:05"
 #                                                     without --apply: rebuilt and checked aside, live untouched
@@ -262,11 +263,18 @@ secrets)
 db|table)
   if [ "$CMD" = table ]; then TABLE="${1:?which table?}"; shift; fi
   NAME="${1:-}"; [ "${NAME:0:2}" = -- ] && NAME=""
-  [ -n "$NAME" ] || NAME="$(latest logical)"
-  [ -n "$NAME" ] || fail "No database dump in the vault."
-  meta="$(vault_sql -c "select meta from backup_vault.objects where name = \$n\$$NAME\$n\$")"
-  say "Dump: $NAME"
-  fetch "$NAME" "$WORK/db.gpg"
+  if [ -n "$NAME" ] && [ -f "$NAME" ]; then
+    # A file from the offline drive or the laptop: no vault needed.
+    meta='{}'
+    say "Dump: $NAME (a file, not from the vault)"
+    cp "$NAME" "$WORK/db.gpg"
+  else
+    [ -n "$NAME" ] || NAME="$(latest logical)"
+    [ -n "$NAME" ] || fail "No database dump in the vault."
+    meta="$(vault_sql -c "select meta from backup_vault.objects where name = \$n\$$NAME\$n\$")"
+    say "Dump: $NAME"
+    fetch "$NAME" "$WORK/db.gpg"
+  fi
   decrypt < "$WORK/db.gpg" > "$WORK/db.dump"; rm -f "$WORK/db.gpg"
   want="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("sha256_plain",""))' "$meta")"
   [ -z "$want" ] || [ "$(sha256 "$WORK/db.dump")" = "$want" ] || fail "The decrypted dump does not match its original checksum."
