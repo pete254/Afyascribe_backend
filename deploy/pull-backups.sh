@@ -6,7 +6,13 @@
 #   bash deploy/pull-backups.sh --install             # once: key, permission, hourly timer
 #   bash deploy/pull-backups.sh                       # pull now
 #   bash deploy/pull-backups.sh --status              # what is here, and how fresh
-#   bash deploy/pull-backups.sh --copy-to /media/$USER/USB   # the weekly removable copy
+#   bash deploy/pull-backups.sh --copy-to /media/$USER/USB   # the MONTHLY offline drive
+#
+# The offline drive is the air-gapped copy of the Backup and Recovery Policy
+# (3-2-1 rule): once a month, plug in the company's encrypted backup drive,
+# run --copy-to, check it says "verified", unplug it, and return it to the
+# safe. Each month's set goes in its own dated folder; sets older than 13
+# months are removed from the drive, except January's, kept 20 years.
 #
 # Run as yourself, not with sudo. Needs the server's backup.sh to have
 # OFFSITE_USER set (it is, by `backup.sh --install`).
@@ -52,15 +58,14 @@ alert() {
 
 [ "$(id -u)" -ne 0 ] || die "Run as yourself, not with sudo."
 install -d -m 700 "$DEST"
-install -d -m 700 "$DEST"
 
-newest() { ls -1t "$DEST"/afyascribe-*.dump.age 2>/dev/null | head -1 || true; }
+newest() { ls -1t "$DEST"/afyascribe-*.dump.gpg "$DEST"/afyascribe-*.dump.age 2>/dev/null | head -1 || true; }
 # Backups and their .counts companions; never the log.
 nfiles() { find "$1" -maxdepth 1 -name "afyascribe-*${2:-}" 2>/dev/null | wc -l; }
 
 status() {
   local n f age_h
-  n=$(nfiles "$DEST" .dump.age)
+  n=$(( $(nfiles "$DEST" .dump.gpg) + $(nfiles "$DEST" .dump.age) ))
   f="$(newest)"
   echo "  $n backup(s) in $DEST ($(du -sh "$DEST" 2>/dev/null | cut -f1))"
   if [ -n "$f" ]; then
@@ -90,11 +95,16 @@ pull() {
   chmod 700 "$DEST"
   chmod 600 "$DEST"/afyascribe-* 2>/dev/null || true
 
-  # Each backup must be an age file. Anything else is not a backup that can
-  # be restored, whatever its name says.
-  for f in "$DEST"/afyascribe-*.dump.age; do
+  # Each set's files must match the checksums the server wrote for them.
+  # Anything else is not a backup that can be restored, whatever its name says.
+  for f in "$DEST"/afyascribe-*.sha256; do
     [ -e "$f" ] || continue
-    head -n1 "$f" | grep -qx 'age-encryption.org/v1' || { bad=1; alert "$(basename "$f") is not an encrypted backup"; }
+    [ -e "$f.ok" ] && continue
+    if ( cd "$DEST" && sha256sum --quiet -c "$(basename "$f")" ) >/dev/null 2>&1; then
+      touch "$f.ok"
+    else
+      bad=1; alert "$(basename "$f" .sha256): a file does not match its checksum"
+    fi
   done
 
   log "pulled $((after - before)) new file(s)"
@@ -167,7 +177,7 @@ EOF
     status
     cat <<EOF
 
-  Once a week, plug in a USB drive and run:
+  Once a month, plug in the offline backup drive and run:
       bash deploy/pull-backups.sh --copy-to /media/$USER/<drive>
   Keep that drive somewhere other than this laptop.
 
@@ -176,12 +186,35 @@ EOF
   --copy-to)
     target="${2:-}"
     [ -n "$target" ] && [ -d "$target" ] || die "Name a mounted drive:  --copy-to /media/$USER/<drive>"
-    say "Copying to $target"
-    install -d -m 700 "$target/AfyaScribe-backups"
-    rsync -a --ignore-existing "$DEST/" "$target/AfyaScribe-backups/"
+    pull || true
+    sums="$(ls -1t "$DEST"/afyascribe-*.sha256 2>/dev/null | head -1 || true)"
+    [ -n "$sums" ] || die "No complete backup set here to copy. Is the server's nightly backup running?"
+    set_name="$(basename "$sums" .sha256)"
+    dir="$target/AfyaScribe-offline/$(date +%Y-%m-%d)"
+    say "Copying $set_name to $dir"
+    install -d -m 700 "$dir"
+    cp "$sums" "$dir/"
+    while read -r _ f; do cp "$DEST/$f" "$dir/"; done < "$sums"
     sync
-    echo "  $(nfiles "$target/AfyaScribe-backups" .dump.age) backup(s) on the drive"
-    log "copied to $target"
+    # Read back from the drive, not from memory: proves what is on the drive.
+    if ( cd "$dir" && sha256sum --quiet -c "$(basename "$sums")" ); then
+      echo "  verified: every file on the drive matches its checksum"
+      echo "$(date '+%F %T') $set_name copied to the offline drive and verified ($(du -sh "$dir" | cut -f1))" >> "$target/AfyaScribe-offline/offline-copies.log"
+      log "offline copy $set_name → $dir, verified"
+    else
+      die "A file on the drive does not match its checksum. Do not rely on this copy; try another drive."
+    fi
+    # Retention on the drive: 13 months, and January's sets for 20 years.
+    cutoff="$(date -d '-13 months' +%Y-%m-%d)"; old="$(date -d '-20 years' +%Y-%m-%d)"
+    for d in "$target/AfyaScribe-offline"/20*; do
+      [ -d "$d" ] || continue
+      b="$(basename "$d")"
+      if [[ "$b" < "$cutoff" ]] && { [ "${b:5:2}" != 01 ] || [[ "$b" < "$old" ]]; }; then
+        rm -rf "$d"; log "removed $b from the offline drive (past its retention)"
+      fi
+    done
+    echo
+    echo "  Now unmount and unplug the drive, and return it to the safe."
     ;;
   --status)
     status

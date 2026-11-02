@@ -29,7 +29,7 @@ openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt 
 openssl ec -in "$dir/private.pem" -pubout -out "$dir/public.pem" 2>/dev/null
 
 # One line each, with the breaks written as \n (src/auth/jwt-keys.ts), and in
-# single quotes: backup.sh and standby-sync.sh read .env as shell, where the
+# single quotes: the backup scripts read .env as shell, where the
 # spaces in "BEGIN PRIVATE KEY" would otherwise run as a command. Docker
 # Compose reads single-quoted values literally too.
 {

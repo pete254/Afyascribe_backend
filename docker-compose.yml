@@ -34,8 +34,31 @@ services:
       POSTGRES_USER: ${DB_USERNAME:?set DB_USERNAME in .env}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
       POSTGRES_DB: ${DB_DATABASE:?set DB_DATABASE in .env}
+    # Transaction-log archiving for point-in-time recovery (Backup and Recovery
+    # Policy): every completed log segment is copied to the spool, at least
+    # every 5 minutes when anything was written; deploy/wal-ship.sh encrypts it
+    # and sends it off-site. summarize_wal lets the nightly base backup be
+    # incremental (PostgreSQL 17). An existing segment is never overwritten.
+    command:
+      - postgres
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_timeout=300
+      - -c
+      - summarize_wal=on
+      - -c
+      - wal_summary_keep_time=14d
+      - -c
+      - archive_command=test ! -f /wal-spool/%f && cp %p /wal-spool/%f.part && mv /wal-spool/%f.part /wal-spool/%f
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Created by deploy/backup.sh --install (owned by postgres, uid 70).
+      - /var/lib/afyascribe/wal-spool:/wal-spool
+    # Base backups are staged here, in memory, so a plaintext copy of the
+    # database never reaches a disk before it is encrypted.
+    tmpfs:
+      - /backup-stage:size=2g,mode=0700,uid=70,gid=70
     networks: [internal]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
