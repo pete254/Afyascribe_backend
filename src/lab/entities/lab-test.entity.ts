@@ -39,6 +39,14 @@ export class LabTest {
   @Column({ name: 'loinc_name', type: 'text', nullable: true })
   loincName: string | null;
 
+  /**
+   * The MOH 505 laboratory line this test counts towards (malariaMicroscopy,
+   * malariaRdt, bacterialMeningitis, dysentery, tuberculosis, typhoid), set by
+   * the facility because each facility names its own tests. Null: none.
+   */
+  @Column({ name: 'moh505_lab', type: 'varchar', length: 40, nullable: true })
+  moh505Lab: string | null;
+
   /** blood | serum | plasma | urine | stool | swab | sputum | csf | other */
   @Column({ type: 'varchar', length: 40, default: 'blood' })
   specimen: string;

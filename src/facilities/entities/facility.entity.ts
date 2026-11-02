@@ -131,6 +131,17 @@ export class Facility {
   @Column({ name: 'login_otp_disabled', type: 'boolean', default: false })
   loginOtpDisabled: boolean;
 
+  /**
+   * Where surveillance reminders go: the facility's disease surveillance focal
+   * person. Empty means the facility administrators.
+   */
+  @Column({ name: 'surveillance_email', type: 'varchar', length: 254, nullable: true })
+  surveillanceEmail: string | null;
+
+  /** The last epidemiological week ("2026-W44") a missing-return reminder went for. */
+  @Column({ name: 'idsr_reminded_week', type: 'varchar', length: 10, nullable: true })
+  idsrRemindedWeek: string | null;
+
   // When true, a patient with an unpaid bill may still be seen by the doctor
   // (consultation on credit). Default false — the bill must be cleared first.
   @Column({ name: 'allow_doctor_with_pending_bill', type: 'boolean', default: false })

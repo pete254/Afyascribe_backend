@@ -12,6 +12,8 @@ import { PublicHealthSignal } from './entities/public-health-signal.entity';
 import { Delivery } from '../maternity/entities/delivery.entity';
 import { Birth } from '../maternity/entities/birth.entity';
 import { SurveillanceController } from './surveillance.controller';
+import { SurveillanceJobsService } from './surveillance-jobs.service';
+import { User } from '../users/entities/user.entity';
 
 /** Disease surveillance against Kenya's IDSR priority conditions. */
 @Module({
@@ -25,9 +27,10 @@ import { SurveillanceController } from './surveillance.controller';
       Facility,
       Delivery,
       Birth,
+      User,
     ])],
   controllers: [SurveillanceController],
-  providers: [SurveillanceService, WeeklyReturnService],
+  providers: [SurveillanceService, WeeklyReturnService, SurveillanceJobsService],
   exports: [SurveillanceService, WeeklyReturnService],
 })
 export class SurveillanceModule {}

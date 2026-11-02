@@ -22,6 +22,7 @@ import { plainToInstance } from 'class-transformer';
 import { FacilitiesService } from './facilities.service';
 import { CreateFacilityDto } from './dto/create-facility.dto';
 import { UpdateFacilityDto } from './dto/update-facility.dto';
+import { SurveillanceContactDto } from './dto/surveillance-contact.dto';
 import { FacilityResponseDto } from './dto/facility-response.dto';
 import { ClinicMode } from './entities/facility.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -155,6 +156,24 @@ export class FacilitiesController {
     this.assertCanViewFacility(id, user);
     const facility = await this.facilitiesService.update(id, {
       accountantCanApproveLpo: !!body?.accountantCanApproveLpo,
+    } as any);
+    return plainToInstance(FacilityResponseDto, facility, {
+      excludeExtraneousValues: true,
+    });
+  }
+
+  // Where disease-surveillance reminders go (the IDSR focal person). Empty: the administrators.
+  @Patch(':id/surveillance-contact')
+  @Roles('facility_admin', 'super_admin')
+  @ApiOperation({ summary: 'Set the email that receives disease-surveillance reminders' })
+  async setSurveillanceContact(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: SurveillanceContactDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    this.assertCanViewFacility(id, user);
+    const facility = await this.facilitiesService.update(id, {
+      surveillanceEmail: body.surveillanceEmail?.trim().toLowerCase() || null,
     } as any);
     return plainToInstance(FacilityResponseDto, facility, {
       excludeExtraneousValues: true,

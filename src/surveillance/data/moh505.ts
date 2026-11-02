@@ -101,5 +101,8 @@ export const MOH505_LAB_SECTIONS = [
   { key: 'typhoid', label: 'Typhoid', fields: ['Tested', 'Positive'] },
 ] as const;
 
+export type Moh505LabKey = (typeof MOH505_LAB_SECTIONS)[number]['key'];
+export const MOH505_LAB_KEYS: Moh505LabKey[] = MOH505_LAB_SECTIONS.map((s) => s.key);
+
 /** Five is the age the form splits on. */
 export const AGE_SPLIT_YEARS = 5;

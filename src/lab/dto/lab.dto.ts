@@ -12,6 +12,7 @@ import {
   IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { MOH505_LAB_KEYS } from '../../surveillance/data/moh505';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 // ── Catalog ───────────────────────────────────────────────────────────────────
@@ -47,6 +48,8 @@ export class CreateLabTestDto {
   @ApiPropertyOptional({ example: 'haematology' }) @IsString() @IsOptional() department?: string;
   @ApiPropertyOptional() @IsNumber() @Min(0) @IsOptional() price?: number;
   @ApiPropertyOptional() @IsNumber() @Min(0) @IsOptional() turnaroundHours?: number;
+  @ApiPropertyOptional({ enum: MOH505_LAB_KEYS, nullable: true, description: 'The MOH 505 laboratory line this test counts towards' })
+  @IsIn(MOH505_LAB_KEYS) @IsOptional() moh505Lab?: string | null;
 
   @ApiProperty({ type: [LabAnalyteDto] })
   @IsArray()
@@ -66,6 +69,8 @@ export class UpdateLabTestDto {
   @ApiPropertyOptional() @IsNumber() @Min(0) @IsOptional() price?: number;
   @ApiPropertyOptional() @IsNumber() @Min(0) @IsOptional() turnaroundHours?: number;
   @ApiPropertyOptional() @IsBoolean() @IsOptional() isActive?: boolean;
+  @ApiPropertyOptional({ enum: MOH505_LAB_KEYS, nullable: true, description: 'The MOH 505 laboratory line this test counts towards' })
+  @IsIn(MOH505_LAB_KEYS) @IsOptional() moh505Lab?: string | null;
 
   @ApiPropertyOptional({ type: [LabAnalyteDto], description: 'When present, replaces the analyte set' })
   @IsArray()

@@ -83,6 +83,18 @@ export class WeeklyReturn {
   @Column({ name: 'submission_status', type: 'varchar', length: 40, nullable: true })
   submissionStatus: string | null;
 
+  @Column({ name: 'submission_attempts', type: 'int', default: 0 })
+  submissionAttempts: number;
+
+  @Column({ name: 'next_submission_at', type: 'timestamp with time zone', nullable: true })
+  nextSubmissionAt: Date | null;
+
+  @Column({ name: 'submission_error', type: 'text', nullable: true })
+  submissionError: string | null;
+
+  @Column({ name: 'submission_escalated_at', type: 'timestamp with time zone', nullable: true })
+  submissionEscalatedAt: Date | null;
+
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 

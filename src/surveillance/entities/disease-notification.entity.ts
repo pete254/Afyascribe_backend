@@ -147,6 +147,24 @@ export class DiseaseNotification {
   @Column({ name: 'alert_status', type: 'varchar', length: 40, nullable: true })
   alertStatus: string | null;
 
+  /** How many times sending has been tried, the next try, and the last error. */
+  @Column({ name: 'alert_attempts', type: 'int', default: 0 })
+  alertAttempts: number;
+
+  @Column({ name: 'next_alert_at', type: 'timestamp with time zone', nullable: true })
+  nextAlertAt: Date | null;
+
+  @Column({ name: 'alert_error', type: 'text', nullable: true })
+  alertError: string | null;
+
+  /** When the facility was emailed that sending keeps failing. */
+  @Column({ name: 'alert_escalated_at', type: 'timestamp with time zone', nullable: true })
+  alertEscalatedAt: Date | null;
+
+  /** When the facility was emailed that this case is past 24 hours unnotified. */
+  @Column({ name: 'overdue_reminded_at', type: 'timestamp with time zone', nullable: true })
+  overdueRemindedAt: Date | null;
+
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 

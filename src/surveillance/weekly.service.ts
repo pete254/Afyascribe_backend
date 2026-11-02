@@ -1,9 +1,4 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { MAX_WEEKLY_COUNT } from './dto/surveillance.dto';
-import type { Moh505Counts } from './data/moh505';
-
-/** A row as a person sends it back: the label and the four figures. */
-type WeeklyRowInput = Moh505Counts & { label: string; conditionCode?: string | null };
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -20,6 +15,13 @@ import { PublicHealthSignal } from './entities/public-health-signal.entity';
 import { THRESHOLD_SOURCE, evaluateWeek } from './thresholds';
 import { IDSR_CONDITIONS } from './data/idsr';
 import { insecureEndpointReason } from '../common/outbound-url';
+import { MAX_WEEKLY_COUNT } from './dto/surveillance.dto';
+import type { Moh505Counts, Moh505LabKey } from './data/moh505';
+import { LabFigures, countLab, labCorrections, overlayLab } from './lab-counts';
+import { SendOutcome, afterAttempt, postJson } from './retry';
+
+/** A row as a person sends it back: the label and the four figures. */
+type WeeklyRowInput = Moh505Counts & { label: string; conditionCode?: string | null };
 
 const YEAR_MS = 365.25 * 24 * 60 * 60 * 1000;
 
@@ -152,6 +154,8 @@ export class WeeklyReturnService {
       ...epi,
       rows,
       labSections: MOH505_LAB_SECTIONS,
+      /** The laboratory lines as the laboratory module counts them. */
+      labComputed: await this.computeLab(facilityId, bounds),
       source: MOH505_SOURCE,
       /** How many notified cases the week's figures rest on. */
       casesCounted: inScope.length,
@@ -166,15 +170,55 @@ export class WeeklyReturnService {
     });
     const computed = await this.compute(facilityId, epi.year, epi.week);
 
-    if (!existing) return { ...computed, stored: null as WeeklyReturn | null };
+    if (!existing) {
+      return { ...computed, labSurveillance: computed.labComputed, stored: null as WeeklyReturn | null };
+    }
 
     // A submitted return keeps what was submitted; a draft is refreshed from
     // the record, since cases recorded since it was opened belong in it.
+    const submitted = existing.status === 'submitted';
     return {
       ...computed,
-      rows: existing.status === 'submitted' ? existing.rows : this.merge(computed.rows, existing.rows),
+      rows: submitted ? existing.rows : this.merge(computed.rows, existing.rows),
+      labSurveillance: submitted
+        ? existing.labSurveillance
+        : overlayLab(computed.labComputed, existing.labSurveillance),
       stored: existing,
     };
+  }
+
+  /**
+   * The MOH 505 laboratory lines from the laboratory module, for the tests the
+   * facility has marked (lab_tests.moh505_lab). Days are Nairobi days, so a
+   * result released at 01:00 on Monday belongs to Monday.
+   */
+  async computeLab(facilityId: string, bounds: { start: string; end: string }): Promise<LabFigures> {
+    const rows: { line: Moh505LabKey; collected: boolean; released: boolean; positive: boolean }[] =
+      await this.returns.manager.query(
+        `SELECT t.moh505_lab AS line,
+                (i.collected_at AT TIME ZONE 'Africa/Nairobi')::date BETWEEN $2::date AND $3::date AS collected,
+                (i.status = 'released'
+                  AND (i.resulted_at AT TIME ZONE 'Africa/Nairobi')::date BETWEEN $2::date AND $3::date) AS released,
+                EXISTS (SELECT 1 FROM lab_result_values v
+                         WHERE v.order_item_id = i.id AND v.flag IN ('abnormal', 'high')) AS positive
+           FROM lab_order_items i
+           JOIN lab_orders o ON o.id = i.order_id
+           JOIN lab_tests t ON t.id = i.lab_test_id
+          WHERE o.facility_id = $1
+            AND t.moh505_lab IS NOT NULL
+            AND i.status <> 'cancelled'
+            AND ((i.collected_at AT TIME ZONE 'Africa/Nairobi')::date BETWEEN $2::date AND $3::date
+              OR (i.resulted_at AT TIME ZONE 'Africa/Nairobi')::date BETWEEN $2::date AND $3::date)`,
+        [facilityId, bounds.start, bounds.end],
+      );
+    return countLab(
+      rows.map((x) => ({
+        line: x.line,
+        collectedInWeek: !!x.collected,
+        releasedInWeek: !!x.released,
+        positive: !!x.positive,
+      })),
+    );
   }
 
   /** Keep a corrected figure; refresh the rest from the record. */
@@ -278,7 +322,11 @@ export class WeeklyReturnService {
       weekStart: epi.start,
       weekEnd: epi.end,
       rows,
-      labSurveillance: input.labSurveillance ?? entity.labSurveillance ?? {},
+      // Only what a person changed is kept; the rest is counted afresh.
+      labSurveillance:
+        input.labSurveillance !== undefined
+          ? labCorrections(computed.labComputed, input.labSurveillance)
+          : (entity.labSurveillance ?? {}),
       others: input.others ?? entity.others ?? [],
       sitesReported: input.sitesReported ?? entity.sitesReported,
       sitesExpected: input.sitesExpected ?? entity.sitesExpected,
@@ -304,57 +352,76 @@ export class WeeklyReturnService {
     year?: number,
     week?: number,
     user?: CurrentUserType,
-  ): Promise<{ return: WeeklyReturn; transmission: { attempted: boolean; ok: boolean; detail: string } }> {
+  ): Promise<{ return: WeeklyReturn; transmission: SendOutcome }> {
     const epi = this.resolveWeek(year, week);
     const entity = await this.returns.findOne({ where: { facilityId, year: epi.year, week: epi.week } });
     if (!entity) {
       throw new NotFoundException('Nothing saved for this week yet. Review the figures and save a draft first.');
     }
 
-    const url = this.config.get<string>('IDSR_WEEKLY_URL') ?? this.config.get<string>('IDSR_ALERT_URL');
-    let transmission = {
-      attempted: false,
-      ok: false,
-      detail:
-        'No surveillance endpoint is configured, so nothing was transmitted. The return is recorded — send it to the sub-county coordinator, and set IDSR_WEEKLY_URL to transmit automatically.',
-    };
-
-    const insecure = url ? insecureEndpointReason(url, this.config.get<string>('IDSR_WEEKLY_URL') ? 'IDSR_WEEKLY_URL' : 'IDSR_ALERT_URL') : null;
-    if (insecure) {
-      transmission = {
-        attempted: false,
-        ok: false,
-        detail: `${insecure} The return is recorded — send it to the sub-county coordinator.`,
-      };
-    } else if (url) {
-      try {
-        const payload = await this.exportReturn(facilityId, entity);
-        const token = this.config.get<string>('IDSR_ALERT_TOKEN');
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify(payload),
-        });
-        transmission = {
-          attempted: true,
-          ok: res.ok,
-          detail: res.ok ? `Sent to ${url}` : `${url} responded ${res.status}`,
-        };
-      } catch (err) {
-        transmission = { attempted: true, ok: false, detail: (err as Error).message };
-      }
+    // Freeze what is on screen now, not what the draft held when last saved:
+    // a case notified since then belongs in the week. Submitting again after a
+    // failure resends the frozen figures unchanged.
+    if (entity.status !== 'submitted') {
+      const computed = await this.compute(facilityId, epi.year, epi.week);
+      entity.rows = this.merge(computed.rows, entity.rows);
+      entity.labSurveillance = overlayLab(computed.labComputed, entity.labSurveillance);
+      entity.status = 'submitted';
+      entity.submittedAt = new Date();
+      entity.reportedByName = this.name(user) ?? entity.reportedByName;
     }
 
-    entity.status = 'submitted';
-    entity.submittedAt = new Date();
-    entity.submittedTo = url ?? null;
-    entity.submissionStatus = transmission.attempted ? (transmission.ok ? 'sent' : 'failed') : 'not-configured';
-    entity.reportedByName = this.name(user) ?? entity.reportedByName;
-
+    const transmission = await this.transmit(facilityId, entity);
     return { return: await this.returns.save(entity), transmission };
+  }
+
+  /**
+   * Send a submitted return and record how it went, including when to try
+   * again. Used by Submit and by the retry job.
+   */
+  async transmit(facilityId: string, entity: WeeklyReturn): Promise<SendOutcome> {
+    const weeklyUrl = this.config.get<string>('IDSR_WEEKLY_URL');
+    const url = weeklyUrl || this.config.get<string>('IDSR_ALERT_URL');
+    let outcome: SendOutcome;
+    if (!url) {
+      outcome = {
+        attempted: false,
+        ok: false,
+        detail:
+          'No surveillance endpoint is configured, so nothing was transmitted. The return is recorded — send it to the sub-county coordinator, and set IDSR_WEEKLY_URL to transmit automatically.',
+      };
+    } else {
+      const insecure = insecureEndpointReason(url, weeklyUrl ? 'IDSR_WEEKLY_URL' : 'IDSR_ALERT_URL');
+      outcome = insecure
+        ? { attempted: false, ok: false, detail: `${insecure} The return is recorded — send it to the sub-county coordinator.` }
+        : await postJson(url, await this.exportReturn(facilityId, entity), this.config.get<string>('IDSR_ALERT_TOKEN'));
+    }
+
+    const next = afterAttempt(entity.submissionAttempts ?? 0, outcome);
+    entity.submittedTo = url ?? null;
+    entity.submissionStatus = next.status;
+    entity.submissionAttempts = next.attempts;
+    entity.nextSubmissionAt = next.nextAt;
+    entity.submissionError = next.error;
+    if (next.status === 'sent') entity.submissionEscalatedAt = null;
+    return outcome;
+  }
+
+  /** Returns whose retry is due, for the retry job. */
+  dueForResend(now: Date = new Date()): Promise<WeeklyReturn[]> {
+    return this.returns
+      .createQueryBuilder('r')
+      .where('r.next_submission_at IS NOT NULL AND r.next_submission_at <= :now', { now })
+      .andWhere("r.status = 'submitted'")
+      .orderBy('r.next_submission_at', 'ASC')
+      .take(50)
+      .getMany();
+  }
+
+  /** Resend one return; the retry job's step. */
+  async resend(entity: WeeklyReturn): Promise<WeeklyReturn> {
+    await this.transmit(entity.facilityId, entity);
+    return this.returns.save(entity);
   }
 
   /** The return as MOH 505, for transmission, printing or email. */

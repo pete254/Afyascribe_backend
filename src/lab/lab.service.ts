@@ -288,6 +288,7 @@ export class LabService {
       department: dto.department ?? null,
       price: String(dto.price ?? 0),
       turnaroundHours: dto.turnaroundHours ?? null,
+      moh505Lab: dto.moh505Lab ?? null,
       analytes: (dto.analytes ?? []).map((a, i) => this.buildAnalyte(a, i)),
     });
     return this.tests.save(test);
@@ -318,6 +319,7 @@ export class LabService {
     if (dto.department !== undefined) test.department = dto.department;
     if (dto.price !== undefined) test.price = String(dto.price);
     if (dto.turnaroundHours !== undefined) test.turnaroundHours = dto.turnaroundHours;
+    if (dto.moh505Lab !== undefined) test.moh505Lab = dto.moh505Lab ?? null;
     if (dto.isActive !== undefined) test.isActive = dto.isActive;
     if (dto.analytes !== undefined) {
       test.analytes = dto.analytes.map((a, i) => this.buildAnalyte(a, i)); // cascade replaces

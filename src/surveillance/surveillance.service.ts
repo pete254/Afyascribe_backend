@@ -13,6 +13,7 @@ import { Patient } from '../patients/entities/patient.entity';
 import { Facility } from '../facilities/entities/facility.entity';
 import { NotifyDto } from './dto/surveillance.dto';
 import { insecureEndpointReason } from '../common/outbound-url';
+import { SendOutcome, afterAttempt, postJson } from './retry';
 
 /** The Ministry asks for immediate conditions within 24 hours of suspicion. */
 export const IMMEDIATE_WINDOW_HOURS = 24;
@@ -286,12 +287,61 @@ export class SurveillanceService {
       notifiedSubCountyAt: new Date(),
     });
 
-    const alert = await this.sendAlert(facilityId, row);
-    row.alertedAt = alert.attempted ? new Date() : null;
-    row.alertChannel = alert.attempted ? 'webhook' : null;
-    row.alertStatus = alert.attempted ? (alert.ok ? 'sent' : 'failed') : 'not-configured';
-
+    const alert = await this.transmit(facilityId, row);
     return { notification: await this.notifications.save(row), alert };
+  }
+
+  /**
+   * Send a notified case and record how it went, including when to try again
+   * (D-3). Used when notifying and by the retry job.
+   */
+  async transmit(facilityId: string, row: DiseaseNotification): Promise<SendOutcome> {
+    const alert = await this.sendAlert(facilityId, row);
+    const next = afterAttempt(row.alertAttempts ?? 0, alert);
+    if (alert.attempted) {
+      row.alertedAt = new Date();
+      row.alertChannel = 'webhook';
+    }
+    row.alertStatus = next.status;
+    row.alertAttempts = next.attempts;
+    row.nextAlertAt = next.nextAt;
+    row.alertError = next.error;
+    if (next.status === 'sent') row.alertEscalatedAt = null;
+    return alert;
+  }
+
+  /** Cases whose retry is due, for the retry job. */
+  dueForResend(now: Date = new Date()): Promise<DiseaseNotification[]> {
+    return this.notifications
+      .createQueryBuilder('n')
+      .where('n.next_alert_at IS NOT NULL AND n.next_alert_at <= :now', { now })
+      .andWhere("n.status = 'notified'")
+      .orderBy('n.immediate', 'DESC')
+      .addOrderBy('n.next_alert_at', 'ASC')
+      .take(50)
+      .getMany();
+  }
+
+  /** Resend one case; the retry job's step. */
+  async resend(row: DiseaseNotification): Promise<DiseaseNotification> {
+    await this.transmit(row.facilityId, row);
+    return this.notifications.save(row);
+  }
+
+  /** Immediate cases past the 24-hour window that nobody has been emailed about (D-8). */
+  overdueUnreminded(now: Date = new Date()): Promise<DiseaseNotification[]> {
+    const cutoff = new Date(now.getTime() - IMMEDIATE_WINDOW_HOURS * 3_600_000);
+    return this.notifications
+      .createQueryBuilder('n')
+      .where("n.status = 'suggested'")
+      .andWhere('n.immediate = true')
+      .andWhere('n.overdue_reminded_at IS NULL')
+      .andWhere('COALESCE(n.detected_at, n.created_at) <= :cutoff', { cutoff })
+      .getMany();
+  }
+
+  async markReminded(ids: string[], field: 'overdueRemindedAt' | 'alertEscalatedAt', at: Date = new Date()) {
+    if (ids.length) await this.notifications.update({ id: In(ids) }, { [field]: at });
   }
 
   /**
@@ -325,25 +375,8 @@ export class SurveillanceService {
         detail: `${insecure} The case is recorded — notify the sub-county surveillance coordinator by phone.`,
       };
     }
-    try {
-      const payload = await this.moh502(facilityId, row);
-      const token = this.config.get<string>('IDSR_ALERT_TOKEN');
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(payload),
-      });
-      return {
-        attempted: true,
-        ok: res.ok,
-        detail: res.ok ? `Sent to ${url}` : `${url} responded ${res.status}`,
-      };
-    } catch (err) {
-      return { attempted: true, ok: false, detail: (err as Error).message };
-    }
+    const payload = await this.moh502(facilityId, row);
+    return postJson(url, payload, this.config.get<string>('IDSR_ALERT_TOKEN'));
   }
 
   /** The case as MOH 502, section by section, for transmission or export. */

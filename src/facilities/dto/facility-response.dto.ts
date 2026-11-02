@@ -82,6 +82,11 @@ export class FacilityResponseDto {
   @ApiProperty()
   loginOtpDisabled: boolean;
 
+  /** Surveillance reminders go here; empty means the facility administrators. */
+  @Expose()
+  @ApiProperty({ nullable: true })
+  surveillanceEmail: string | null;
+
   /** When true, patients with an unpaid bill may still be seen by the doctor. */
   @Expose()
   @ApiProperty()
