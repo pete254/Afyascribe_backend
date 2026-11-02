@@ -1,5 +1,5 @@
-import { detectNotifiable, highestUrgency } from './detect';
-import { IDSR_CONDITIONS, immediateConditions, weeklyConditions, ihrConditions } from './data/idsr';
+import { detectByIcd11, detectNotifiable, highestUrgency } from './detect';
+import { ICD11_BY_CONDITION, IDSR_CONDITIONS, immediateConditions, weeklyConditions, ihrConditions } from './data/idsr';
 
 const codes = (t: string) => detectNotifiable(t).map((d) => d.condition.code).sort();
 
@@ -136,5 +136,58 @@ describe("the Ministry's lists, as transcribed", () => {
   it('has no duplicate codes', () => {
     const set = new Set(IDSR_CONDITIONS.map((c) => c.code));
     expect(set.size).toBe(IDSR_CONDITIONS.length);
+  });
+});
+
+describe('ICD-11 codes (Disease Reporting Specification D-5)', () => {
+  const byCode = (...c: string[]) => detectByIcd11(c).map((d) => d.condition.code).sort();
+
+  it('prompts on the codes whose WHO titles use other words', () => {
+    expect(byCode('1C15')).toEqual(['NNT']);
+    expect(byCode('MG52.00')).toEqual(['MDR_TB']);
+    expect(byCode('MG52.02')).toEqual(['MDR_TB']);
+    // Drug resistance coded beside the TB stem, in either cluster form.
+    expect(byCode('1B10.0&MG52.00')).toEqual(['MDR_TB']);
+    expect(byCode('1B10.0/MG52.02')).toEqual(['MDR_TB']);
+  });
+
+  it('matches a category and its children, not its neighbours', () => {
+    expect(byCode('1F03')).toEqual(['MEASLES']);
+    expect(byCode('1F03.1')).toEqual(['MEASLES']);
+    expect(byCode('1D60.01')).toEqual(['VHF']);
+    expect(byCode('1F40.Z')).toEqual(['MALARIA']);
+    expect(byCode('1A001')).toEqual([]);
+    expect(byCode('MG52.01')).toEqual([]); // non-tuberculous mycobacterium
+    expect(byCode('1B10.0')).toEqual([]); // TB that is not drug-resistant
+  });
+
+  it('ignores the empty and the unrelated', () => {
+    expect(byCode('', 'BA00')).toEqual([]);
+    expect(detectByIcd11([null, undefined])).toEqual([]);
+  });
+
+  it('every category it uses names a configured condition', () => {
+    for (const code of Object.keys(ICD11_BY_CONDITION)) {
+      expect(IDSR_CONDITIONS.some((c) => c.code === code)).toBe(true);
+    }
+  });
+});
+
+describe('ICD-11 titles that are not cases', () => {
+  it('raises nothing for an immunization, an observation, a sequela or an exposure', () => {
+    expect(codes('Need for immunization against measles alone')).toEqual([]);
+    expect(codes('Need for immunization against cholera alone')).toEqual([]);
+    expect(codes('Observation for suspected Dengue, ruled out')).toEqual([]);
+    expect(codes('Sequelae of poliomyelitis')).toEqual([]);
+    expect(codes('Post polio progressive muscular atrophy')).toEqual([]);
+    expect(codes('Exposure to cholera')).toEqual([]);
+    expect(codes('HIV disease clinical stage 1 without mention of tuberculosis or malaria')).toEqual([]);
+  });
+
+  it('still prompts on the titles that are cases', () => {
+    expect(codes('Tetanus neonatorum')).toEqual(['NNT']);
+    expect(codes('Multi-drug resistant Mycobacterium tuberculosis')).toEqual(['MDR_TB']);
+    expect(codes('Human immunodeficiency virus disease associated with malaria')).toEqual(['MALARIA']);
+    expect(codes('Cholera')).toEqual(['CHOLERA']);
   });
 });

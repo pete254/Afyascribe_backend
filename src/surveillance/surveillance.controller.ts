@@ -16,7 +16,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser, CurrentUserType } from '../common/decorators/current-user.decorator';
 import { SurveillanceService } from './surveillance.service';
 import { WeeklyReturnService } from './weekly.service';
-import { DismissNotificationDto, NotifyDto, RecordNotificationDto } from './dto/surveillance.dto';
+import { DismissNotificationDto, NotifyDto, RecordNotificationDto, SaveWeeklyDto } from './dto/surveillance.dto';
 
 function facilityOf(user: CurrentUserType): string {
   if (!user.facilityId) throw new BadRequestException('Your account is not linked to a facility');
@@ -135,7 +135,7 @@ export class SurveillanceController {
 
   @Post('weekly')
   @ApiOperation({ summary: 'Save the week as a draft, keeping any figure corrected by hand' })
-  saveWeekly(@CurrentUser() user: CurrentUserType, @Body() body: Record<string, any>) {
+  saveWeekly(@CurrentUser() user: CurrentUserType, @Body() body: SaveWeeklyDto) {
     return this.weekly.saveDraft(facilityOf(user), body, user);
   }
 

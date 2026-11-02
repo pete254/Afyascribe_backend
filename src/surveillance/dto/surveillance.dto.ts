@@ -1,13 +1,21 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsDateString,
   IsIn,
+  IsInt,
   IsObject,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
+  MaxLength,
+  Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 
 export class RecordNotificationDto {
@@ -76,4 +84,56 @@ export class NotifyDto {
   @IsObject() @IsOptional() form?: Record<string, unknown>;
 
   @ApiPropertyOptional() @IsString() @IsOptional() notes?: string;
+}
+
+// ── The weekly return (MOH 505) ─────────────────────────────────────────────
+
+/**
+ * One row's four figures. Counts of people: whole numbers, never negative.
+ * The ceiling only stops a typing slip (an extra zero, a pasted phone number)
+ * reaching the sub-county as a week's cases.
+ */
+export const MAX_WEEKLY_COUNT = 100_000;
+
+class WeeklyCountsDto {
+  @ApiProperty() @IsInt() @Min(0) @Max(MAX_WEEKLY_COUNT) under5Cases: number;
+  @ApiProperty() @IsInt() @Min(0) @Max(MAX_WEEKLY_COUNT) under5Deaths: number;
+  @ApiProperty() @IsInt() @Min(0) @Max(MAX_WEEKLY_COUNT) over5Cases: number;
+  @ApiProperty() @IsInt() @Min(0) @Max(MAX_WEEKLY_COUNT) over5Deaths: number;
+}
+
+export class WeeklyRowDto extends WeeklyCountsDto {
+  @ApiProperty({ description: 'The row as MOH 505 prints it' })
+  @IsString() @MaxLength(120) label: string;
+
+  @ApiPropertyOptional() @IsString() @IsOptional() conditionCode?: string | null;
+
+  /** Ignored: the server decides whether a row was corrected. */
+  @ApiPropertyOptional() @IsBoolean() @IsOptional() computed?: boolean;
+}
+
+export class WeeklyOtherDto extends WeeklyCountsDto {
+  @ApiProperty() @IsString() @MinLength(1) @MaxLength(120) label: string;
+}
+
+export class SaveWeeklyDto {
+  @ApiPropertyOptional() @IsInt() @Min(2000) @Max(2100) @IsOptional() year?: number;
+  @ApiPropertyOptional() @IsInt() @Min(1) @Max(53) @IsOptional() week?: number;
+
+  @ApiPropertyOptional({ type: [WeeklyRowDto] })
+  @IsArray() @ArrayMaxSize(60) @ValidateNested({ each: true }) @Type(() => WeeklyRowDto) @IsOptional()
+  rows?: WeeklyRowDto[];
+
+  @ApiPropertyOptional({ description: 'Laboratory surveillance: { test: { field: count } }' })
+  @IsObject() @IsOptional()
+  labSurveillance?: Record<string, Record<string, number>>;
+
+  @ApiPropertyOptional({ type: [WeeklyOtherDto] })
+  @IsArray() @ArrayMaxSize(30) @ValidateNested({ each: true }) @Type(() => WeeklyOtherDto) @IsOptional()
+  others?: WeeklyOtherDto[];
+
+  @ApiPropertyOptional() @IsInt() @Min(0) @Max(10_000) @IsOptional() sitesReported?: number;
+  @ApiPropertyOptional() @IsInt() @Min(0) @Max(10_000) @IsOptional() sitesExpected?: number;
+  @ApiPropertyOptional() @IsString() @MaxLength(120) @IsOptional() reportedByDesignation?: string;
+  @ApiPropertyOptional() @IsString() @MaxLength(2000) @IsOptional() notes?: string;
 }

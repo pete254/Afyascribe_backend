@@ -1,4 +1,4 @@
-import { IDSR_CONDITIONS, IdsrCondition } from './data/idsr';
+import { CONDITION_BY_CODE, ICD11_BY_CONDITION, IDSR_CONDITIONS, IdsrCondition } from './data/idsr';
 
 /**
  * Spotting a notifiable condition in what a clinician wrote.
@@ -8,10 +8,10 @@ import { IDSR_CONDITIONS, IdsrCondition } from './data/idsr';
  * the cost of being wrong is a public health response to a case that does not
  * exist. Every match is a prompt someone confirms or dismisses.
  *
- * Matching is on words, not codes. Kenya's diagnoses are coded to ICD-11 and
- * the IDSR list is not an ICD-11 subset; without a published crosswalk, a
- * code-based mapping would be this system's invention. Text matching is
- * cruder and honest about being so.
+ * Two ways in. Words, in what the clinician wrote and in the titles of the
+ * ICD-11 codes they chose; and the ICD-11 codes themselves, against WHO's
+ * category for each condition (ICD11_BY_CONDITION). The IDSR list is defined
+ * by case definitions, not codes, so neither files anything: both prompt.
  */
 
 /**
@@ -45,7 +45,20 @@ const NEGATIONS = [
   'screened for ',
   'screening for ',
   'prophylaxis ',
+  // How ICD-11 titles say "not a case" (QC…, QA02…, QC90…, 1G83, 8B62).
+  'need for immunization against ',
+  'need for immunisation against ',
+  'observation for suspected ',
+  'sequelae of ',
+  'exposure to ',
+  'post ',
 ];
+
+/**
+ * Negations that sit further back than the word before the term: "HIV disease
+ * without mention of tuberculosis or malaria" names malaria to exclude it.
+ */
+const WIDE_NEGATIONS = ['without mention of '];
 
 /** Words after which a mention is about a product, not a patient. */
 const TRAILING_NON_CASE = ['vaccine', 'vaccination', 'immunisation', 'immunization', 'jab'];
@@ -87,9 +100,10 @@ function findTerm(text: string, term: string): number[] {
 
 /** Is this mention negated, or about a vaccine rather than a case? */
 function isNonCase(text: string, at: number, term: string): boolean {
-  const windowStart = Math.max(0, at - 28);
-  const before = text.slice(windowStart, at);
+  const before = text.slice(Math.max(0, at - 40), at);
   if (NEGATIONS.some((n) => before.endsWith(n))) return true;
+  const wide = text.slice(Math.max(0, at - 60), at);
+  if (WIDE_NEGATIONS.some((n) => wide.includes(n))) return true;
 
   const after = text.slice(at + term.length, at + term.length + 20).trim();
   return TRAILING_NON_CASE.some((w) => after.startsWith(w));
@@ -121,6 +135,37 @@ export function detectNotifiable(text: string | null | undefined): Detection[] {
           term,
           context: hay.slice(Math.max(0, at - 30), at + term.length + 30).trim(),
         });
+      }
+    }
+  }
+  return [...found.values()];
+}
+
+/** Does an ICD-11 code fall under one of a condition's categories? */
+function underCategory(code: string, category: string): boolean {
+  if (code === category) return true;
+  return category.includes('.') ? code.startsWith(category) : code.startsWith(`${category}.`);
+}
+
+/**
+ * Every notifiable condition an ICD-11 code points to.
+ *
+ * Takes plain codes ("1C15") and postcoordinated clusters ("1B10.0&MG52.00",
+ * "1B10.0/MG52.00"): each part is checked, so the drug-resistance finding
+ * coded beside the TB stem is seen.
+ */
+export function detectByIcd11(codes: readonly (string | null | undefined)[]): Detection[] {
+  const found = new Map<string, Detection>();
+  for (const raw of codes) {
+    if (!raw) continue;
+    for (const part of raw.toUpperCase().split(/[&/]/)) {
+      const code = part.trim();
+      if (!code) continue;
+      for (const [conditionCode, categories] of Object.entries(ICD11_BY_CONDITION)) {
+        if (found.has(conditionCode)) continue;
+        if (!categories.some((c) => underCategory(code, c))) continue;
+        const condition = CONDITION_BY_CODE.get(conditionCode);
+        if (condition) found.set(conditionCode, { condition, term: code, context: `ICD-11 ${raw.trim()}` });
       }
     }
   }

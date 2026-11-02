@@ -1,4 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { MAX_WEEKLY_COUNT } from './dto/surveillance.dto';
+import type { Moh505Counts } from './data/moh505';
+
+/** A row as a person sends it back: the label and the four figures. */
+type WeeklyRowInput = Moh505Counts & { label: string; conditionCode?: string | null };
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -181,13 +186,45 @@ export class WeeklyReturnService {
     });
   }
 
+  /**
+   * What request validation cannot see: a row must be one the form prints, and
+   * the laboratory figures (a free-form map) must be counts too. A figure the
+   * sub-county receives is a figure someone acts on.
+   */
+  private checkFigures(
+    input: { rows?: WeeklyRowInput[]; labSurveillance?: Record<string, Record<string, number>> },
+    formRows: WeeklyReturnRow[],
+  ) {
+    const labels = new Set(formRows.map((r) => r.label));
+    const seen = new Set<string>();
+    for (const row of input.rows ?? []) {
+      if (!labels.has(row.label)) {
+        throw new BadRequestException(`"${row.label}" is not a row on MOH 505.`);
+      }
+      if (seen.has(row.label)) throw new BadRequestException(`"${row.label}" appears twice.`);
+      seen.add(row.label);
+    }
+    for (const [test, fields] of Object.entries(input.labSurveillance ?? {})) {
+      if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
+        throw new BadRequestException(`Laboratory figures for "${test}" must be a set of counts.`);
+      }
+      for (const [field, value] of Object.entries(fields)) {
+        if (!Number.isInteger(value) || value < 0 || value > MAX_WEEKLY_COUNT) {
+          throw new BadRequestException(
+            `Laboratory "${test}" — "${field}" must be a whole number from 0 to ${MAX_WEEKLY_COUNT}.`,
+          );
+        }
+      }
+    }
+  }
+
   /** Save a draft, marking any figure a person changed. */
   async saveDraft(
     facilityId: string,
     input: {
       year?: number;
       week?: number;
-      rows?: WeeklyReturnRow[];
+      rows?: WeeklyRowInput[];
       labSurveillance?: Record<string, Record<string, number>>;
       others?: WeeklyReturn['others'];
       sitesReported?: number;
@@ -207,6 +244,8 @@ export class WeeklyReturnService {
       throw new BadRequestException('This week has been submitted. Record a correction with the sub-county instead.');
     }
 
+    this.checkFigures(input, computed.rows);
+
     // A row that differs from what the record says was changed by a person,
     // and the return should say so.
     const rows = (input.rows ?? computed.rows).map((row) => {
@@ -217,7 +256,12 @@ export class WeeklyReturnService {
         auto.under5Deaths === row.under5Deaths &&
         auto.over5Cases === row.over5Cases &&
         auto.over5Deaths === row.over5Deaths;
-      return { ...row, computed: !!same };
+      // The form decides which condition a row is, not the request.
+      return {
+        ...row,
+        conditionCode: auto?.conditionCode ?? row.conditionCode ?? null,
+        computed: !!same,
+      };
     });
 
     const entity =

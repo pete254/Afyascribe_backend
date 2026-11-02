@@ -136,7 +136,7 @@ export const IDSR_CONDITIONS: readonly IdsrCondition[] = [
     weekly: true,
     suspectedCase:
       'Any newborn with a normal ability to suck and cry during the first two days of life who, between the 3rd and 28th day, cannot suck normally and becomes stiff or has convulsions or both.',
-    terms: ['neonatal tetanus'],
+    terms: ['neonatal tetanus', 'tetanus neonatorum'],
   },
   {
     code: 'PLAGUE',
@@ -182,6 +182,9 @@ export const IDSR_CONDITIONS: readonly IdsrCondition[] = [
       'xdr-tb',
       'drug resistant tuberculosis',
       'multidrug resistant tuberculosis',
+      // ICD-11 titles (MG52.00, MG52.02), as a coder sees them.
+      'multi-drug resistant mycobacterium tuberculosis',
+      'extensively drug-resistant mycobacterium tuberculosis',
     ],
     note:
       'Reported by laboratories with testing competence. MOH 505 carries this as "Suspected MDR/XDR TB" — the weekly form has no row for drug-sensitive tuberculosis.',
@@ -315,3 +318,43 @@ export const IHR_SOURCE = {
   ],
   note: 'Smallpox and SARS are not on Kenya’s IDSR list and so do not appear here as conditions.',
 } as const;
+
+/**
+ * The ICD-11 MMS categories for each condition, so a diagnosis chosen from the
+ * ICD-11 list raises the prompt even when its title uses other words — WHO
+ * titles neonatal tetanus "Tetanus neonatorum" (1C15), and drug-resistant TB is
+ * a resistance finding (MG52.00, MG52.02) beside the TB code.
+ *
+ * These are WHO's own categories for the same named disease, each checked
+ * against the release this system holds (2026-01). They are not a crosswalk of
+ * the case definitions: a code raises a *prompt*, and the clinician still
+ * decides against the Ministry's definition whether to notify.
+ *
+ * A category with no dot matches itself and its children ("1F03" → "1F03.1");
+ * one with a dot matches itself and anything beneath it ("1D60.0" → "1D60.01").
+ *
+ * Conditions with no single ICD-11 category (AEFI, SARI, AFP from causes
+ * other than polio) are not listed and are notified from the record.
+ */
+export const ICD11_BY_CONDITION: Readonly<Record<string, readonly string[]>> = {
+  AFP: ['1C81'],
+  ANTHRAX: ['1B97'],
+  CHOLERA: ['1A00'],
+  DENGUE: ['1D20', '1D21', '1D22', '1D2Z'],
+  GUINEA_WORM: ['1F64'],
+  FLU_NEW_SUBTYPE: ['1E31'],
+  MEASLES: ['1F03'],
+  NNT: ['1C15'],
+  PLAGUE: ['1B93'],
+  RVF: ['1D44'],
+  MDR_TB: ['MG52.00', 'MG52.02'],
+  VHF: ['1D49', '1D60.0', '1D60.1', '1D61.2', '1D86'],
+  YELLOW_FEVER: ['1D47'],
+  ACUTE_JAUNDICE: ['ME10.1'],
+  ACUTE_MALNUTRITION: ['5B52'],
+  BLOODY_DIARRHOEA: ['1A02'],
+  MALARIA: ['1F40', '1F41', '1F42', '1F43', '1F44', '1F45', '1F4Z'],
+  MENINGOCOCCAL: ['1C1C'],
+  RABIES: ['1C82'],
+  TYPHOID: ['1A07'],
+};

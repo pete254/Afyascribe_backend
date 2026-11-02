@@ -5,7 +5,7 @@ import { DiseaseNotification } from './entities/disease-notification.entity';
 import { SoapNote } from '../soap-notes/entities/soap-note.entity';
 import { PatientProblem } from '../problems/entities/patient-problem.entity';
 import { OPEN_STATUSES } from '../problems/problem.enums';
-import { Detection, detectNotifiable, highestUrgency } from './detect';
+import { Detection, detectByIcd11, detectNotifiable, highestUrgency } from './detect';
 import { CONDITION_BY_CODE, IDSR_CONDITIONS, IDSR_SOURCE, IHR_SOURCE } from './data/idsr';
 import { CurrentUserType } from '../common/decorators/current-user.decorator';
 import { ConfigService } from '@nestjs/config';
@@ -75,6 +75,7 @@ export class SurveillanceService {
   ): Promise<{ urgency: 'immediate' | 'weekly' | null; suggestions: SuggestionView[] }> {
     const sources: string[] = [];
     if (opts.text?.trim()) sources.push(opts.text);
+    const codes = await this.icd11CodesFor(facilityId, patientId);
 
     // The visit's own notes, or the patient's most recent, so a suggestion can
     // be raised from a consultation still being written.
@@ -103,7 +104,10 @@ export class SurveillanceService {
       sources.push(`${p.display ?? ''} ${p.code ?? ''}`);
     }
 
+    // The ICD-11 codes first: a chosen code is the more deliberate statement,
+    // and it catches conditions whose WHO title uses other words.
     const found = new Map<string, Detection>();
+    for (const d of detectByIcd11(codes.map((c) => c.code))) found.set(d.condition.code, d);
     for (const text of sources) {
       for (const d of detectNotifiable(text)) {
         if (!found.has(d.condition.code)) found.set(d.condition.code, d);
@@ -131,6 +135,31 @@ export class SurveillanceService {
     }));
 
     return { urgency: highestUrgency([...found.values()]), suggestions };
+  }
+
+  /**
+   * The ICD-11 codes on a patient's record: the five most recent notes'
+   * diagnoses and the open problem list.
+   */
+  private async icd11CodesFor(
+    facilityId: string,
+    patientId: string,
+  ): Promise<{ code: string; title: string | null }[]> {
+    const [notes, problems] = await Promise.all([
+      this.notes.find({ where: { facilityId, patientId }, order: { createdAt: 'DESC' }, take: 5 }),
+      this.problems.find({ where: { facilityId, patientId } }),
+    ]);
+    const out = new Map<string, string | null>();
+    for (const n of notes) {
+      if (n.icd11Code) out.set(n.icd11Code, out.get(n.icd11Code) ?? n.icd11Description ?? null);
+      for (const c of n.icd11Codes ?? []) if (c?.code) out.set(c.code, out.get(c.code) ?? c.description ?? null);
+    }
+    for (const p of problems) {
+      if (!OPEN_STATUSES.includes(p.status) || !p.code) continue;
+      if (p.system && p.system !== 'ICD-11') continue;
+      out.set(p.code, out.get(p.code) ?? p.display ?? null);
+    }
+    return [...out].map(([code, title]) => ({ code, title }));
   }
 
   /** Open a record for a condition — the step before anyone is told. */
@@ -319,11 +348,17 @@ export class SurveillanceService {
 
   /** The case as MOH 502, section by section, for transmission or export. */
   async moh502(facilityId: string, row: DiseaseNotification): Promise<Record<string, unknown>> {
-    const [patient, facility] = await Promise.all([
+    const [patient, facility, codes] = await Promise.all([
       this.patients.findOne({ where: { id: row.patientId, facilityId } }),
       this.facilities.findOne({ where: { id: facilityId } }),
+      this.icd11CodesFor(facilityId, row.patientId),
     ]);
     const condition = CONDITION_BY_CODE.get(row.conditionCode);
+    // Only the codes that point to this condition: the case form is not the
+    // place for the rest of the patient's diagnoses.
+    const icd11 = codes.filter((c) =>
+      detectByIcd11([c.code]).some((d) => d.condition.code === row.conditionCode),
+    );
 
     return {
       form: 'MOH 502 — Integrated Case Based Surveillance Form',
@@ -356,6 +391,7 @@ export class SurveillanceService {
         firstSeenDate: row.firstSeenDate,
         notifiedSubCountyAt: row.notifiedSubCountyAt,
         diagnosis: row.conditionName,
+        icd11: icd11.map((c) => ({ system: 'http://id.who.int/icd/release/11/mms', code: c.code, title: c.title })),
         meansOfDiagnosis: row.meansOfDiagnosis,
         caseClassification: row.caseClassification,
         patientStatus: row.patientStatus,
