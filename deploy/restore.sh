@@ -272,7 +272,7 @@ EOF
     [ "$(rsql -c 'select pg_is_in_recovery()' 2>/dev/null || true)" = f ] && break
     if ! rup; then
       sleep 2; rup && continue
-      if [ "$T" != latest ] && [ -z "$TARGET_NOTE" ] && rlog | grep -q "recovery ended before configured recovery target was reached"; then
+      if [ "$T" != latest ] && [ -z "$TARGET_NOTE" ] && grep -q "recovery ended before configured recovery target was reached" <<<"$(rlog)"; then
         TARGET_NOTE="The log in the vault has no transaction after the target time (nothing was written after it), so the database was replayed to the end of the log."
         echo "  $TARGET_NOTE"
         sed -i '/^recovery_target_time/d' "$WORK/pg/data/postgresql.auto.conf"
