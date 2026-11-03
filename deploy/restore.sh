@@ -17,6 +17,9 @@
 #                                                     the database as it was at <time> (EAT), e.g. "2026-11-02 14:05"
 #                                                     without --apply: rebuilt and checked aside, live untouched
 #
+#   sudo bash deploy/restore.sh failover "<url>"       EMERGENCY (DR Plan R5): the latest data into a temporary database outside Kenya
+#   sudo bash deploy/restore.sh failback "<url>"       …and every record made there back onto the Kenyan server
+#
 #   sudo bash deploy/restore.sh test [logical|pitr|uploads|all] ["<time>"]
 #                                                     restore tests; each writes a dated test report
 #
@@ -138,7 +141,7 @@ chain_check() {
 
 compare_counts() {  # expected-json got-json → prints verdict line; returns 1 on a missing table
   python3 - "$1" "$2" <<'PY'
-import json, sys
+import json, os, sys
 want, got = json.loads(sys.argv[1] or "{}"), json.loads(sys.argv[2] or "{}")
 missing = sorted(set(want) - set(got))
 differ = sorted(t for t in want if t in got and want[t] != got[t])
@@ -149,6 +152,7 @@ if not want:
     print(f"{len(got)} tables, {rows} rows (no counts recorded to compare)")
 elif differ:
     print(f"all {len(want)} tables present, {rows} rows; counts differ in {len(differ)}: " + ", ".join(f"{t} {want[t]}→{got[t]}" for t in differ))
+    if os.environ.get("STRICT"): sys.exit(1)
 else:
     print(f"all {len(want)} tables match exactly, {rows} rows")
 PY
@@ -179,6 +183,101 @@ report() {  # scenario result body
 }
 
 latest() { vault_sql -c "select name from backup_vault.objects where kind = '$1' order by created_at desc limit 1"; }
+
+# recover_aside TIME|latest — rebuild the database from the base backups and
+# the transaction log in a throwaway database, to TIME (EAT) or, with
+# "latest", to the last log segment in the vault (the least data lost).
+# Leaves it running; sets rsql/rdump, got, summary, PITR_FAILED.
+recover_aside() {
+  T="$1"
+  if [ "$T" = latest ]; then
+    T_UTC="$(date -u '+%Y-%m-%d %H:%M:%S+00')"
+  else
+    T_UTC="$(TZ=UTC date -d "TZ=\"Africa/Nairobi\" $T" '+%Y-%m-%d %H:%M:%S+00')" || fail "Cannot read the time '$T'."
+  fi
+  started=$(date +%s)
+  if [ "$T" = latest ]; then say "Restoring the database to the last transaction log in the vault"; else say "Restoring the database as it was at $T EAT ($T_UTC)"; fi
+  full="$(vault_sql -c "select name from backup_vault.objects where kind = 'base' and meta->>'mode' = 'full' and created_at <= '$T_UTC' order by created_at desc limit 1")"
+  [ -n "$full" ] || fail "No full base backup before $T."
+  mapfile -t chain < <(echo "$full"; vault_sql -c "select name from backup_vault.objects where kind = 'base' and meta->>'mode' = 'incremental' and meta->>'full' = '$full' and created_at <= '$T_UTC' order by created_at")
+  start_wal="$(vault_sql -c "select meta->>'start_wal' from backup_vault.objects where name = '$full'")"
+  echo "  base: ${#chain[@]} backup(s) from $(basename "$full"), log from segment $start_wal"
+  install -d -m 700 "$WORK/pg" "$WORK/pg/b" "$WORK/pg/wal"
+  i=0
+  for name in "${chain[@]}"; do
+    fetch "$name" "$WORK/pg/b.gpg"
+    install -d -m 700 "$WORK/pg/b/$i"
+    decrypt < "$WORK/pg/b.gpg" | gunzip | tar -C "$WORK/pg/b/$i" -xf -
+    rm -f "$WORK/pg/b.gpg"; i=$((i + 1))
+  done
+  # The log from the full backup's start to an hour past the target.
+  mapfile -t segs < <(vault_sql -c "select name from backup_vault.objects where kind = 'wal' and (meta->>'segment' >= '$start_wal' or meta->>'segment' like '%.history') and created_at <= timestamptz '$T_UTC' + interval '1 hour' order by meta->>'segment'")
+  for name in "${segs[@]}"; do
+    [ -n "$name" ] || continue
+    seg="$(basename "$name" .gz.gpg)"
+    fetch "$name" "$WORK/w.gpg"
+    decrypt < "$WORK/w.gpg" | gunzip > "$WORK/pg/wal/$seg"
+  done
+  rm -f "$WORK/w.gpg"
+  echo "  log: ${#segs[@]} segment(s)"
+  if [ "${#chain[@]}" -gt 1 ]; then
+    dirs=(); for j in $(seq 0 $((i - 1))); do dirs+=("$WORK/pg/b/$j"); done
+    [ -n "${BACKUP_LOCAL:-}" ] || chown -R 70:70 "$WORK/pg"
+    WORK="$WORK/pg" PGTOOL_USER=70:70 pgtool pg_combinebackup "${dirs[@]}" -o "$WORK/pg/data"
+  else
+    mv "$WORK/pg/b/0" "$WORK/pg/data"
+  fi
+  rm -rf "$WORK/pg/b"
+  if [ -n "${BACKUP_LOCAL:-}" ]; then walpath="$WORK/pg/wal"; else walpath=/restore/wal; fi
+  touch "$WORK/pg/data/recovery.signal"
+  cat >> "$WORK/pg/data/postgresql.auto.conf" <<EOF
+restore_command = 'cp $walpath/%f "%p"'
+$([ "$T" = latest ] || echo "recovery_target_time = '$T_UTC'")
+recovery_target_action = 'promote'
+archive_mode = 'off'
+EOF
+  chmod 700 "$WORK/pg/data"
+  say "Replaying the log to $T EAT"
+  if [ -n "${BACKUP_LOCAL:-}" ]; then
+    pg_ctl -D "$WORK/pg/data" -o "-k $WORK -c listen_addresses='' -p 54330" -w -t 600 start >/dev/null
+    rsql() { PGHOST="$WORK" PGPORT=54330 psql -U "$(db_user)" -d "$(db_name)" -v ON_ERROR_STOP=1 -qtA "$@"; }
+    rdump() { PGHOST="$WORK" PGPORT=54330 pg_dump -U "$(db_user)" -d "$(db_name)" --format=custom; }
+  else
+    chown -R 70:70 "$WORK/pg"
+    docker network create --internal "$TAG" >/dev/null
+    docker run -d --name "$TAG" --network "$TAG" -v "$WORK/pg/data:/var/lib/postgresql/data" -v "$WORK/pg/wal:/restore/wal:ro" "$PG_IMAGE" >/dev/null
+    rsql() { docker exec -i "$TAG" psql -U "$(db_user)" -d "$(db_name)" -v ON_ERROR_STOP=1 -qtA "$@"; }
+    rdump() { docker exec "$TAG" pg_dump -U "$(db_user)" -d "$(db_name)" --format=custom; }
+  fi
+  for _ in $(seq 600); do
+    [ "$(rsql -c 'select pg_is_in_recovery()' 2>/dev/null || true)" = f ] && break
+    sleep 1
+  done
+  [ "$(rsql -c 'select pg_is_in_recovery()' 2>/dev/null || true)" = f ] || fail "Recovery did not finish. See: docker logs $TAG"
+  got="$(rsql -c "$COUNT_SQL")"
+  last_event="$(rsql -c "select coalesce(max(created_at)::text, 'none') from audit_events" 2>/dev/null || echo unknown)"
+  if [ -n "${BACKUP_LOCAL:-}" ]; then
+    pchain='{"ok":null,"note":"not checked in the test harness"}'
+  else
+    set +e
+    if ! docker image inspect afyascribe-backend:latest >/dev/null 2>&1; then
+      pchain='{"ok":null,"note":"not checked: no application image on this machine"}'
+    else
+    pchain="$(docker run --rm --network "$TAG" -e PGHOST="$TAG" -e PGUSER="$(db_user)" -e PGPASSWORD="${DB_PASSWORD:-}" -e PGDATABASE="$(db_name)" \
+      -v "$REPO/deploy/verify-chain.js:/app/verify-chain.js:ro" afyascribe-backend:latest node /app/verify-chain.js 2>&1)"
+    [ $? -eq 0 ] || PITR_FAILED=1
+    fi
+    set -e
+  fi
+  took=$(( $(date +%s) - started ))
+  summary="Target time:     $([ "$T" = latest ] && echo "the last transaction log in the vault" || echo "$T EAT ($T_UTC)")
+Base backups:    ${chain[*]}
+Log segments:    ${#segs[@]}
+Recovered:       $(compare_counts '{}' "$got")
+Last audit entry in the restored data: $last_event (UTC)
+Audit chain:     $pchain
+Time taken:      ${took}s (Recovery Time Objective: 4 hours)"
+}
 
 # ════════════════════════════════════════════════════════════════════════════
 case "$CMD" in
@@ -303,85 +402,8 @@ db|table)
   ;;
 
 pitr)
-  T="${1:?the time to restore to, in EAT, e.g. \"2026-11-02 14:05\"}"
-  T_UTC="$(TZ=UTC date -d "TZ=\"Africa/Nairobi\" $T" '+%Y-%m-%d %H:%M:%S+00')" || fail "Cannot read the time '$T'."
   APPLY=""; [ "${2:-}" = --apply ] && APPLY=1
-  started=$(date +%s)
-  say "Restoring the database as it was at $T EAT ($T_UTC)"
-  full="$(vault_sql -c "select name from backup_vault.objects where kind = 'base' and meta->>'mode' = 'full' and created_at <= '$T_UTC' order by created_at desc limit 1")"
-  [ -n "$full" ] || fail "No full base backup before $T."
-  mapfile -t chain < <(echo "$full"; vault_sql -c "select name from backup_vault.objects where kind = 'base' and meta->>'mode' = 'incremental' and meta->>'full' = '$full' and created_at <= '$T_UTC' order by created_at")
-  start_wal="$(vault_sql -c "select meta->>'start_wal' from backup_vault.objects where name = '$full'")"
-  echo "  base: ${#chain[@]} backup(s) from $(basename "$full"), log from segment $start_wal"
-  install -d -m 700 "$WORK/pg" "$WORK/pg/b" "$WORK/pg/wal"
-  i=0
-  for name in "${chain[@]}"; do
-    fetch "$name" "$WORK/pg/b.gpg"
-    install -d -m 700 "$WORK/pg/b/$i"
-    decrypt < "$WORK/pg/b.gpg" | gunzip | tar -C "$WORK/pg/b/$i" -xf -
-    rm -f "$WORK/pg/b.gpg"; i=$((i + 1))
-  done
-  # The log from the full backup's start to an hour past the target.
-  mapfile -t segs < <(vault_sql -c "select name from backup_vault.objects where kind = 'wal' and (meta->>'segment' >= '$start_wal' or meta->>'segment' like '%.history') and created_at <= timestamptz '$T_UTC' + interval '1 hour' order by meta->>'segment'")
-  for name in "${segs[@]}"; do
-    [ -n "$name" ] || continue
-    seg="$(basename "$name" .gz.gpg)"
-    fetch "$name" "$WORK/w.gpg"
-    decrypt < "$WORK/w.gpg" | gunzip > "$WORK/pg/wal/$seg"
-  done
-  rm -f "$WORK/w.gpg"
-  echo "  log: ${#segs[@]} segment(s)"
-  if [ "${#chain[@]}" -gt 1 ]; then
-    dirs=(); for j in $(seq 0 $((i - 1))); do dirs+=("$WORK/pg/b/$j"); done
-    [ -n "${BACKUP_LOCAL:-}" ] || chown -R 70:70 "$WORK/pg"
-    WORK="$WORK/pg" PGTOOL_USER=70:70 pgtool pg_combinebackup "${dirs[@]}" -o "$WORK/pg/data"
-  else
-    mv "$WORK/pg/b/0" "$WORK/pg/data"
-  fi
-  rm -rf "$WORK/pg/b"
-  if [ -n "${BACKUP_LOCAL:-}" ]; then walpath="$WORK/pg/wal"; else walpath=/restore/wal; fi
-  touch "$WORK/pg/data/recovery.signal"
-  cat >> "$WORK/pg/data/postgresql.auto.conf" <<EOF
-restore_command = 'cp $walpath/%f "%p"'
-recovery_target_time = '$T_UTC'
-recovery_target_action = 'promote'
-archive_mode = 'off'
-EOF
-  chmod 700 "$WORK/pg/data"
-  say "Replaying the log to $T EAT"
-  if [ -n "${BACKUP_LOCAL:-}" ]; then
-    pg_ctl -D "$WORK/pg/data" -o "-k $WORK -c listen_addresses='' -p 54330" -w -t 600 start >/dev/null
-    rsql() { PGHOST="$WORK" PGPORT=54330 psql -U "$(db_user)" -d "$(db_name)" -v ON_ERROR_STOP=1 -qtA "$@"; }
-  else
-    chown -R 70:70 "$WORK/pg"
-    docker network create --internal "$TAG" >/dev/null
-    docker run -d --name "$TAG" --network "$TAG" -v "$WORK/pg/data:/var/lib/postgresql/data" -v "$WORK/wal:/restore/wal:ro" "$PG_IMAGE" >/dev/null
-    rsql() { docker exec -i "$TAG" psql -U "$(db_user)" -d "$(db_name)" -v ON_ERROR_STOP=1 -qtA "$@"; }
-  fi
-  for _ in $(seq 600); do
-    [ "$(rsql -c 'select pg_is_in_recovery()' 2>/dev/null || true)" = f ] && break
-    sleep 1
-  done
-  [ "$(rsql -c 'select pg_is_in_recovery()' 2>/dev/null || true)" = f ] || fail "Recovery did not finish. See: docker logs $TAG"
-  got="$(rsql -c "$COUNT_SQL")"
-  last_event="$(rsql -c "select coalesce(max(created_at)::text, 'none') from audit_events" 2>/dev/null || echo unknown)"
-  if [ -n "${BACKUP_LOCAL:-}" ]; then
-    pchain='{"ok":null,"note":"not checked in the test harness"}'
-  else
-    set +e
-    pchain="$(docker run --rm --network "$TAG" -e PGHOST="$TAG" -e PGUSER="$(db_user)" -e PGPASSWORD="${DB_PASSWORD:-}" -e PGDATABASE="$(db_name)" \
-      -v "$REPO/deploy/verify-chain.js:/app/verify-chain.js:ro" afyascribe-backend:latest node /app/verify-chain.js 2>&1)"
-    [ $? -eq 0 ] || PITR_FAILED=1
-    set -e
-  fi
-  took=$(( $(date +%s) - started ))
-  summary="Target time:     $T EAT ($T_UTC)
-Base backups:    ${chain[*]}
-Log segments:    ${#segs[@]}
-Recovered:       $(compare_counts '{}' "$got")
-Last audit entry in the restored data: $last_event (UTC)
-Audit chain:     $pchain
-Time taken:      ${took}s (Recovery Time Objective: 4 hours)"
+  recover_aside "${1:?the time to restore to, in EAT, e.g. \"2026-11-02 14:05\", or latest}"
   echo "$summary"
   if [ -n "$APPLY" ]; then
     [ -z "${PITR_FAILED:-}" ] || fail "The audit chain of the restored data did not verify. Not applying it."
@@ -400,6 +422,87 @@ Time taken:      ${took}s (Recovery Time Objective: 4 hours)"
     report pitr "$([ -n "${PITR_FAILED:-}" ] && echo FAIL || echo PASS)" "$summary"
   fi
   [ -z "${PITR_FAILED:-}" ] || exit 1
+  ;;
+
+failover)
+  # EMERGENCY ONLY — Disaster Recovery Plan, runbook R5. Puts readable patient
+  # records outside Kenya until failback, so it needs the DR Commander's
+  # recorded decision first. Run on any machine with Docker (the
+  # administrator's computer when the server is lost), with sudo.
+  #
+  # Rebuilds the database to the LAST transaction log in the vault (at most a
+  # few minutes lost), checks it, and loads it into TARGET: the empty database
+  # of a NEW, SEPARATE Neon project made for this failover, so that deleting
+  # the project afterwards removes every copy, its history included.
+  TARGET="${1:?the connection string of the empty failover database}"
+  case "$TARGET" in postgres*://*) ;; *) fail "That is not a connection string." ;; esac
+  [ "$(pgtool psql "$TARGET" -qtA -c "select count(*) from information_schema.tables where table_schema = 'public'")" = 0 ] \
+    || fail "The failover database is not empty. Use a new, empty Neon project."
+  if [ -z "${RESTORE_YES:-}" ]; then
+    echo "This places READABLE patient records outside Kenya until failback (DR Plan R5)."
+    read -rp "The DR Commander has approved it and the decision is recorded. Type FAILOVER to continue: " ok
+    [ "$ok" = FAILOVER ] || fail "Stopped; nothing was copied."
+  fi
+  # The database's own names, from the latest settings file — in memory only.
+  name="$(latest secrets)"; [ -n "$name" ] || fail "No settings file in the vault."
+  fetch "$name" "$WORK/s.gpg"
+  decrypt < "$WORK/s.gpg" | grep -E '^(DB_USERNAME|DB_DATABASE|DB_PASSWORD)=' > "$WORK/db.env" || true
+  rm -f "$WORK/s.gpg"
+  set -a; . "$WORK/db.env"; set +a; rm -f "$WORK/db.env"
+  started_fo=$(date +%s)
+  recover_aside latest
+  echo "$summary"
+  [ -z "${PITR_FAILED:-}" ] || fail "The audit chain of the recovered data did not verify. Not copying it."
+  say "Loading it into the failover database"
+  rdump | pgtool pg_restore --no-owner --no-acl --exit-on-error --single-transaction -d "$TARGET"
+  copied="$(pgtool psql "$TARGET" -v ON_ERROR_STOP=1 -qtA -c "$COUNT_SQL")"
+  check="$(STRICT=1 compare_counts "$got" "$copied")" || fail "The failover database is incomplete: $check"
+  host="$(python3 -c 'import sys,urllib.parse as u; print(u.urlsplit(sys.argv[1]).hostname)' "$TARGET")"
+  report failover PASS "$summary
+Loaded into:     $host (outside Kenya — to be deleted at failback)
+Loaded at:       $(date '+%F %T %Z')
+Failover copy:   $check
+Total time:      $(( $(date +%s) - started_fo ))s
+
+Next (DR Plan R5): point the standby API at this database, then the API address at
+the standby. Facilities work on it until failback; NO document uploads meanwhile."
+  ;;
+
+failback)
+  # Disaster Recovery Plan R5, end: bring every record made during the failover
+  # back onto the Kenyan server. Run on the rebuilt server, with the database
+  # running and the standby API STOPPED (so nothing changes while copying).
+  SOURCE="${1:?the connection string of the failover database}"
+  if [ -z "${RESTORE_YES:-}" ]; then
+    echo "This REPLACES the database on this server with the failover database."
+    read -rp "The standby API is stopped. Type FAILBACK to continue: " ok
+    [ "$ok" = FAILBACK ] || fail "Stopped; nothing changed."
+  fi
+  [ -n "${BACKUP_LOCAL:-}" ] || docker compose -f "$REPO/docker-compose.yml" stop backend
+  say "Copying the failover database back to this server"
+  want="$(pgtool psql "$SOURCE" -v ON_ERROR_STOP=1 -qtA -c "$COUNT_SQL")"
+  pgtool pg_dump --format=custom "$SOURCE" > "$WORK/fo.dump"
+  in_db pg_restore -U "$(db_user)" -d "$(db_name)" --clean --if-exists --no-owner --no-acl --single-transaction --exit-on-error < "$WORK/fo.dump"
+  rm -f "$WORK/fo.dump"
+  got="$(prod_sql -c "$COUNT_SQL")"
+  check="$(STRICT=1 compare_counts "$want" "$got")" || fail "The copy back is incomplete: $check. The failover database is untouched; do not delete it."
+  if [ -n "${BACKUP_LOCAL:-}" ] || ! docker image inspect afyascribe-backend:latest >/dev/null 2>&1; then
+    chain='{"ok":null,"note":"not checked here"}'
+  else
+    set +e
+    chain="$(docker run --rm --network afyascribe_internal -e PGHOST=postgres -e PGUSER="$(db_user)" -e PGPASSWORD="${DB_PASSWORD:-}" -e PGDATABASE="$(db_name)" \
+      -v "$REPO/deploy/verify-chain.js:/app/verify-chain.js:ro" afyascribe-backend:latest node /app/verify-chain.js 2>&1)"
+    rc=$?; set -e
+    [ "$rc" -eq 0 ] || fail "The audit chain does not verify after failback: $chain. The failover database is untouched; do not delete it."
+  fi
+  [ -n "${BACKUP_LOCAL:-}" ] || docker compose -f "$REPO/docker-compose.yml" up -d backend
+  rm -f "$STATE/last_manifest"   # the next base backup must be full
+  report failback PASS "Copied back from: $(python3 -c 'import sys,urllib.parse as u; print(u.urlsplit(sys.argv[1]).hostname)' "$SOURCE")
+Copy:            $check
+Audit chain:     $chain
+
+Next (DR Plan R5): run sudo bash deploy/backup.sh; point the API address back at this
+server; then DELETE the failover Neon project and record the deletion."
   ;;
 
 test)
