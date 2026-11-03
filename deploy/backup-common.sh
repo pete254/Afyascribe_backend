@@ -130,7 +130,11 @@ check_key() {
 sha256() { sha256sum "$1" | cut -d' ' -f1; }
 
 # ── The vault ──────────────────────────────────────────────────────────────
-vault_sql() { pgtool psql "$VAULT_URL" -v ON_ERROR_STOP=1 -qtA "$@"; }
+# vault_sql never reads standard input: the tool runs in a container whose
+# input is attached, and inside a "while read" loop it would swallow the
+# rest of the list. vault_sql_in is for SQL piped in.
+vault_sql()    { pgtool psql "$VAULT_URL" -v ON_ERROR_STOP=1 -qtA "$@" < /dev/null; }
+vault_sql_in() { pgtool psql "$VAULT_URL" -v ON_ERROR_STOP=1 -qtA "$@"; }
 
 # vault_put NAME FILE KIND TIER RETAIN_UNTIL META_JSON
 # One transaction: every part, then the object row. All or nothing.
@@ -139,7 +143,7 @@ vault_put() {
   local size sum parts
   size=$(stat -c %s "$file"); sum=$(sha256 "$file")
   parts=$(( (size + PART_BYTES - 1) / PART_BYTES )); [ "$parts" -ge 1 ] || parts=1
-  python3 - "$name" "$file" "$PART_BYTES" "$kind" "$tier" "$until" "$size" "$sum" "$parts" "$meta" <<'PY' | vault_sql >/dev/null
+  python3 - "$name" "$file" "$PART_BYTES" "$kind" "$tier" "$until" "$size" "$sum" "$parts" "$meta" <<'PY' | vault_sql_in >/dev/null
 import sys
 name, path, chunk, kind, tier, until, size, sha, parts, meta = sys.argv[1:]
 chunk = int(chunk)

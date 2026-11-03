@@ -333,7 +333,7 @@ if [ -n "$purge" ]; then
   printf '%s\n' "$purge" | python3 -c 'import sys
 names = [l.strip() for l in sys.stdin if l.strip()]
 q = ",".join("$n$" + x + "$n$" for x in names)
-print(f"BEGIN; DELETE FROM backup_vault.parts WHERE name IN ({q}); DELETE FROM backup_vault.objects WHERE name IN ({q}); COMMIT;")' | vault_sql >/dev/null
+print(f"BEGIN; DELETE FROM backup_vault.parts WHERE name IN ({q}); DELETE FROM backup_vault.objects WHERE name IN ({q}); COMMIT;")' | vault_sql_in >/dev/null
   log "  removed $n expired object(s) from the vault"
 fi
 
