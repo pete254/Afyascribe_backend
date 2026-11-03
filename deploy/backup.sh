@@ -116,7 +116,7 @@ if [ "${1:-}" != "--run" ]; then
   exec 9>"$STATE/nightly.lock"
   flock -n 9 || { log "another backup is still running — not starting a second"; alert "backup already running" "The 02:30 backup found the previous one still running."; exit 1; }
   set +e
-  timeout --signal=TERM "${MAX_RUN_MIN}m" bash "$0" --run
+  timeout --signal=TERM "${MAX_RUN_MIN}m" bash "$0" --run < /dev/null  # never read the terminal: a container step would wait on it
   rc=$?
   set -e
   if [ "$rc" -eq 124 ]; then

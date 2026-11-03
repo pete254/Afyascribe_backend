@@ -85,14 +85,19 @@ need_key() {
     keytext="$(cat "$RESTORE_KEY_FILE")"
   else
     echo "The PRIVATE backup key: give the path to the key file, or paste it and press Ctrl-D."
-    read -rp "Path (or Enter to paste): " p
-    if [ -n "$p" ]; then keytext="$(cat "$p")"; else keytext="$(cat)"; fi
+    read -rp "Path (or Enter to paste): " p < /dev/tty
+    if [ -n "$p" ]; then keytext="$(cat "$p")"; else keytext="$(cat < /dev/tty)"; fi
   fi
   case "$keytext" in *"BEGIN PGP PRIVATE KEY BLOCK"*) ;; *) fail "That is not a PGP private key." ;; esac
   printf '%s\n' "$keytext" | gpg --homedir "$KEYHOME" --batch --quiet --import 2>/dev/null
   unset keytext
   if [ -n "${RESTORE_PASSPHRASE+x}" ]; then PASSPHRASE="$RESTORE_PASSPHRASE"
-  else read -rsp "Passphrase of the backup key (input hidden): " PASSPHRASE; echo; fi
+  else read -rsp "Passphrase of the backup key (input hidden): " PASSPHRASE < /dev/tty; echo; fi
+  # Check the passphrase now, not halfway through a restore.
+  echo probe | gpg --homedir "$KEYHOME" --batch --quiet --trust-model always --encrypt \
+      --recipient "$(gpg --homedir "$KEYHOME" --batch --with-colons --list-secret-keys | awk -F: '/^fpr:/ {print $10; exit}')" \
+    | gpg --homedir "$KEYHOME" --batch --quiet --no-tty --pinentry-mode loopback --passphrase-fd 3 --decrypt 3<<<"$PASSPHRASE" >/dev/null 2>&1 \
+    || fail "The key or its passphrase is wrong."
 }
 decrypt() {  # stdin → stdout
   need_key
@@ -278,6 +283,11 @@ Last audit entry in the restored data: $last_event (UTC)
 Audit chain:     $pchain
 Time taken:      ${took}s (Recovery Time Objective: 4 hours)"
 }
+
+# Ask for the private key first, from the keyboard: decrypt() runs with a
+# backup file on its standard input and inside pipelines, so it must never
+# be the one asking.
+case "$CMD" in file|uploads|secrets|db|table|pitr|failover|failback|test) need_key ;; esac
 
 # ════════════════════════════════════════════════════════════════════════════
 case "$CMD" in
