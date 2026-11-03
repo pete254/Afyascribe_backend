@@ -253,10 +253,10 @@ EOF
     chown -R 70:70 "$WORK/pg"
     docker network create --internal "$TAG" >/dev/null
     rstart() {
-      if docker inspect "$TAG" >/dev/null 2>&1; then docker start "$TAG" >/dev/null
+      if docker container inspect "$TAG" >/dev/null 2>&1; then docker start "$TAG" >/dev/null
       else docker run -d --name "$TAG" --network "$TAG" -v "$WORK/pg/data:/var/lib/postgresql/data" -v "$WORK/pg/wal:/restore/wal:ro" "$PG_IMAGE" >/dev/null; fi
     }
-    rup()  { [ "$(docker inspect -f '{{.State.Running}}' "$TAG" 2>/dev/null)" = true ]; }
+    rup()  { [ "$(docker container inspect -f '{{.State.Running}}' "$TAG" 2>/dev/null)" = true ]; }
     rlog() { docker logs "$TAG" 2>&1; }
     rsql() { docker exec "$TAG" psql -U "$(db_user)" -d "$(db_name)" -v ON_ERROR_STOP=1 -qtA "$@" < /dev/null; }
     rdump() { docker exec "$TAG" pg_dump -U "$(db_user)" -d "$(db_name)" --format=custom < /dev/null; }
