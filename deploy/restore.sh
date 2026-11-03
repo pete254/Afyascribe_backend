@@ -244,21 +244,48 @@ EOF
   chmod 700 "$WORK/pg/data"
   say "Replaying the log to $T EAT"
   if [ -n "${BACKUP_LOCAL:-}" ]; then
-    pg_ctl -D "$WORK/pg/data" -o "-k $WORK -c listen_addresses='' -p 54330" -w -t 600 start >/dev/null
-    rsql() { PGHOST="$WORK" PGPORT=54330 psql -U "$(db_user)" -d "$(db_name)" -v ON_ERROR_STOP=1 -qtA "$@"; }
-    rdump() { PGHOST="$WORK" PGPORT=54330 pg_dump -U "$(db_user)" -d "$(db_name)" --format=custom; }
+    rstart() { pg_ctl -D "$WORK/pg/data" -l "$WORK/pg/server.log" -o "-k $WORK -c listen_addresses='' -p 54330" start >/dev/null 2>&1 || true; }
+    rup()    { pg_ctl -D "$WORK/pg/data" status >/dev/null 2>&1; }
+    rlog()   { cat "$WORK/pg/server.log" 2>/dev/null; }
+    rsql() { PGHOST="$WORK" PGPORT=54330 psql -U "$(db_user)" -d "$(db_name)" -v ON_ERROR_STOP=1 -qtA "$@" < /dev/null; }
+    rdump() { PGHOST="$WORK" PGPORT=54330 pg_dump -U "$(db_user)" -d "$(db_name)" --format=custom < /dev/null; }
   else
     chown -R 70:70 "$WORK/pg"
     docker network create --internal "$TAG" >/dev/null
-    docker run -d --name "$TAG" --network "$TAG" -v "$WORK/pg/data:/var/lib/postgresql/data" -v "$WORK/pg/wal:/restore/wal:ro" "$PG_IMAGE" >/dev/null
-    rsql() { docker exec -i "$TAG" psql -U "$(db_user)" -d "$(db_name)" -v ON_ERROR_STOP=1 -qtA "$@"; }
-    rdump() { docker exec "$TAG" pg_dump -U "$(db_user)" -d "$(db_name)" --format=custom; }
+    rstart() {
+      if docker inspect "$TAG" >/dev/null 2>&1; then docker start "$TAG" >/dev/null
+      else docker run -d --name "$TAG" --network "$TAG" -v "$WORK/pg/data:/var/lib/postgresql/data" -v "$WORK/pg/wal:/restore/wal:ro" "$PG_IMAGE" >/dev/null; fi
+    }
+    rup()  { [ "$(docker inspect -f '{{.State.Running}}' "$TAG" 2>/dev/null)" = true ]; }
+    rlog() { docker logs "$TAG" 2>&1; }
+    rsql() { docker exec "$TAG" psql -U "$(db_user)" -d "$(db_name)" -v ON_ERROR_STOP=1 -qtA "$@" < /dev/null; }
+    rdump() { docker exec "$TAG" pg_dump -U "$(db_user)" -d "$(db_name)" --format=custom < /dev/null; }
   fi
-  for _ in $(seq 600); do
+  # If nothing was written after the target time, the log holds no
+  # transaction past it and Postgres stops with "recovery ended before
+  # configured recovery target was reached". The database at the end of the
+  # log is then the database at the target, as far as the vault can show:
+  # replay to the end, and say so in the report.
+  TARGET_NOTE=""
+  rstart
+  for _ in $(seq 900); do
     [ "$(rsql -c 'select pg_is_in_recovery()' 2>/dev/null || true)" = f ] && break
+    if ! rup; then
+      sleep 2; rup && continue
+      if [ "$T" != latest ] && [ -z "$TARGET_NOTE" ] && rlog | grep -q "recovery ended before configured recovery target was reached"; then
+        TARGET_NOTE="The log in the vault has no transaction after the target time (nothing was written after it), so the database was replayed to the end of the log."
+        echo "  $TARGET_NOTE"
+        sed -i '/^recovery_target_time/d' "$WORK/pg/data/postgresql.auto.conf"
+        rstart; continue
+      fi
+      fail "The throwaway database stopped during recovery. Its last messages:
+$(rlog | tail -15)"
+    fi
     sleep 1
   done
-  [ "$(rsql -c 'select pg_is_in_recovery()' 2>/dev/null || true)" = f ] || fail "Recovery did not finish. See: docker logs $TAG"
+  [ "$(rsql -c 'select pg_is_in_recovery()' 2>/dev/null || true)" = f ] || fail "Recovery did not finish within 15 minutes. Its last messages:
+$(rlog | tail -15)"
+  last_xact="$(rsql -c "select coalesce(to_char(pg_last_xact_replay_timestamp() at time zone 'Africa/Nairobi', 'YYYY-MM-DD HH24:MI:SS') || ' EAT', 'none in the log')" 2>/dev/null || echo unknown)"
   got="$(rsql -c "$COUNT_SQL")"
   last_event="$(rsql -c "select coalesce(max(created_at)::text, 'none') from audit_events" 2>/dev/null || echo unknown)"
   if [ -n "${BACKUP_LOCAL:-}" ]; then
@@ -278,6 +305,8 @@ EOF
   summary="Target time:     $([ "$T" = latest ] && echo "the last transaction log in the vault" || echo "$T EAT ($T_UTC)")
 Base backups:    ${chain[*]}
 Log segments:    ${#segs[@]}
+Last transaction replayed: $last_xact${TARGET_NOTE:+
+Note:            $TARGET_NOTE}
 Recovered:       $(compare_counts '{}' "$got")
 Last audit entry in the restored data: $last_event (UTC)
 Audit chain:     $pchain
